@@ -1,5 +1,6 @@
 import Cocoa
 import Combine
+import SwiftUI
 
 /// Manages the menubar status item.
 /// Click the icon to open the menu. Use "Start Recording" to record.
@@ -13,6 +14,7 @@ class MenuBarManager: NSObject {
     private var lastTranscriptionMenuItem: NSMenuItem!
     private var modeMenuItems: [String: NSMenuItem] = [:]
     private var currentIconState: IconState = .idle
+    private var settingsWindow: NSWindow?
 
     private enum IconState: Equatable {
         case idle, loading, recording, processing
@@ -77,6 +79,10 @@ class MenuBarManager: NSObject {
         menu.addItem(deviceMenuItem)
 
         menu.addItem(.separator())
+
+        let settingsItem = NSMenuItem(title: "Settings...", action: #selector(openSettings), keyEquivalent: ",")
+        settingsItem.target = self
+        menu.addItem(settingsItem)
 
         let diagItem = NSMenuItem(title: "Run Diagnostic", action: #selector(runDiagnostic), keyEquivalent: "d")
         diagItem.target = self
@@ -216,6 +222,29 @@ class MenuBarManager: NSObject {
             NSPasteboard.general.setString(text, forType: .string)
             NSLog("[Parakatt] Copied transcription to clipboard")
         }
+    }
+
+    @objc private func openSettings() {
+        if let w = settingsWindow, w.isVisible {
+            w.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let view = SettingsView().environmentObject(appState)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 550, height: 450),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Parakatt Settings"
+        window.contentView = NSHostingView(rootView: view)
+        window.center()
+        window.isReleasedWhenClosed = false
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        settingsWindow = window
     }
 
     @objc private func runDiagnostic() {

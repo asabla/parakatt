@@ -181,6 +181,21 @@ class AppState: ObservableObject {
         }
     }
 
+    // MARK: - Dictionary
+
+    func getDictionaryRules() -> [ParakattCore.ReplacementRule] {
+        bridge?.getDictionaryRules() ?? []
+    }
+
+    func setDictionaryRules(_ rules: [ParakattCore.ReplacementRule]) {
+        do {
+            try bridge?.setDictionaryRules(rules)
+            NSLog("[Parakatt] Dictionary updated: %d rules", rules.count)
+        } catch {
+            NSLog("[Parakatt] Failed to set dictionary rules: %@", error.localizedDescription)
+        }
+    }
+
     // MARK: - Input device
 
     func setInputDevice(uid: String) {
