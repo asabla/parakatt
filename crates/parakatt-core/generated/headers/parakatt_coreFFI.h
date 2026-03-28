@@ -258,6 +258,11 @@ void uniffi_parakatt_core_fn_free_engine(uint64_t handle, RustCallStatus *_Nonnu
 uint64_t uniffi_parakatt_core_fn_constructor_engine_new(RustBuffer engine_config, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_CONFIGURE_LLM
+#define UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_CONFIGURE_LLM
+void uniffi_parakatt_core_fn_method_engine_configure_llm(uint64_t ptr, RustBuffer provider, RustBuffer base_url, RustBuffer model, RustBuffer api_key, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_GET_DICTIONARY_RULES
 #define UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_GET_DICTIONARY_RULES
 RustBuffer uniffi_parakatt_core_fn_method_engine_get_dictionary_rules(uint64_t ptr, RustCallStatus *_Nonnull out_status
@@ -556,6 +561,12 @@ void ffi_parakatt_core_rust_future_free_void(uint64_t handle
 #ifndef UNIFFI_FFIDEF_FFI_PARAKATT_CORE_RUST_FUTURE_COMPLETE_VOID
 #define UNIFFI_FFIDEF_FFI_PARAKATT_CORE_RUST_FUTURE_COMPLETE_VOID
 void ffi_parakatt_core_rust_future_complete_void(uint64_t handle, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_CHECKSUM_METHOD_ENGINE_CONFIGURE_LLM
+#define UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_CHECKSUM_METHOD_ENGINE_CONFIGURE_LLM
+uint16_t uniffi_parakatt_core_checksum_method_engine_configure_llm(void
+    
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_CHECKSUM_METHOD_ENGINE_GET_DICTIONARY_RULES

@@ -554,6 +554,15 @@ fileprivate struct FfiConverterString: FfiConverter {
 public protocol EngineProtocol: AnyObject, Sendable {
     
     /**
+     * Configure the LLM provider at runtime.
+     * provider: "ollama", "lmstudio", "openai", or "" to disable.
+     * base_url: server URL (e.g. "http://localhost:11434").
+     * model: model name (e.g. "llama3.2", "gpt-4o-mini").
+     * api_key: API key (only for openai).
+     */
+    func configureLlm(provider: String, baseUrl: String, model: String, apiKey: String?) throws 
+    
+    /**
      * Get current dictionary rules.
      */
     func getDictionaryRules()  -> [ReplacementRule]
@@ -660,6 +669,24 @@ public convenience init(engineConfig: EngineConfig)throws  {
 
     
 
+    
+    /**
+     * Configure the LLM provider at runtime.
+     * provider: "ollama", "lmstudio", "openai", or "" to disable.
+     * base_url: server URL (e.g. "http://localhost:11434").
+     * model: model name (e.g. "llama3.2", "gpt-4o-mini").
+     * api_key: API key (only for openai).
+     */
+open func configureLlm(provider: String, baseUrl: String, model: String, apiKey: String?)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_parakatt_core_fn_method_engine_configure_llm(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(provider),
+        FfiConverterString.lower(baseUrl),
+        FfiConverterString.lower(model),
+        FfiConverterOptionString.lower(apiKey),$0
+    )
+}
+}
     
     /**
      * Get current dictionary rules.
@@ -1522,6 +1549,9 @@ private let initializationResult: InitializationResult = {
     let scaffolding_contract_version = ffi_parakatt_core_uniffi_contract_version()
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
+    }
+    if (uniffi_parakatt_core_checksum_method_engine_configure_llm() != 30842) {
+        return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_parakatt_core_checksum_method_engine_get_dictionary_rules() != 46695) {
         return InitializationResult.apiChecksumMismatch

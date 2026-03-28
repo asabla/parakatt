@@ -75,4 +75,9 @@ class CoreBridge {
     func getDictionaryRules() -> [ReplacementRule] {
         engine.getDictionaryRules()
     }
+
+    /// Configure the LLM provider at runtime.
+    func configureLlm(provider: String, baseUrl: String, model: String, apiKey: String?) throws {
+        try engine.configureLlm(provider: provider, baseUrl: baseUrl, model: model, apiKey: apiKey)
+    }
 }

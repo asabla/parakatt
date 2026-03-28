@@ -7,6 +7,9 @@ struct SettingsView: View {
             GeneralSettingsView()
                 .tabItem { Label("General", systemImage: "gear") }
 
+            LlmSettingsView()
+                .tabItem { Label("LLM", systemImage: "brain") }
+
             DictionarySettingsView()
                 .tabItem { Label("Dictionary", systemImage: "character.book.closed") }
         }
@@ -37,6 +40,93 @@ struct GeneralSettingsView: View {
             }
         }
         .padding()
+    }
+}
+
+// MARK: - LLM Settings
+
+struct LlmSettingsView: View {
+    @EnvironmentObject var appState: AppState
+    @State private var testStatus = ""
+
+    var body: some View {
+        Form {
+            Section("Provider") {
+                Picker("Provider", selection: $appState.llmProvider) {
+                    Text("None (dictation only)").tag("")
+                    Text("Ollama (local)").tag("ollama")
+                    Text("LM Studio (local)").tag("lmstudio")
+                    Text("OpenAI (remote)").tag("openai")
+                }
+                .pickerStyle(.radioGroup)
+                .onChange(of: appState.llmProvider) { _, _ in applyConfig() }
+            }
+
+            if !appState.llmProvider.isEmpty {
+                Section("Connection") {
+                    if appState.llmProvider == "ollama" {
+                        TextField("URL", text: $appState.llmBaseUrl)
+                            .textFieldStyle(.roundedBorder)
+                        TextField("Model", text: $appState.llmModel)
+                            .textFieldStyle(.roundedBorder)
+                        Text("Default: http://localhost:11434, model: llama3.2")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    } else if appState.llmProvider == "lmstudio" {
+                        TextField("URL", text: $appState.llmBaseUrl)
+                            .textFieldStyle(.roundedBorder)
+                        TextField("Model", text: $appState.llmModel)
+                            .textFieldStyle(.roundedBorder)
+                        Text("Default: http://localhost:1234")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    } else if appState.llmProvider == "openai" {
+                        SecureField("API Key", text: $appState.llmApiKey)
+                            .textFieldStyle(.roundedBorder)
+                        TextField("Model", text: $appState.llmModel)
+                            .textFieldStyle(.roundedBorder)
+                        Text("Default model: gpt-4o-mini")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+
+                    HStack {
+                        Button("Apply") { applyConfig() }
+                        if !testStatus.isEmpty {
+                            Text(testStatus)
+                                .font(.caption)
+                                .foregroundStyle(testStatus.contains("OK") ? .green : .red)
+                        }
+                    }
+                }
+
+                Section("How it works") {
+                    Text("When a mode other than \"Dictation\" is active, the transcription is sent to the LLM for post-processing (grammar fixing, email formatting, etc). Domain words from the Dictionary are included as context.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding()
+        .onAppear {
+            // Set defaults based on provider
+            if appState.llmProvider == "ollama" && appState.llmBaseUrl.isEmpty {
+                appState.llmBaseUrl = "http://localhost:11434"
+                appState.llmModel = "llama3.2"
+            } else if appState.llmProvider == "lmstudio" && appState.llmBaseUrl.isEmpty {
+                appState.llmBaseUrl = "http://localhost:1234"
+            }
+        }
+    }
+
+    private func applyConfig() {
+        if appState.llmProvider.isEmpty {
+            testStatus = ""
+        }
+        appState.configureLlm()
+        if !appState.llmProvider.isEmpty {
+            testStatus = "OK — configured"
+        }
     }
 }
 

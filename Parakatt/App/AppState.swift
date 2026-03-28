@@ -181,6 +181,28 @@ class AppState: ObservableObject {
         }
     }
 
+    // MARK: - LLM
+
+    @Published var llmProvider: String = ""
+    @Published var llmBaseUrl: String = "http://localhost:11434"
+    @Published var llmModel: String = "llama3.2"
+    @Published var llmApiKey: String = ""
+
+    func configureLlm() {
+        do {
+            let key = llmApiKey.isEmpty ? nil : llmApiKey
+            try bridge?.configureLlm(
+                provider: llmProvider,
+                baseUrl: llmBaseUrl,
+                model: llmModel,
+                apiKey: key
+            )
+            NSLog("[Parakatt] LLM configured: provider=%@, model=%@", llmProvider, llmModel)
+        } catch {
+            NSLog("[Parakatt] LLM config failed: %@", error.localizedDescription)
+        }
+    }
+
     // MARK: - Dictionary
 
     func getDictionaryRules() -> [ParakattCore.ReplacementRule] {

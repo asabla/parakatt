@@ -120,15 +120,36 @@ impl Engine {
         drop(config_guard);
 
         if let Some(mode_config) = modes::find_mode(&all_modes, &mode) {
-            if let Some(system_prompt) = &mode_config.system_prompt {
+            if let Some(base_prompt) = &mode_config.system_prompt {
                 let llm_guard = self.llm.lock().map_err(|e| {
                     CoreError::LlmError(format!("LLM lock poisoned: {e}"))
                 })?;
 
                 if let Some(llm) = llm_guard.as_ref() {
+                    // Inject domain words into the system prompt
+                    let dict_guard = self.dictionary.lock().map_err(|e| {
+                        CoreError::LlmError(format!("Dictionary lock poisoned: {e}"))
+                    })?;
+                    let domain_words: Vec<String> = dict_guard
+                        .rules()
+                        .iter()
+                        .filter(|r| r.pattern == r.replacement && r.enabled)
+                        .map(|r| r.pattern.clone())
+                        .collect();
+                    drop(dict_guard);
+
+                    let mut system_prompt = base_prompt.clone();
+                    if !domain_words.is_empty() {
+                        system_prompt.push_str(&format!(
+                            "\n\nDomain-specific vocabulary (use these exact spellings when the \
+                             transcription contains similar-sounding words): {}",
+                            domain_words.join(", ")
+                        ));
+                    }
+
                     let llm_request = LlmRequest {
                         text: result.text.clone(),
-                        system_prompt: system_prompt.clone(),
+                        system_prompt,
                         context: Some(ctx),
                     };
 
@@ -238,6 +259,76 @@ impl Engine {
             .lock()
             .map(|d| d.rules())
             .unwrap_or_default()
+    }
+
+    /// Configure the LLM provider at runtime.
+    /// provider: "ollama", "lmstudio", "openai", or "" to disable.
+    /// base_url: server URL (e.g. "http://localhost:11434").
+    /// model: model name (e.g. "llama3.2", "gpt-4o-mini").
+    /// api_key: API key (only for openai).
+    pub fn configure_llm(
+        &self,
+        provider: String,
+        base_url: String,
+        model: String,
+        api_key: Option<String>,
+    ) -> Result<(), CoreError> {
+        let llm: Option<Box<dyn LlmProvider>> = match provider.as_str() {
+            "ollama" => Some(Box::new(crate::llm::ollama::OllamaProvider::new(
+                &base_url, &model,
+            ))),
+            "lmstudio" => Some(Box::new(
+                crate::llm::openai::OpenAiCompatibleProvider::lmstudio(&base_url, &model),
+            )),
+            "openai" => {
+                let key = api_key.clone().ok_or_else(|| {
+                    CoreError::ConfigError("OpenAI requires an API key".into())
+                })?;
+                Some(Box::new(
+                    crate::llm::openai::OpenAiCompatibleProvider::openai(&key, &model),
+                ))
+            }
+            "" | "none" => None,
+            other => {
+                return Err(CoreError::ConfigError(format!(
+                    "Unknown LLM provider: {other}"
+                )));
+            }
+        };
+
+        // Update runtime state
+        let mut llm_guard = self.llm.lock().map_err(|e| {
+            CoreError::ConfigError(format!("LLM lock poisoned: {e}"))
+        })?;
+        *llm_guard = llm;
+
+        // Persist to config
+        let mut config_guard = self.config.lock().map_err(|e| {
+            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
+        })?;
+        config_guard.llm.active_provider = if provider.is_empty() || provider == "none" {
+            None
+        } else {
+            Some(provider.clone())
+        };
+        match provider.as_str() {
+            "ollama" => {
+                config_guard.llm.ollama.base_url = base_url;
+                config_guard.llm.ollama.model = model;
+            }
+            "lmstudio" => {
+                config_guard.llm.lmstudio.base_url = base_url;
+                config_guard.llm.lmstudio.model = Some(model);
+            }
+            "openai" => {
+                config_guard.llm.openai.api_key = api_key;
+                config_guard.llm.openai.model = Some(model);
+            }
+            _ => {}
+        }
+        let _ = config_guard.save(&self.config_dir);
+
+        Ok(())
     }
 
 }
