@@ -32,8 +32,11 @@ impl OpenAiCompatibleProvider {
 
     /// Create a provider for LM Studio (OpenAI-compatible local server).
     pub fn lmstudio(base_url: &str, model: &str) -> Self {
+        let base = base_url.trim_end_matches('/');
+        // LM Studio serves at /v1 — ensure it's in the URL
+        let base = if base.ends_with("/v1") { base.to_string() } else { format!("{}/v1", base) };
         Self {
-            base_url: base_url.trim_end_matches('/').to_string(),
+            base_url: base,
             api_key: None,
             model: model.to_string(),
             display_name: "lmstudio".to_string(),

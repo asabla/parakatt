@@ -50,5 +50,13 @@ path = "examples/test_parakeet.rs"
 name = "test_audio_file"
 path = "examples/test_audio_file.rs"
 
+[[example]]
+name = "test_llm"
+path = "examples/test_llm.rs"
+
+[[example]]
+name = "test_llm_direct"
+path = "examples/test_llm_direct.rs"
+
 [build-dependencies]
 uniffi = { version = "0.30", features = ["build"] }
