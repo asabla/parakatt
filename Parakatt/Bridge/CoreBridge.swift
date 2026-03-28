@@ -80,4 +80,9 @@ class CoreBridge {
     func configureLlm(provider: String, baseUrl: String, model: String, apiKey: String?) throws {
         try engine.configureLlm(provider: provider, baseUrl: baseUrl, model: model, apiKey: apiKey)
     }
+
+    /// Fetch available models from an LLM provider.
+    func listLlmModels(provider: String, baseUrl: String, apiKey: String?) throws -> [String] {
+        try engine.listLlmModels(provider: provider, baseUrl: baseUrl, apiKey: apiKey)
+    }
 }

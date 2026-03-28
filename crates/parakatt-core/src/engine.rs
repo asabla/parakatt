@@ -331,6 +331,72 @@ impl Engine {
         Ok(())
     }
 
+    /// Fetch available LLM models from a provider's API.
+    /// Returns a list of model name strings.
+    pub fn list_llm_models(
+        &self,
+        provider: String,
+        base_url: String,
+        api_key: Option<String>,
+    ) -> Result<Vec<String>, CoreError> {
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .build()
+            .map_err(|e| CoreError::LlmError(format!("HTTP client error: {e}")))?;
+
+        let url = base_url.trim_end_matches('/');
+
+        match provider.as_str() {
+            "ollama" => {
+                let resp = client
+                    .get(format!("{url}/api/tags"))
+                    .send()
+                    .map_err(|e| CoreError::LlmError(format!("Cannot reach Ollama at {url}: {e}")))?;
+
+                let json: serde_json::Value = resp
+                    .json()
+                    .map_err(|e| CoreError::LlmError(format!("Invalid response: {e}")))?;
+
+                let models = json["models"]
+                    .as_array()
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|m| m["name"].as_str().map(|s| s.to_string()))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+
+                Ok(models)
+            }
+            "lmstudio" | "openai" => {
+                let models_url = format!("{url}/v1/models");
+                let mut req = client.get(&models_url);
+                if let Some(key) = &api_key {
+                    req = req.header("Authorization", format!("Bearer {key}"));
+                }
+
+                let resp = req
+                    .send()
+                    .map_err(|e| CoreError::LlmError(format!("Cannot reach {provider} at {url}: {e}")))?;
+
+                let json: serde_json::Value = resp
+                    .json()
+                    .map_err(|e| CoreError::LlmError(format!("Invalid response: {e}")))?;
+
+                let models = json["data"]
+                    .as_array()
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|m| m["id"].as_str().map(|s| s.to_string()))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+
+                Ok(models)
+            }
+            _ => Err(CoreError::LlmError(format!("Unknown provider: {provider}"))),
+        }
+    }
 }
 
 impl Engine {

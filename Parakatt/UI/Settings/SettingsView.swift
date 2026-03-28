@@ -47,7 +47,9 @@ struct GeneralSettingsView: View {
 
 struct LlmSettingsView: View {
     @EnvironmentObject var appState: AppState
-    @State private var testStatus = ""
+    @State private var availableModels: [String] = []
+    @State private var statusMessage = ""
+    @State private var isFetching = false
 
     var body: some View {
         Form {
@@ -59,43 +61,54 @@ struct LlmSettingsView: View {
                     Text("OpenAI (remote)").tag("openai")
                 }
                 .pickerStyle(.radioGroup)
-                .onChange(of: appState.llmProvider) { _, _ in applyConfig() }
+                .onChange(of: appState.llmProvider) { _, newValue in
+                    setDefaults(for: newValue)
+                    availableModels = []
+                    appState.llmModel = ""
+                    statusMessage = ""
+                }
             }
 
             if !appState.llmProvider.isEmpty {
                 Section("Connection") {
-                    if appState.llmProvider == "ollama" {
-                        TextField("URL", text: $appState.llmBaseUrl)
-                            .textFieldStyle(.roundedBorder)
-                        TextField("Model", text: $appState.llmModel)
-                            .textFieldStyle(.roundedBorder)
-                        Text("Default: http://localhost:11434, model: llama3.2")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
-                    } else if appState.llmProvider == "lmstudio" {
-                        TextField("URL", text: $appState.llmBaseUrl)
-                            .textFieldStyle(.roundedBorder)
-                        TextField("Model", text: $appState.llmModel)
-                            .textFieldStyle(.roundedBorder)
-                        Text("Default: http://localhost:1234")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
-                    } else if appState.llmProvider == "openai" {
+                    if appState.llmProvider == "openai" {
                         SecureField("API Key", text: $appState.llmApiKey)
                             .textFieldStyle(.roundedBorder)
-                        TextField("Model", text: $appState.llmModel)
-                            .textFieldStyle(.roundedBorder)
-                        Text("Default model: gpt-4o-mini")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
                     }
 
+                    TextField("Server URL", text: $appState.llmBaseUrl)
+                        .textFieldStyle(.roundedBorder)
+
                     HStack {
-                        Button("Apply") { applyConfig() }
-                        if !testStatus.isEmpty {
-                            Text(testStatus)
-                                .font(.caption)
-                                .foregroundStyle(testStatus.contains("OK") ? .green : .red)
+                        if availableModels.isEmpty {
+                            Button(isFetching ? "Fetching..." : "Fetch Models") {
+                                fetchModels()
+                            }
+                            .disabled(isFetching)
+                        } else {
+                            Picker("Model", selection: $appState.llmModel) {
+                                Text("Select a model...").tag("")
+                                ForEach(availableModels, id: \.self) { model in
+                                    Text(model).tag(model)
+                                }
+                            }
+
+                            Button {
+                                fetchModels()
+                            } label: {
+                                Image(systemName: "arrow.clockwise")
+                            }
+                        }
+                    }
+
+                    if !appState.llmModel.isEmpty {
+                        HStack {
+                            Button("Apply") { applyConfig() }
+                            if !statusMessage.isEmpty {
+                                Text(statusMessage)
+                                    .font(.caption)
+                                    .foregroundStyle(statusMessage.contains("OK") ? .green : .orange)
+                            }
                         }
                     }
                 }
@@ -108,25 +121,43 @@ struct LlmSettingsView: View {
             }
         }
         .padding()
-        .onAppear {
-            // Set defaults based on provider
-            if appState.llmProvider == "ollama" && appState.llmBaseUrl.isEmpty {
-                appState.llmBaseUrl = "http://localhost:11434"
-                appState.llmModel = "llama3.2"
-            } else if appState.llmProvider == "lmstudio" && appState.llmBaseUrl.isEmpty {
-                appState.llmBaseUrl = "http://localhost:1234"
+    }
+
+    private func setDefaults(for provider: String) {
+        switch provider {
+        case "ollama":
+            appState.llmBaseUrl = "http://localhost:11434"
+        case "lmstudio":
+            appState.llmBaseUrl = "http://localhost:1234"
+        case "openai":
+            appState.llmBaseUrl = "https://api.openai.com"
+        default:
+            break
+        }
+    }
+
+    private func fetchModels() {
+        isFetching = true
+        statusMessage = ""
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            let models = appState.fetchLlmModels()
+
+            DispatchQueue.main.async {
+                isFetching = false
+                availableModels = models
+                if models.isEmpty {
+                    statusMessage = "No models found — is the server running?"
+                } else if models.count == 1 {
+                    appState.llmModel = models[0]
+                }
             }
         }
     }
 
     private func applyConfig() {
-        if appState.llmProvider.isEmpty {
-            testStatus = ""
-        }
         appState.configureLlm()
-        if !appState.llmProvider.isEmpty {
-            testStatus = "OK — configured"
-        }
+        statusMessage = "OK — \(appState.llmModel)"
     }
 }
 

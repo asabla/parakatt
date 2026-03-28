@@ -573,6 +573,12 @@ public protocol EngineProtocol: AnyObject, Sendable {
     func isModelLoaded()  -> Bool
     
     /**
+     * Fetch available LLM models from a provider's API.
+     * Returns a list of model name strings.
+     */
+    func listLlmModels(provider: String, baseUrl: String, apiKey: String?) throws  -> [String]
+    
+    /**
      * List available models with their download status.
      */
     func listModels()  -> [ModelInfo]
@@ -706,6 +712,21 @@ open func isModelLoaded() -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
     uniffi_parakatt_core_fn_method_engine_is_model_loaded(
             self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Fetch available LLM models from a provider's API.
+     * Returns a list of model name strings.
+     */
+open func listLlmModels(provider: String, baseUrl: String, apiKey: String?)throws  -> [String]  {
+    return try  FfiConverterSequenceString.lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_parakatt_core_fn_method_engine_list_llm_models(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(provider),
+        FfiConverterString.lower(baseUrl),
+        FfiConverterOptionString.lower(apiKey),$0
     )
 })
 }
@@ -1463,6 +1484,31 @@ fileprivate struct FfiConverterSequenceFloat: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
+    typealias SwiftType = [String]
+
+    public static func write(_ value: [String], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterString.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [String] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [String]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterString.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeModeConfig: FfiConverterRustBuffer {
     typealias SwiftType = [ModeConfig]
 
@@ -1557,6 +1603,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_parakatt_core_checksum_method_engine_is_model_loaded() != 53435) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_parakatt_core_checksum_method_engine_list_llm_models() != 32584) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_parakatt_core_checksum_method_engine_list_models() != 33396) {

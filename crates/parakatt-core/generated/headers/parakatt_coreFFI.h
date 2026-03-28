@@ -273,6 +273,11 @@ RustBuffer uniffi_parakatt_core_fn_method_engine_get_dictionary_rules(uint64_t p
 int8_t uniffi_parakatt_core_fn_method_engine_is_model_loaded(uint64_t ptr, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_LIST_LLM_MODELS
+#define UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_LIST_LLM_MODELS
+RustBuffer uniffi_parakatt_core_fn_method_engine_list_llm_models(uint64_t ptr, RustBuffer provider, RustBuffer base_url, RustBuffer api_key, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_LIST_MODELS
 #define UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_LIST_MODELS
 RustBuffer uniffi_parakatt_core_fn_method_engine_list_models(uint64_t ptr, RustCallStatus *_Nonnull out_status
@@ -578,6 +583,12 @@ uint16_t uniffi_parakatt_core_checksum_method_engine_get_dictionary_rules(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_CHECKSUM_METHOD_ENGINE_IS_MODEL_LOADED
 #define UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_CHECKSUM_METHOD_ENGINE_IS_MODEL_LOADED
 uint16_t uniffi_parakatt_core_checksum_method_engine_is_model_loaded(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_CHECKSUM_METHOD_ENGINE_LIST_LLM_MODELS
+#define UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_CHECKSUM_METHOD_ENGINE_LIST_LLM_MODELS
+uint16_t uniffi_parakatt_core_checksum_method_engine_list_llm_models(void
     
 );
 #endif

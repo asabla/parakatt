@@ -203,6 +203,21 @@ class AppState: ObservableObject {
         }
     }
 
+    func fetchLlmModels() -> [String] {
+        guard !llmProvider.isEmpty else { return [] }
+        do {
+            let key = llmApiKey.isEmpty ? nil : llmApiKey
+            return try bridge?.listLlmModels(
+                provider: llmProvider,
+                baseUrl: llmBaseUrl,
+                apiKey: key
+            ) ?? []
+        } catch {
+            NSLog("[Parakatt] Failed to list models: %@", error.localizedDescription)
+            return []
+        }
+    }
+
     // MARK: - Dictionary
 
     func getDictionaryRules() -> [ParakattCore.ReplacementRule] {
