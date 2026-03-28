@@ -1,84 +1,175 @@
 #!/usr/bin/swift
+/// Minimal audio capture test — tries multiple approaches.
+
 import AVFoundation
+import CoreAudio
 import Foundation
 
-print("=== Audio Input Devices ===")
+print("=== Microphone permission: \(AVCaptureDevice.authorizationStatus(for: .audio).rawValue) (3=authorized) ===")
 
-// List all audio devices
-let devices = AVCaptureDevice.DiscoverySession(
-    deviceTypes: [.microphone, .builtInMicrophone, .externalUnknown],
-    mediaType: .audio,
-    position: .unspecified
-).devices
+// MARK: - Approach 1: AVAudioEngine with default device (no device override)
 
-for (i, device) in devices.enumerated() {
-    let isDefault = (device.uniqueID == AVCaptureDevice.default(for: .audio)?.uniqueID)
-    print("[\(i)] \(device.localizedName) (id: \(device.uniqueID))\(isDefault ? " ← DEFAULT" : "")")
+print("\n=== Approach 1: AVAudioEngine (system default device, no override) ===")
+do {
+    let engine = AVAudioEngine()
+    let format = engine.inputNode.outputFormat(forBus: 0)
+    print("Default input format: \(format.sampleRate)Hz, \(format.channelCount)ch")
+
+    var samples1: [Float] = []
+    let lock1 = NSLock()
+
+    engine.inputNode.installTap(onBus: 0, bufferSize: 4096, format: nil) { buffer, _ in
+        guard let data = buffer.floatChannelData else { return }
+        let s = Array(UnsafeBufferPointer(start: data[0], count: Int(buffer.frameLength)))
+        lock1.lock()
+        samples1.append(contentsOf: s)
+        lock1.unlock()
+    }
+
+    engine.prepare()
+    try engine.start()
+    print("🎤 Recording 2s (default device)...")
+    Thread.sleep(forTimeInterval: 2.0)
+    engine.inputNode.removeTap(onBus: 0)
+    engine.stop()
+
+    lock1.lock()
+    let max1 = samples1.map { abs($0) }.max() ?? 0
+    lock1.unlock()
+    print("Samples: \(samples1.count), max amplitude: \(String(format: "%.6f", max1))")
+    print(max1 > 0.001 ? "✅ Has signal" : "❌ Silence")
 }
 
-if devices.isEmpty {
-    print("❌ No audio input devices found!")
-    exit(1)
-}
+// MARK: - Approach 2: AVCaptureSession
 
-print("\n=== Default Input Device Details ===")
-let engine = AVAudioEngine()
-let inputNode = engine.inputNode
-let hwFormat = inputNode.outputFormat(forBus: 0)
-let inputFormat = inputNode.inputFormat(forBus: 0)
+print("\n=== Approach 2: AVCaptureSession ===")
+do {
+    class AudioDelegate: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
+        var sampleCount = 0
+        var maxAmp: Float = 0
 
-print("Output format: \(hwFormat)")
-print("Input format:  \(inputFormat)")
-print("Sample rate: \(hwFormat.sampleRate)")
-print("Channels: \(hwFormat.channelCount)")
-print("Common format: \(hwFormat.commonFormat.rawValue) (1=float32, 2=float64, 3=int16, 4=int32)")
-print("Interleaved: \(hwFormat.isInterleaved)")
+        func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+            guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else { return }
+            var length = 0
+            var dataPointer: UnsafeMutablePointer<Int8>?
+            CMBlockBufferGetDataPointer(blockBuffer, atOffset: 0, lengthAtOffsetOut: nil, totalLengthOut: &length, dataPointerOut: &dataPointer)
 
-print("\n=== Recording Test (2 seconds, native format) ===")
-
-var tapCallCount = 0
-var totalFrames = 0
-var maxVal: Float = 0
-
-// Try capturing in the INPUT format instead of output format
-inputNode.installTap(onBus: 0, bufferSize: 4096, format: nil) { buffer, time in
-    tapCallCount += 1
-    let count = Int(buffer.frameLength)
-    totalFrames += count
-
-    if let data = buffer.floatChannelData {
-        for i in 0..<count {
-            let v = abs(data[0][i])
-            if v > maxVal { maxVal = v }
+            guard let ptr = dataPointer else { return }
+            let floatCount = length / MemoryLayout<Float>.size
+            let floatPtr = UnsafeRawPointer(ptr).bindMemory(to: Float.self, capacity: floatCount)
+            for i in 0..<floatCount {
+                let v = abs(floatPtr[i])
+                if v > maxAmp { maxAmp = v }
+            }
+            sampleCount += floatCount
         }
     }
 
-    if tapCallCount <= 3 {
-        print("  tap #\(tapCallCount): \(count) frames, format: \(buffer.format.sampleRate)Hz \(buffer.format.channelCount)ch")
+    let session = AVCaptureSession()
+    guard let mic = AVCaptureDevice.default(for: .audio),
+          let input = try? AVCaptureDeviceInput(device: mic) else {
+        print("❌ No default audio device")
+        exit(1)
+    }
+
+    print("Using device: \(mic.localizedName)")
+    session.addInput(input)
+
+    let output = AVCaptureAudioDataOutput()
+    let delegate = AudioDelegate()
+    let queue = DispatchQueue(label: "audio")
+    output.setSampleBufferDelegate(delegate, queue: queue)
+    session.addOutput(output)
+
+    session.startRunning()
+    print("🎤 Recording 2s (AVCaptureSession)...")
+    Thread.sleep(forTimeInterval: 2.0)
+    session.stopRunning()
+
+    print("Samples: \(delegate.sampleCount), max amplitude: \(String(format: "%.6f", delegate.maxAmp))")
+    print(delegate.maxAmp > 0.001 ? "✅ Has signal" : "❌ Silence")
+}
+
+// MARK: - Approach 3: AVAudioEngine with explicit built-in mic
+
+print("\n=== Approach 3: AVAudioEngine with explicit BuiltIn mic ===")
+do {
+    let engine = AVAudioEngine()
+
+    // Find and set built-in mic
+    var address = AudioObjectPropertyAddress(
+        mSelector: kAudioHardwarePropertyDevices,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain
+    )
+    var size: UInt32 = 0
+    AudioObjectGetPropertyDataSize(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size)
+    let count = Int(size) / MemoryLayout<AudioDeviceID>.size
+    var ids = [AudioDeviceID](repeating: 0, count: count)
+    AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &ids)
+
+    var builtInID: AudioDeviceID?
+    for id in ids {
+        var uidAddr = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyDeviceUID, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+        var uid: CFString = "" as CFString
+        var us = UInt32(MemoryLayout<CFString>.size)
+        AudioObjectGetPropertyData(id, &uidAddr, 0, nil, &us, &uid)
+        if (uid as String).contains("BuiltIn") {
+            builtInID = id
+            print("Found built-in mic: device ID \(id)")
+            break
+        }
+    }
+
+    if let devID = builtInID {
+        // Set device BEFORE accessing inputNode
+        let au = engine.inputNode.audioUnit!
+        var devIDVar = devID
+        let status = AudioUnitSetProperty(au, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0, &devIDVar, UInt32(MemoryLayout<AudioDeviceID>.size))
+        print("Set device result: \(status) (0=success)")
+
+        // Re-read format after device change
+        let format = engine.inputNode.outputFormat(forBus: 0)
+        print("Format after device set: \(format.sampleRate)Hz, \(format.channelCount)ch")
+    }
+
+    var samples3: [Float] = []
+    let lock3 = NSLock()
+
+    engine.inputNode.installTap(onBus: 0, bufferSize: 4096, format: nil) { buffer, _ in
+        guard let data = buffer.floatChannelData else { return }
+        let s = Array(UnsafeBufferPointer(start: data[0], count: Int(buffer.frameLength)))
+        lock3.lock()
+        samples3.append(contentsOf: s)
+        lock3.unlock()
+    }
+
+    engine.prepare()
+    try engine.start()
+    print("🎤 Recording 2s (built-in mic)...")
+    Thread.sleep(forTimeInterval: 2.0)
+    engine.inputNode.removeTap(onBus: 0)
+    engine.stop()
+
+    lock3.lock()
+    let max3 = samples3.map { abs($0) }.max() ?? 0
+    lock3.unlock()
+    print("Samples: \(samples3.count), max amplitude: \(String(format: "%.6f", max3))")
+    if max3 > 0.001 {
+        print("✅ Has signal — saving to /tmp/parakatt_test.raw")
+        // Downsample to 16kHz if needed
+        var output = samples3
+        if engine.inputNode.outputFormat(forBus: 0).sampleRate != 16000 {
+            let ratio = Int(engine.inputNode.outputFormat(forBus: 0).sampleRate / 16000)
+            output = stride(from: 0, to: samples3.count, by: ratio).map { samples3[$0] }
+            print("Downsampled \(ratio)x → \(output.count) samples at 16kHz")
+        }
+        let data = Data(bytes: output, count: output.count * MemoryLayout<Float>.size)
+        try! data.write(to: URL(fileURLWithPath: "/tmp/parakatt_test.raw"))
+        print("Saved! Now run: cargo run --example test_audio_file -p parakatt-core")
+    } else {
+        print("❌ Silence")
     }
 }
 
-engine.prepare()
-do {
-    try engine.start()
-    print("🎤 Recording... speak now!")
-} catch {
-    print("❌ Engine start failed: \(error)")
-    exit(1)
-}
-
-Thread.sleep(forTimeInterval: 2.0)
-
-inputNode.removeTap(onBus: 0)
-engine.stop()
-
-print("Tap called \(tapCallCount) times, \(totalFrames) total frames")
-print("Max amplitude: \(String(format: "%.6f", maxVal))")
-
-if maxVal > 0.01 {
-    print("✅ AUDIO IS WORKING")
-} else {
-    print("❌ Still silence. Check: System Settings > Sound > Input — is the right mic selected and volume up?")
-}
-
-print("\n=== DONE ===")
+print("\n=== ALL TESTS DONE ===")

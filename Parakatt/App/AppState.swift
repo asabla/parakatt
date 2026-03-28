@@ -142,6 +142,45 @@ class AppState: ObservableObject {
         processAudio(samples)
     }
 
+    // MARK: - Diagnostics
+
+    /// Record 3 seconds and log audio stats + transcription result.
+    func runDiagnostic() {
+        NSLog("[Parakatt] === DIAGNOSTIC START ===")
+
+        let devices = AudioCaptureService.listInputDevices()
+        for dev in devices {
+            NSLog("[Parakatt] Device: %@ (uid: %@, default: %d)", dev.name, dev.uid, dev.isDefault ? 1 : 0)
+        }
+
+        NSLog("[Parakatt] Starting test recording (3 seconds)...")
+        startRecording()
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
+            guard let self else { return }
+
+            self.audioBufferLock.lock()
+            let samples = self.audioBuffer
+            self.audioBufferLock.unlock()
+
+            let maxAmp = samples.map { abs($0) }.max() ?? 0
+            let rms = samples.isEmpty ? 0 : sqrt(samples.map { $0 * $0 }.reduce(0, +) / Float(samples.count))
+
+            NSLog("[Parakatt] DIAGNOSTIC: %d samples (%.1fs), max=%.6f, rms=%.6f",
+                  samples.count, Double(samples.count) / 16000.0, maxAmp, rms)
+
+            if maxAmp > 0.001 {
+                NSLog("[Parakatt] DIAGNOSTIC: ✅ Audio has signal — stopping and transcribing")
+            } else {
+                NSLog("[Parakatt] DIAGNOSTIC: ❌ SILENCE — mic not capturing audio")
+                NSLog("[Parakatt] DIAGNOSTIC: Check System Settings > Privacy > Microphone")
+            }
+
+            self.stopRecording()
+            NSLog("[Parakatt] === DIAGNOSTIC END ===")
+        }
+    }
+
     // MARK: - Input device
 
     func setInputDevice(uid: String) {

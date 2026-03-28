@@ -46,5 +46,9 @@ dirs = "6"
 name = "test_parakeet"
 path = "examples/test_parakeet.rs"
 
+[[example]]
+name = "test_audio_file"
+path = "examples/test_audio_file.rs"
+
 [build-dependencies]
 uniffi = { version = "0.30", features = ["build"] }

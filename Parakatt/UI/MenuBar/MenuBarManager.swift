@@ -78,6 +78,10 @@ class MenuBarManager: NSObject {
 
         menu.addItem(.separator())
 
+        let diagItem = NSMenuItem(title: "Run Diagnostic", action: #selector(runDiagnostic), keyEquivalent: "d")
+        diagItem.target = self
+        menu.addItem(diagItem)
+
         let quitItem = NSMenuItem(title: "Quit Parakatt", action: #selector(quit), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
@@ -212,6 +216,10 @@ class MenuBarManager: NSObject {
             NSPasteboard.general.setString(text, forType: .string)
             NSLog("[Parakatt] Copied transcription to clipboard")
         }
+    }
+
+    @objc private func runDiagnostic() {
+        appState.runDiagnostic()
     }
 
     @objc private func quit() {
