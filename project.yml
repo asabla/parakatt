@@ -9,6 +9,9 @@ options:
 packages:
   ParakattCore:
     path: ParakattCore
+  HotKey:
+    url: https://github.com/soffes/HotKey
+    from: "0.2.1"
 
 targets:
   Parakatt:
@@ -44,3 +47,4 @@ targets:
         LD_RUNPATH_SEARCH_PATHS: "@executable_path/../Frameworks"
     dependencies:
       - package: ParakattCore
+      - package: HotKey

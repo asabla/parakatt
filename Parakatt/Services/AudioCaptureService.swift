@@ -34,9 +34,9 @@ class AudioCaptureService {
             throw AudioCaptureError.noInputDevice
         }
 
+        let deviceUsed = selectedDeviceUID ?? Self.findWorkingInputDeviceUID() ?? "system default"
         NSLog("[Parakatt] Audio input: %.0fHz %dch (device: %@)",
-              hwFormat.sampleRate, hwFormat.channelCount,
-              selectedDeviceUID ?? "system default")
+              hwFormat.sampleRate, hwFormat.channelCount, deviceUsed)
 
         // Install tap in native format (nil = use hardware format)
         // Resample to 16kHz mono in the delivery callback
@@ -190,24 +190,27 @@ class AudioCaptureService {
 
     // MARK: - Device selection helpers
 
-    /// Find a working input device. Prefers built-in mic over USB devices
-    /// that may not be physically connected.
+    /// Find a suitable input device.
+    /// Always prefers the built-in microphone since external devices
+    /// (USB headsets, etc.) may be physically disconnected and produce silence.
+    /// The user can override this via the Input Device menu.
     private static func findWorkingInputDeviceUID() -> String? {
         let devices = listInputDevices()
 
-        // If the default device is the built-in mic, use it
+        // Check if system default IS the built-in mic already
         if let defaultDev = devices.first(where: { $0.isDefault }),
            defaultDev.uid.contains("BuiltIn") {
-            return nil // system default is fine
+            return nil // system default is the built-in mic, no override needed
         }
 
-        // Otherwise, prefer the built-in mic
+        // System default is NOT built-in — override to built-in if available
         if let builtIn = devices.first(where: { $0.uid.contains("BuiltIn") }) {
-            NSLog("[Parakatt] Overriding default input → %@ (%@)", builtIn.name, builtIn.uid)
+            NSLog("[Parakatt] Default device is not built-in mic, overriding → %@", builtIn.name)
             return builtIn.uid
         }
 
-        return nil // use system default
+        // No built-in mic (e.g. Mac Mini) — use system default
+        return nil
     }
 
     private static func getDefaultInputDeviceUID() -> String? {
