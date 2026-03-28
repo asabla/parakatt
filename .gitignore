@@ -1,0 +1,30 @@
+# Rust
+/target/
+Cargo.lock
+
+# macOS
+.DS_Store
+*.xcuserstate
+
+# Generated Xcode project (regenerate with: xcodegen generate)
+Parakatt.xcodeproj/
+
+# Generated UniFFI Swift Package (regenerate with: make swift-package)
+ParakattCore/
+
+# Xcode build artifacts
+DerivedData/
+Parakatt/build/
+
+# Models (large binary files, download with: make download-model)
+*.bin
+*.onnx
+*.onnx.data
+*.mlmodel
+
+# IDE
+.idea/
+.vscode/
+
+# Environment
+.env

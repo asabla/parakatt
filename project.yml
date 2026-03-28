@@ -1,0 +1,46 @@
+name: Parakatt
+options:
+  bundleIdPrefix: com.parakatt
+  deploymentTarget:
+    macOS: "14.0"
+  xcodeVersion: "16.0"
+  createIntermediateGroups: true
+
+packages:
+  ParakattCore:
+    path: ParakattCore
+
+targets:
+  Parakatt:
+    type: application
+    platform: macOS
+    sources:
+      - path: Parakatt
+        excludes:
+          - "**/*.entitlements"
+    info:
+      path: Parakatt/Info.plist
+      properties:
+        LSUIElement: true
+        NSMicrophoneUsageDescription: "Parakatt needs microphone access to transcribe your voice."
+        CFBundleDisplayName: Parakatt
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+    entitlements:
+      path: Parakatt/Parakatt.entitlements
+      properties:
+        com.apple.security.device.audio-input: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.parakatt.app
+        PRODUCT_NAME: Parakatt
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        SWIFT_VERSION: "5.10"
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_HARDENED_RUNTIME: true
+        INFOPLIST_FILE: Parakatt/Info.plist
+        LD_RUNPATH_SEARCH_PATHS: "@executable_path/../Frameworks"
+    dependencies:
+      - package: ParakattCore
