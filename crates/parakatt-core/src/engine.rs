@@ -121,6 +121,12 @@ impl Engine {
 
         if let Some(mode_config) = modes::find_mode(&all_modes, &mode) {
             if let Some(base_prompt) = &mode_config.system_prompt {
+                // Skip LLM if transcription is empty
+                if result.text.trim().is_empty() {
+                    log::debug!("Skipping LLM: transcription is empty");
+                    return Ok(result);
+                }
+
                 let llm_guard = self.llm.lock().map_err(|e| {
                     CoreError::LlmError(format!("LLM lock poisoned: {e}"))
                 })?;

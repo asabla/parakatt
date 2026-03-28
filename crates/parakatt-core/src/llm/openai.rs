@@ -78,6 +78,14 @@ impl LlmProvider for OpenAiCompatibleProvider {
             "content": &request.text
         }));
 
+        log::info!(
+            "[{}] Sending to LLM: model={}, text='{}', prompt='{}'",
+            self.display_name,
+            self.model,
+            &request.text,
+            &request.system_prompt.chars().take(80).collect::<String>()
+        );
+
         let body = serde_json::json!({
             "model": &self.model,
             "messages": messages,

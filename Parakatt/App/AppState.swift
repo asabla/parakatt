@@ -266,13 +266,16 @@ class AppState: ObservableObject {
     private func processAudio(_ samples: [Float]) {
         isProcessing = true
 
+        let maxAmp = samples.map { abs($0) }.max() ?? 0
+        NSLog("[Parakatt] Processing %d samples (%.1fs), maxAmp=%.4f, mode=%@, llm=%@",
+              samples.count, Double(samples.count) / 16000.0, maxAmp, activeMode, llmProvider.isEmpty ? "none" : llmProvider)
+
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self, let bridge = self.bridge else {
                 DispatchQueue.main.async { self?.isProcessing = false }
                 return
             }
 
-            // Get current app context
             let context = self.contextService?.currentContext()
 
             do {
@@ -288,19 +291,18 @@ class AppState: ObservableObject {
                     self.lastTranscription = result.text
                     self.errorMessage = nil
 
-                    // Insert text into focused app
                     if !result.text.isEmpty {
                         self.textInsertionService?.insertText(result.text)
-                        NSLog("[Parakatt] Transcribed in \(String(format: "%.2f", result.durationSecs))s: \(result.text)")
+                        NSLog("[Parakatt] Result (%@, %.2fs): %@", self.activeMode, result.durationSecs, result.text)
                     } else {
-                        NSLog("[Parakatt] Transcription returned empty text")
+                        NSLog("[Parakatt] Empty transcription (mode=%@, maxAmp=%.4f)", self.activeMode, maxAmp)
                     }
                 }
             } catch {
                 DispatchQueue.main.async {
                     self.isProcessing = false
                     self.errorMessage = "Transcription failed: \(error.localizedDescription)"
-                    NSLog("[Parakatt] Transcription failed: \(error)")
+                    NSLog("[Parakatt] Transcription FAILED: %@", error.localizedDescription)
                 }
             }
         }
