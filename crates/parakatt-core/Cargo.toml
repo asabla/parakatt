@@ -1,0 +1,50 @@
+[package]
+name = "parakatt-core"
+version = "0.1.0"
+edition = "2021"
+description = "Core engine for Parakatt voice-to-text application"
+
+[lib]
+crate-type = ["lib", "cdylib"]
+name = "parakatt_core"
+
+[dependencies]
+# FFI
+uniffi = { version = "0.30", features = ["cli"] }
+
+# Async runtime
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
+
+# Speech-to-text (NVIDIA Parakeet via ONNX Runtime)
+parakeet-rs = { version = "0.3", features = ["cpu"] }
+
+# HTTP client (for remote APIs, Ollama, LM Studio)
+reqwest = { version = "0.12", features = ["json", "blocking"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+# Text processing
+regex = "1"
+
+# Error handling
+thiserror = "2"
+
+# Logging
+log = "0.4"
+env_logger = "0.11"
+
+# Filesystem
+dirs = "6"
+
+[dev-dependencies]
+dirs = "6"
+
+[[example]]
+name = "test_parakeet"
+path = "examples/test_parakeet.rs"
+
+[build-dependencies]
+uniffi = { version = "0.30", features = ["build"] }
