@@ -15,6 +15,9 @@ cask "parakatt" do
   postflight do
     ohai "Parakatt requires Microphone and Accessibility permissions."
     ohai "Grant these in System Settings > Privacy & Security."
+    ohai "After upgrading, you must re-grant Accessibility permission:"
+    ohai "  System Settings > Privacy & Security > Accessibility"
+    ohai "  Remove Parakatt, then re-add and enable it."
   end
 
   zap trash: [
