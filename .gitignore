@@ -16,6 +16,9 @@ ParakattCore/
 DerivedData/
 Parakatt/build/
 
+# Release artifacts
+dist/
+
 # Models (large binary files, download with: make download-model)
 *.bin
 *.onnx

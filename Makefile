@@ -1,4 +1,9 @@
-.PHONY: all rust swift-package xcode build test clean run
+.PHONY: all rust swift-package xcode build release package test clean run
+
+VERSION := 0.1.0
+APP_NAME := Parakatt
+DMG_NAME := $(APP_NAME)-$(VERSION)-arm64.dmg
+ZIP_NAME := $(APP_NAME)-$(VERSION)-arm64.zip
 
 # Build everything from scratch
 all: rust swift-package xcode build
@@ -21,9 +26,38 @@ swift-package:
 xcode:
 	xcodegen generate
 
-# Build the macOS app via xcodebuild
+# Build the macOS app via xcodebuild (Debug)
 build:
 	xcodebuild -project Parakatt.xcodeproj -scheme Parakatt -configuration Debug build
+
+# Build the macOS app in Release configuration
+release:
+	xcodebuild -project Parakatt.xcodeproj -scheme Parakatt -configuration Release build
+
+# Get the Release build products directory
+RELEASE_BUILD_DIR = $(shell xcodebuild -project Parakatt.xcodeproj -scheme Parakatt -configuration Release -showBuildSettings 2>/dev/null | grep ' BUILT_PRODUCTS_DIR' | awk '{print $$NF}')
+
+# Package the Release .app as a zip and DMG
+package: release
+	@mkdir -p dist
+	ditto -c -k --keepParent "$(RELEASE_BUILD_DIR)/$(APP_NAME).app" "dist/$(ZIP_NAME)"
+	@echo "Created dist/$(ZIP_NAME)"
+	@if command -v create-dmg >/dev/null 2>&1; then \
+		rm -f "dist/$(DMG_NAME)"; \
+		create-dmg \
+			--volname "$(APP_NAME)" \
+			--window-pos 200 120 \
+			--window-size 600 400 \
+			--icon-size 100 \
+			--icon "$(APP_NAME).app" 175 190 \
+			--hide-extension "$(APP_NAME).app" \
+			--app-drop-link 425 190 \
+			"dist/$(DMG_NAME)" \
+			"$(RELEASE_BUILD_DIR)/$(APP_NAME).app"; \
+		echo "Created dist/$(DMG_NAME)"; \
+	else \
+		echo "Skipping DMG (install create-dmg: brew install create-dmg)"; \
+	fi
 
 # Run the built app (with log output)
 run:
