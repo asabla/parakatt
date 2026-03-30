@@ -160,24 +160,138 @@ struct ModelRowView: View {
 struct GeneralSettingsView: View {
     @EnvironmentObject var appState: AppState
 
-    var body: some View {
-        Form {
-            Section("Hotkey") {
-                Text("Option (⌥) + Space — hold to record, release to transcribe")
-                    .foregroundStyle(.secondary)
-            }
+    fileprivate struct ModeOption: Identifiable {
+        let id: String
+        let label: String
+        let description: String
+        let icon: String
+        let color: Color
+    }
 
-            Section("Active Mode") {
-                Picker("Mode", selection: $appState.activeMode) {
-                    Text("Dictation — raw transcription").tag("dictation")
-                    Text("Clean — fix grammar").tag("clean")
-                    Text("Email — format as email").tag("email")
-                    Text("Code — code-aware").tag("code")
+    private let modes: [ModeOption] = [
+        ModeOption(id: "dictation", label: "Dictation", description: "Raw transcription — exactly what you said", icon: "waveform", color: .blue),
+        ModeOption(id: "clean", label: "Clean", description: "Fix grammar, punctuation, and formatting", icon: "text.badge.checkmark", color: .green),
+        ModeOption(id: "email", label: "Email", description: "Structure output as a professional email", icon: "envelope.fill", color: .orange),
+        ModeOption(id: "code", label: "Code", description: "Code-aware — preserves identifiers and syntax", icon: "chevron.left.forwardslash.chevron.right", color: .purple),
+    ]
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+
+                // MARK: Hotkey card
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "keyboard.fill")
+                            .foregroundStyle(.secondary)
+                            .font(.caption)
+                        Text("Hotkey")
+                            .font(.headline)
+                    }
+
+                    HStack(spacing: 8) {
+                        HStack(spacing: 4) {
+                            Text("⌥ Option")
+                                .font(.system(.body, design: .rounded, weight: .medium))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(.quaternary, in: RoundedRectangle(cornerRadius: 5))
+                            Text("+")
+                                .foregroundStyle(.tertiary)
+                            Text("Space")
+                                .font(.system(.body, design: .rounded, weight: .medium))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(.quaternary, in: RoundedRectangle(cornerRadius: 5))
+                        }
+                    }
+
+                    Text("Hold to record, release to transcribe")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-                .pickerStyle(.radioGroup)
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+
+                Divider()
+
+                // MARK: Active Mode
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Active Mode")
+                        .font(.headline)
+                    Text("Choose how transcriptions are processed after recording.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    VStack(spacing: 6) {
+                        ForEach(modes) { mode in
+                            GeneralModeRow(
+                                mode: mode,
+                                isSelected: appState.activeMode == mode.id
+                            ) {
+                                appState.activeMode = mode.id
+                            }
+                        }
+                    }
+                }
             }
+            .padding()
         }
-        .padding()
+    }
+}
+
+private struct GeneralModeRow: View {
+    let mode: GeneralSettingsView.ModeOption
+    let isSelected: Bool
+    let onSelect: () -> Void
+
+    var body: some View {
+        Button(action: onSelect) {
+            HStack(spacing: 10) {
+                Image(systemName: mode.icon)
+                    .font(.system(size: 14))
+                    .foregroundStyle(isSelected ? mode.color : .secondary)
+                    .frame(width: 22)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(spacing: 6) {
+                        Text(mode.label)
+                            .font(.system(.body, weight: .medium))
+                            .foregroundStyle(.primary)
+                        if isSelected {
+                            Text("Active")
+                                .font(.caption2)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(mode.color.opacity(0.15), in: Capsule())
+                                .foregroundStyle(mode.color)
+                        }
+                    }
+                    Text(mode.description)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(mode.color)
+                        .font(.system(size: 14))
+                }
+            }
+            .padding(10)
+            .background(
+                isSelected ? AnyShapeStyle(mode.color.opacity(0.06)) : AnyShapeStyle(.quaternary),
+                in: RoundedRectangle(cornerRadius: 8)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(isSelected ? mode.color.opacity(0.3) : .clear, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -189,76 +303,159 @@ struct LlmSettingsView: View {
     @State private var statusMessage = ""
     @State private var isFetching = false
 
+    fileprivate struct ProviderOption: Identifiable {
+        let id: String
+        let label: String
+        let description: String
+        let icon: String
+        let color: Color
+    }
+
+    private let providers: [ProviderOption] = [
+        ProviderOption(id: "", label: "None", description: "Dictation only — no post-processing", icon: "mic.fill", color: .secondary),
+        ProviderOption(id: "ollama", label: "Ollama", description: "Local inference server", icon: "desktopcomputer", color: .blue),
+        ProviderOption(id: "lmstudio", label: "LM Studio", description: "Local model runtime", icon: "cpu.fill", color: .purple),
+        ProviderOption(id: "openai", label: "OpenAI", description: "Remote API — requires key", icon: "globe", color: .green),
+    ]
+
     var body: some View {
-        Form {
-            Section("Provider") {
-                Picker("Provider", selection: $appState.llmProvider) {
-                    Text("None (dictation only)").tag("")
-                    Text("Ollama (local)").tag("ollama")
-                    Text("LM Studio (local)").tag("lmstudio")
-                    Text("OpenAI (remote)").tag("openai")
-                }
-                .pickerStyle(.radioGroup)
-                .onChange(of: appState.llmProvider) { _, newValue in
-                    setDefaults(for: newValue)
-                    availableModels = []
-                    appState.llmModel = ""
-                    statusMessage = ""
-                }
-            }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
 
-            if !appState.llmProvider.isEmpty {
-                Section("Connection") {
-                    if appState.llmProvider == "openai" {
-                        SecureField("API Key", text: $appState.llmApiKey)
-                            .textFieldStyle(.roundedBorder)
-                    }
+                // MARK: Provider selection
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Provider")
+                        .font(.headline)
+                    Text("Choose an LLM backend for post-processing transcriptions.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
 
-                    TextField("Server URL", text: $appState.llmBaseUrl)
-                        .textFieldStyle(.roundedBorder)
-
-                    HStack {
-                        if availableModels.isEmpty {
-                            Button(isFetching ? "Fetching..." : "Fetch Models") {
-                                fetchModels()
+                    VStack(spacing: 6) {
+                        ForEach(providers) { provider in
+                            LlmProviderRow(
+                                provider: provider,
+                                isSelected: appState.llmProvider == provider.id
+                            ) {
+                                appState.llmProvider = provider.id
+                                setDefaults(for: provider.id)
+                                availableModels = []
+                                appState.llmModel = ""
+                                statusMessage = ""
                             }
-                            .disabled(isFetching)
-                        } else {
-                            Picker("Model", selection: $appState.llmModel) {
-                                Text("Select a model...").tag("")
-                                ForEach(availableModels, id: \.self) { model in
-                                    Text(model).tag(model)
+                        }
+                    }
+                }
+
+                // MARK: Connection settings
+                if !appState.llmProvider.isEmpty {
+                    Divider()
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "link")
+                                .foregroundStyle(.secondary)
+                                .font(.caption)
+                            Text("Connection")
+                                .font(.headline)
+                        }
+
+                        VStack(alignment: .leading, spacing: 10) {
+                            if appState.llmProvider == "openai" {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("API Key")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    SecureField("sk-...", text: $appState.llmApiKey)
+                                        .textFieldStyle(.roundedBorder)
                                 }
                             }
 
-                            Button {
-                                fetchModels()
-                            } label: {
-                                Image(systemName: "arrow.clockwise")
-                            }
-                        }
-                    }
-
-                    if !appState.llmModel.isEmpty {
-                        HStack {
-                            Button("Apply") { applyConfig() }
-                            if !statusMessage.isEmpty {
-                                Text(statusMessage)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Server URL")
                                     .font(.caption)
-                                    .foregroundStyle(statusMessage.contains("OK") ? .green : .orange)
+                                    .foregroundStyle(.secondary)
+                                TextField("http://localhost:11434", text: $appState.llmBaseUrl)
+                                    .textFieldStyle(.roundedBorder)
+                            }
+
+                            HStack {
+                                if availableModels.isEmpty {
+                                    Button {
+                                        fetchModels()
+                                    } label: {
+                                        HStack(spacing: 4) {
+                                            if isFetching {
+                                                ProgressView()
+                                                    .controlSize(.small)
+                                            } else {
+                                                Image(systemName: "arrow.down.circle")
+                                                    .font(.caption)
+                                            }
+                                            Text(isFetching ? "Fetching..." : "Fetch Models")
+                                        }
+                                    }
+                                    .disabled(isFetching)
+                                } else {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text("Model")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                        HStack {
+                                            Picker("", selection: $appState.llmModel) {
+                                                Text("Select a model...").tag("")
+                                                ForEach(availableModels, id: \.self) { model in
+                                                    Text(model).tag(model)
+                                                }
+                                            }
+                                            .labelsHidden()
+
+                                            Button {
+                                                fetchModels()
+                                            } label: {
+                                                Image(systemName: "arrow.clockwise")
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            if !appState.llmModel.isEmpty {
+                                HStack(spacing: 8) {
+                                    Button("Apply") { applyConfig() }
+
+                                    if !statusMessage.isEmpty {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: statusMessage.contains("OK") ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                                                .font(.caption)
+                                            Text(statusMessage)
+                                                .font(.caption)
+                                        }
+                                        .foregroundStyle(statusMessage.contains("OK") ? .green : .orange)
+                                    }
+                                }
                             }
                         }
+                        .padding(12)
+                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
                     }
-                }
 
-                Section("How it works") {
-                    Text("When a mode other than \"Dictation\" is active, the transcription is sent to the LLM for post-processing (grammar fixing, email formatting, etc). Domain words from the Dictionary are included as context.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    // MARK: How it works
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "info.circle.fill")
+                            .foregroundStyle(.blue)
+                            .font(.caption)
+                            .padding(.top, 1)
+                        Text("When a mode other than \"Dictation\" is active, the transcription is sent to the LLM for post-processing (grammar fixing, email formatting, etc). Domain words from the Dictionary are included as context.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.blue.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
                 }
             }
+            .padding()
         }
-        .padding()
     }
 
     private func setDefaults(for provider: String) {
@@ -296,6 +493,60 @@ struct LlmSettingsView: View {
     private func applyConfig() {
         appState.configureLlm()
         statusMessage = "OK — \(appState.llmModel)"
+    }
+}
+
+private struct LlmProviderRow: View {
+    let provider: LlmSettingsView.ProviderOption
+    let isSelected: Bool
+    let onSelect: () -> Void
+
+    var body: some View {
+        Button(action: onSelect) {
+            HStack(spacing: 10) {
+                Image(systemName: provider.icon)
+                    .font(.system(size: 14))
+                    .foregroundStyle(isSelected ? provider.color : .secondary)
+                    .frame(width: 22)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(spacing: 6) {
+                        Text(provider.label)
+                            .font(.system(.body, weight: .medium))
+                            .foregroundStyle(.primary)
+                        if isSelected && !provider.id.isEmpty {
+                            Text("Active")
+                                .font(.caption2)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(provider.color.opacity(0.15), in: Capsule())
+                                .foregroundStyle(provider.color)
+                        }
+                    }
+                    Text(provider.description)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(isSelected && !provider.id.isEmpty ? provider.color : .secondary)
+                        .font(.system(size: 14))
+                }
+            }
+            .padding(10)
+            .background(
+                isSelected ? AnyShapeStyle(provider.color.opacity(0.06)) : AnyShapeStyle(.quaternary),
+                in: RoundedRectangle(cornerRadius: 8)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(isSelected ? provider.color.opacity(0.3) : .clear, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
     }
 }
 
