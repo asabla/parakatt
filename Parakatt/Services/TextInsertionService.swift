@@ -1,140 +1,120 @@
 import Cocoa
-import ApplicationServices
+import Carbon
 
 /// Inserts transcribed text into the currently focused application.
 ///
-/// Uses two strategies:
-/// 1. Primary: AXUIElement API to set the focused text field's value
-/// 2. Fallback: Copy to pasteboard and simulate Cmd+V
+/// Strategy order:
+/// 1. Try AXUIElement selectedText replacement (most native, no clipboard clobber)
+/// 2. Fall back to clipboard paste via Cmd+V (works everywhere)
+///
+/// Logs which strategy was used for debugging.
 class TextInsertionService {
-    /// Insert text into the currently focused text field.
+
     func insertText(_ text: String) {
-        // Try the accessibility approach first
+        guard !text.isEmpty else { return }
+
         if insertViaAccessibility(text) {
+            NSLog("[Parakatt] Text inserted via Accessibility API (%d chars)", text.count)
             return
         }
 
-        // Fall back to clipboard + paste
         insertViaPaste(text)
+        NSLog("[Parakatt] Text inserted via clipboard paste (%d chars)", text.count)
     }
 
-    // MARK: - Accessibility API approach
+    // MARK: - Strategy 1: Accessibility API
 
-    /// Try to insert text directly via the Accessibility API.
-    /// Returns true if successful.
     private func insertViaAccessibility(_ text: String) -> Bool {
         let systemWide = AXUIElementCreateSystemWide()
 
-        // Get the focused element
         var focusedElement: AnyObject?
-        let focusResult = AXUIElementCopyAttributeValue(
+        guard AXUIElementCopyAttributeValue(
             systemWide,
             kAXFocusedUIElementAttribute as CFString,
             &focusedElement
-        )
-
-        guard focusResult == .success,
-              let element = focusedElement else {
+        ) == .success, let element = focusedElement else {
             return false
         }
 
-        // AXUIElement is a CFTypeRef — this cast is always valid when AX returns success
-        let axElement = element as! AXUIElement // swiftlint:disable:this force_cast
+        let axElement = element as! AXUIElement
 
-        // Check if the element supports setting value
+        // Check if the element has a selected text attribute we can set
         var settable: DarwinBoolean = false
-        let isSettable = AXUIElementIsAttributeSettable(
+        guard AXUIElementIsAttributeSettable(
             axElement,
-            kAXValueAttribute as CFString,
+            kAXSelectedTextAttribute as CFString,
             &settable
-        )
-
-        guard isSettable == .success, settable.boolValue else {
+        ) == .success, settable.boolValue else {
             return false
         }
 
-        // Try to get the current selected text range
-        var selectedRange: AnyObject?
-        let rangeResult = AXUIElementCopyAttributeValue(
-            axElement,
-            kAXSelectedTextRangeAttribute as CFString,
-            &selectedRange
-        )
-
-        if rangeResult == .success {
-            // Replace selected text
-            let setResult = AXUIElementSetAttributeValue(
-                axElement,
-                kAXSelectedTextAttribute as CFString,
-                text as CFTypeRef
-            )
-            return setResult == .success
-        }
-
-        // Fall back to setting the entire value (appending)
-        var currentValue: AnyObject?
-        AXUIElementCopyAttributeValue(
-            axElement,
-            kAXValueAttribute as CFString,
-            &currentValue
-        )
-
-        let newValue: String
-        if let current = currentValue as? String {
-            newValue = current + text
-        } else {
-            newValue = text
-        }
-
+        // Set the selected text (replaces selection, or inserts at cursor if no selection)
         let result = AXUIElementSetAttributeValue(
             axElement,
-            kAXValueAttribute as CFString,
-            newValue as CFTypeRef
+            kAXSelectedTextAttribute as CFString,
+            text as CFTypeRef
         )
 
         return result == .success
     }
 
-    // MARK: - Clipboard + Paste approach
+    // MARK: - Strategy 2: Clipboard + Cmd+V paste
 
-    /// Insert text by copying to clipboard and simulating Cmd+V.
     private func insertViaPaste(_ text: String) {
         let pasteboard = NSPasteboard.general
 
-        // Save current clipboard contents to restore later
-        let previousContents = pasteboard.string(forType: .string)
+        // Save current clipboard
+        let savedChangeCount = pasteboard.changeCount
+        let previousItems = pasteboard.pasteboardItems?.compactMap { item -> (NSPasteboard.PasteboardType, Data)? in
+            guard let type = item.types.first,
+                  let data = item.data(forType: type) else { return nil }
+            return (type, data)
+        }
 
         // Set our text
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
 
-        // Simulate Cmd+V
-        simulateKeyPress(keyCode: 9, flags: .maskCommand) // 9 = 'v' key
+        // Small delay to ensure pasteboard is ready
+        usleep(50_000) // 50ms
 
-        // Restore clipboard after a short delay
-        if let previous = previousContents {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+        // Simulate Cmd+V
+        simulatePaste()
+
+        // Restore clipboard after paste completes
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            // Only restore if nothing else changed the clipboard
+            if pasteboard.changeCount == savedChangeCount + 1 {
                 pasteboard.clearContents()
-                pasteboard.setString(previous, forType: .string)
+                if let items = previousItems {
+                    for (type, data) in items {
+                        pasteboard.setData(data, forType: type)
+                    }
+                }
             }
         }
     }
 
-    // MARK: - Key simulation
-
-    /// Simulate a key press event using CGEvent.
-    private func simulateKeyPress(keyCode: CGKeyCode, flags: CGEventFlags) {
-        guard let source = CGEventSource(stateID: .hidSystemState) else { return }
-
-        guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true),
-              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false) else {
+    private func simulatePaste() {
+        // Use CGEvent to simulate Cmd+V
+        guard let source = CGEventSource(stateID: .combinedSessionState) else {
+            NSLog("[Parakatt] Failed to create CGEventSource for paste")
             return
         }
 
-        keyDown.flags = flags
-        keyUp.flags = flags
+        let vKeyCode: CGKeyCode = CGKeyCode(kVK_ANSI_V)
+
+        guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: vKeyCode, keyDown: true),
+              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: vKeyCode, keyDown: false) else {
+            NSLog("[Parakatt] Failed to create CGEvent for paste")
+            return
+        }
+
+        keyDown.flags = .maskCommand
+        keyUp.flags = .maskCommand
 
         keyDown.post(tap: .cghidEventTap)
+        usleep(30_000) // 30ms between down and up
         keyUp.post(tap: .cghidEventTap)
     }
 }
