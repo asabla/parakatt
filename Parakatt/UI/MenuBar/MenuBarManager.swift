@@ -2,6 +2,42 @@ import Cocoa
 import Combine
 import SwiftUI
 
+/// A menu-item view that adapts to the menu width without expanding it.
+private class TranscriptionItemView: NSView {
+    let label = NSTextField(labelWithString: "No transcription yet")
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        label.lineBreakMode = .byTruncatingTail
+        label.font = .menuFont(ofSize: 0)
+        label.textColor = .disabledControlTextColor
+        label.isEditable = false
+        label.isBezeled = false
+        label.drawsBackground = false
+        label.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 20),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
+            label.centerYAnchor.constraint(equalTo: centerYAnchor),
+            heightAnchor.constraint(equalToConstant: 22),
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: NSView.noIntrinsicMetric, height: 22)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard let item = enclosingMenuItem, item.isEnabled,
+              let action = item.action, let target = item.target else { return }
+        item.menu?.cancelTracking()
+        NSApp.sendAction(action, to: target, from: item)
+    }
+}
+
 /// Manages the menubar status item.
 /// Click the icon to open the menu. Use "Start Recording" to record.
 class MenuBarManager: NSObject {
@@ -43,9 +79,10 @@ class MenuBarManager: NSObject {
         statusMenuItem.isEnabled = false
         menu.addItem(statusMenuItem)
 
-        lastTranscriptionMenuItem = NSMenuItem(title: "No transcription yet", action: #selector(copyLastTranscription), keyEquivalent: "c")
+        lastTranscriptionMenuItem = NSMenuItem(title: "", action: #selector(copyLastTranscription), keyEquivalent: "c")
         lastTranscriptionMenuItem.target = self
         lastTranscriptionMenuItem.isEnabled = false
+        lastTranscriptionMenuItem.view = TranscriptionItemView()
         menu.addItem(lastTranscriptionMenuItem)
 
         menu.addItem(.separator())
@@ -142,10 +179,12 @@ class MenuBarManager: NSObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] text in
                 guard let self, let text, !text.isEmpty else { return }
-                let display = text.count > 50 ? String(text.prefix(47)) + "..." : text
-                self.lastTranscriptionMenuItem.title = "Copy: \(display)"
+                if let view = self.lastTranscriptionMenuItem.view as? TranscriptionItemView {
+                    view.label.stringValue = "Copy: \(text)"
+                    view.label.textColor = .controlTextColor
+                    view.toolTip = text
+                }
                 self.lastTranscriptionMenuItem.isEnabled = true
-                self.lastTranscriptionMenuItem.toolTip = text
             }
             .store(in: &cancellables)
     }
