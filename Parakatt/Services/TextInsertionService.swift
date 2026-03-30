@@ -5,7 +5,8 @@ import Carbon
 ///
 /// Strategy order:
 /// 1. Try AXUIElement selectedText replacement (most native, no clipboard clobber)
-/// 2. Fall back to clipboard paste via Cmd+V (works everywhere)
+/// 2. Fall back to clipboard paste via CGEvent Cmd+V
+/// 3. Fall back to clipboard paste via AppleScript System Events
 ///
 /// Logs which strategy was used for debugging.
 class TextInsertionService {
@@ -13,13 +14,20 @@ class TextInsertionService {
     func insertText(_ text: String) {
         guard !text.isEmpty else { return }
 
+        NSLog("[Parakatt] Inserting text (%d chars), AXIsProcessTrusted=%d", text.count, AXIsProcessTrusted())
+
         if insertViaAccessibility(text) {
             NSLog("[Parakatt] Text inserted via Accessibility API (%d chars)", text.count)
             return
         }
 
-        insertViaPaste(text)
-        NSLog("[Parakatt] Text inserted via clipboard paste (%d chars)", text.count)
+        if insertViaPaste(text) {
+            NSLog("[Parakatt] Text inserted via CGEvent paste (%d chars)", text.count)
+            return
+        }
+
+        insertViaAppleScript(text)
+        NSLog("[Parakatt] Text inserted via AppleScript paste (%d chars)", text.count)
     }
 
     // MARK: - Strategy 1: Accessibility API
@@ -28,93 +36,120 @@ class TextInsertionService {
         let systemWide = AXUIElementCreateSystemWide()
 
         var focusedElement: AnyObject?
-        guard AXUIElementCopyAttributeValue(
+        let copyResult = AXUIElementCopyAttributeValue(
             systemWide,
             kAXFocusedUIElementAttribute as CFString,
             &focusedElement
-        ) == .success, let element = focusedElement else {
+        )
+        guard copyResult == .success, let element = focusedElement else {
+            NSLog("[Parakatt] AX Strategy: no focused element (error=%d)", copyResult.rawValue)
             return false
         }
 
         let axElement = element as! AXUIElement
 
-        // Check if the element has a selected text attribute we can set
         var settable: DarwinBoolean = false
         guard AXUIElementIsAttributeSettable(
             axElement,
             kAXSelectedTextAttribute as CFString,
             &settable
         ) == .success, settable.boolValue else {
+            NSLog("[Parakatt] AX Strategy: selectedText not settable")
             return false
         }
 
-        // Set the selected text (replaces selection, or inserts at cursor if no selection)
         let result = AXUIElementSetAttributeValue(
             axElement,
             kAXSelectedTextAttribute as CFString,
             text as CFTypeRef
         )
 
+        if result != .success {
+            NSLog("[Parakatt] AX Strategy: setAttribute failed (error=%d)", result.rawValue)
+        }
         return result == .success
     }
 
-    // MARK: - Strategy 2: Clipboard + Cmd+V paste
+    // MARK: - Strategy 2: Clipboard + CGEvent Cmd+V
 
-    private func insertViaPaste(_ text: String) {
+    private func insertViaPaste(_ text: String) -> Bool {
+        guard let source = CGEventSource(stateID: .combinedSessionState) else {
+            NSLog("[Parakatt] CGEvent Strategy: failed to create event source")
+            return false
+        }
+
+        let vKeyCode: CGKeyCode = CGKeyCode(kVK_ANSI_V)
+        guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: vKeyCode, keyDown: true),
+              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: vKeyCode, keyDown: false) else {
+            NSLog("[Parakatt] CGEvent Strategy: failed to create key events")
+            return false
+        }
+
+        setClipboard(text)
+
+        keyDown.flags = .maskCommand
+        keyUp.flags = .maskCommand
+        keyDown.post(tap: .cgSessionEventTap)
+        usleep(30_000)
+        keyUp.post(tap: .cgSessionEventTap)
+
+        scheduleClipboardRestore()
+        return true
+    }
+
+    // MARK: - Strategy 3: Clipboard + AppleScript System Events
+
+    private func insertViaAppleScript(_ text: String) {
+        setClipboard(text)
+
+        let script = NSAppleScript(source: """
+            tell application "System Events"
+                keystroke "v" using command down
+            end tell
+        """)
+        var error: NSDictionary?
+        script?.executeAndReturnError(&error)
+        if let error = error {
+            NSLog("[Parakatt] AppleScript Strategy: failed - %@", error)
+        }
+
+        scheduleClipboardRestore()
+    }
+
+    // MARK: - Clipboard helpers
+
+    private var savedItems: [(NSPasteboard.PasteboardType, Data)]?
+    private var savedChangeCount: Int = 0
+
+    private func setClipboard(_ text: String) {
         let pasteboard = NSPasteboard.general
 
-        // Save current clipboard
-        let savedChangeCount = pasteboard.changeCount
-        let previousItems = pasteboard.pasteboardItems?.compactMap { item -> (NSPasteboard.PasteboardType, Data)? in
+        savedChangeCount = pasteboard.changeCount
+        savedItems = pasteboard.pasteboardItems?.compactMap { item -> (NSPasteboard.PasteboardType, Data)? in
             guard let type = item.types.first,
                   let data = item.data(forType: type) else { return nil }
             return (type, data)
         }
 
-        // Set our text
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
+        usleep(50_000) // 50ms to ensure pasteboard is ready
+    }
 
-        // Small delay to ensure pasteboard is ready
-        usleep(50_000) // 50ms
+    private func scheduleClipboardRestore() {
+        let expectedCount = savedChangeCount + 1
+        let items = savedItems
 
-        // Simulate Cmd+V
-        simulatePaste()
-
-        // Restore clipboard after paste completes
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            // Only restore if nothing else changed the clipboard
-            if pasteboard.changeCount == savedChangeCount + 1 {
+            let pasteboard = NSPasteboard.general
+            if pasteboard.changeCount == expectedCount {
                 pasteboard.clearContents()
-                if let items = previousItems {
+                if let items = items {
                     for (type, data) in items {
                         pasteboard.setData(data, forType: type)
                     }
                 }
             }
         }
-    }
-
-    private func simulatePaste() {
-        // Use CGEvent to simulate Cmd+V
-        guard let source = CGEventSource(stateID: .combinedSessionState) else {
-            NSLog("[Parakatt] Failed to create CGEventSource for paste")
-            return
-        }
-
-        let vKeyCode: CGKeyCode = CGKeyCode(kVK_ANSI_V)
-
-        guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: vKeyCode, keyDown: true),
-              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: vKeyCode, keyDown: false) else {
-            NSLog("[Parakatt] Failed to create CGEvent for paste")
-            return
-        }
-
-        keyDown.flags = .maskCommand
-        keyUp.flags = .maskCommand
-
-        keyDown.post(tap: .cghidEventTap)
-        usleep(30_000) // 30ms between down and up
-        keyUp.post(tap: .cghidEventTap)
     }
 }
