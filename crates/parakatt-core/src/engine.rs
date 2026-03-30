@@ -2,7 +2,8 @@
 /// audio → preprocessing → STT → dictionary → LLM → result.
 
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 use crate::config::Config;
 use crate::dictionary::Dictionary;
@@ -11,6 +12,7 @@ use crate::modes;
 use crate::models;
 use crate::stt::SttProvider;
 use crate::stt::parakeet::ParakeetProvider;
+use crate::download::{DownloadProgress, DownloadState};
 use crate::{
     AppContext, CoreError, EngineConfig, ModelInfo, ModeConfig, ReplacementRule,
     TranscriptionResult,
@@ -25,6 +27,8 @@ pub struct Engine {
     stt: Mutex<Option<Box<dyn SttProvider>>>,
     llm: Mutex<Option<Box<dyn LlmProvider>>>,
     dictionary: Mutex<Dictionary>,
+    download_progress: Arc<Mutex<DownloadProgress>>,
+    download_cancel: Arc<AtomicBool>,
 }
 
 #[uniffi::export]
@@ -64,6 +68,8 @@ impl Engine {
             stt: Mutex::new(None),
             llm: Mutex::new(None),
             dictionary: Mutex::new(dictionary),
+            download_progress: Arc::new(Mutex::new(DownloadProgress::idle())),
+            download_cancel: Arc::new(AtomicBool::new(false)),
         };
 
         // Don't auto-load the model in the constructor — model loading
@@ -402,6 +408,79 @@ impl Engine {
             }
             _ => Err(CoreError::LlmError(format!("Unknown provider: {provider}"))),
         }
+    }
+
+    /// Start downloading a model in the background. Returns immediately.
+    /// Poll `get_download_progress()` to track status.
+    pub fn start_download(&self, model_id: String) -> Result<(), CoreError> {
+        // Validate model exists in registry
+        if models::model_file_set(&model_id).is_none() {
+            return Err(CoreError::ModelNotFound(format!(
+                "No download info for model: {model_id}"
+            )));
+        }
+
+        // Check not already downloading
+        {
+            let p = self.download_progress.lock().unwrap();
+            if p.state == DownloadState::Downloading {
+                return Err(CoreError::IoError(
+                    "A download is already in progress".into(),
+                ));
+            }
+        }
+
+        // Reset cancel flag
+        self.download_cancel.store(false, Ordering::Relaxed);
+
+        let models_dir = self.models_dir.clone();
+        let progress = Arc::clone(&self.download_progress);
+        let cancel = Arc::clone(&self.download_cancel);
+
+        std::thread::spawn(move || {
+            if let Err(e) = crate::download::download_model(&models_dir, &model_id, progress.clone(), cancel) {
+                log::error!("Download failed: {e}");
+                // Progress state is already set to Failed by download_model
+            }
+        });
+
+        Ok(())
+    }
+
+    /// Cancel an in-progress download.
+    pub fn cancel_download(&self) {
+        self.download_cancel.store(true, Ordering::Relaxed);
+    }
+
+    /// Get current download progress. Poll this from Swift on a timer.
+    pub fn get_download_progress(&self) -> DownloadProgress {
+        self.download_progress.lock().unwrap().clone()
+    }
+
+    /// Delete a downloaded model's files.
+    pub fn delete_model(&self, model_id: String) -> Result<(), CoreError> {
+        let model_path = models::model_path(&self.models_dir, &model_id);
+
+        if !model_path.exists() {
+            return Ok(());
+        }
+
+        // Unload if this model is currently active
+        {
+            let config_guard = self.config.lock().map_err(|e| {
+                CoreError::ConfigError(format!("Config lock poisoned: {e}"))
+            })?;
+            if config_guard.stt.active_model.as_deref() == Some(&model_id) {
+                drop(config_guard);
+                self.unload_model();
+            }
+        }
+
+        std::fs::remove_dir_all(&model_path).map_err(|e| {
+            CoreError::IoError(format!("Failed to delete model {model_id}: {e}"))
+        })?;
+
+        Ok(())
     }
 }
 

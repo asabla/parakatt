@@ -7,6 +7,37 @@ use std::path::{Path, PathBuf};
 
 use crate::ModelInfo;
 
+/// Download metadata for a model: HuggingFace repo URL and list of files.
+pub struct ModelFileSet {
+    pub repo_url: &'static str,
+    pub files: &'static [&'static str],
+}
+
+/// Get the download file set for a known model.
+pub fn model_file_set(model_id: &str) -> Option<ModelFileSet> {
+    match model_id {
+        "parakeet-tdt-0.6b-v2" => Some(ModelFileSet {
+            repo_url: "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx/resolve/main",
+            files: &[
+                "vocab.txt",
+                "decoder_joint-model.onnx",
+                "encoder-model.onnx",
+                "encoder-model.onnx.data",
+            ],
+        }),
+        "parakeet-tdt-0.6b-v3" => Some(ModelFileSet {
+            repo_url: "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main",
+            files: &[
+                "vocab.txt",
+                "decoder_joint-model.onnx",
+                "encoder-model.onnx",
+                "encoder-model.onnx.data",
+            ],
+        }),
+        _ => None,
+    }
+}
+
 /// Known models that can be downloaded and used.
 pub fn available_models() -> Vec<ModelInfo> {
     vec![
