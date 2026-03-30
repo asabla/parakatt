@@ -14,6 +14,7 @@ class AppState: ObservableObject {
     @Published var isRecording = false
     @Published var isProcessing = false
     @Published var lastTranscription: String?
+    @Published var liveTranscription: String?
     @Published var activeMode = "dictation"
     @Published var isModelLoaded = false
     @Published var errorMessage: String?
@@ -109,8 +110,10 @@ class AppState: ObservableObject {
         do {
             try audioCaptureService?.startCapture()
             isRecording = true
+            liveTranscription = nil
             errorMessage = nil
-            NSLog("[Parakatt] Recording STARTED (modelLoaded=%d)", isModelLoaded ? 1 : 0)
+            startStreamingUpdates()
+            NSLog("[Parakatt] Recording STARTED (modelLoaded=%d, streaming=%.0fs)", isModelLoaded ? 1 : 0, streamingInterval)
         } catch {
             errorMessage = "Failed to start recording: \(error.localizedDescription)"
             NSLog("[Parakatt] Recording FAILED: %@", error.localizedDescription)
@@ -120,8 +123,10 @@ class AppState: ObservableObject {
     func stopRecording() {
         guard isRecording else { return }
 
+        stopStreamingUpdates()
         audioCaptureService?.stopCapture()
         isRecording = false
+        liveTranscription = nil
         NSLog("[Parakatt] Recording stopped")
 
         // Get the captured audio
@@ -304,6 +309,68 @@ class AppState: ObservableObject {
                     self.errorMessage = "Transcription failed: \(error.localizedDescription)"
                     NSLog("[Parakatt] Transcription FAILED: %@", error.localizedDescription)
                 }
+            }
+        }
+    }
+
+    // MARK: - Streaming
+
+    private var streamingTimer: Timer?
+    /// Interval between live transcription updates while recording.
+    private let streamingInterval: TimeInterval = 2.0
+    /// Minimum samples needed before first live transcription (1s at 16kHz).
+    private let minSamplesForStreaming = 16000
+
+    private func startStreamingUpdates() {
+        streamingTimer?.invalidate()
+        streamingTimer = Timer.scheduledTimer(withTimeInterval: streamingInterval, repeats: true) { [weak self] _ in
+            self?.updateLiveTranscription()
+        }
+    }
+
+    private func stopStreamingUpdates() {
+        streamingTimer?.invalidate()
+        streamingTimer = nil
+    }
+
+    private var isStreamTranscribing = false
+
+    private func updateLiveTranscription() {
+        guard isRecording, let bridge, !isStreamTranscribing else { return }
+
+        // Snapshot the current buffer
+        audioBufferLock.lock()
+        let snapshot = audioBuffer
+        audioBufferLock.unlock()
+
+        guard snapshot.count >= minSamplesForStreaming else { return }
+
+        // Limit snapshot to last 30 seconds to avoid OOM on very long recordings
+        let maxSamples = 30 * 16000
+        let trimmed = snapshot.count > maxSamples
+            ? Array(snapshot.suffix(maxSamples))
+            : snapshot
+
+        isStreamTranscribing = true
+
+        DispatchQueue.global(qos: .userInteractive).async { [weak self] in
+            guard let self else { return }
+            defer { self.isStreamTranscribing = false }
+
+            do {
+                let result = try bridge.transcribe(
+                    audioSamples: trimmed,
+                    sampleRate: 16000,
+                    mode: "dictation",
+                    context: nil
+                )
+                DispatchQueue.main.async {
+                    if self.isRecording {
+                        self.liveTranscription = result.text.isEmpty ? nil : result.text
+                    }
+                }
+            } catch {
+                // Silently ignore streaming errors
             }
         }
     }
