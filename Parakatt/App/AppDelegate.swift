@@ -17,6 +17,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         hotkeyService = HotkeyService(appState: appState)
 
         appState.initializeEngine()
+
+        // If no model is downloaded, open Settings so user can download one
+        if appState.needsModelDownload {
+            DispatchQueue.main.async {
+                NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+            }
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
