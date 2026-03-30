@@ -1,0 +1,94 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build and Release
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/parakatt-core
+
+      - name: Install build tools
+        run: |
+          brew install xcodegen create-dmg
+          cargo install cargo-swift
+
+      - name: Build Rust core
+        run: make rust
+
+      - name: Generate Swift package
+        run: make swift-package
+
+      - name: Generate Xcode project
+        run: make xcode
+
+      - name: Build Release
+        run: make release
+
+      - name: Get build products path
+        id: build-path
+        run: |
+          BUILD_DIR=$(xcodebuild -project Parakatt.xcodeproj -scheme Parakatt -configuration Release -showBuildSettings 2>/dev/null | grep ' BUILT_PRODUCTS_DIR' | awk '{print $NF}')
+          echo "dir=$BUILD_DIR" >> "$GITHUB_OUTPUT"
+
+      - name: Extract version
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Create zip
+        run: |
+          mkdir -p dist
+          ditto -c -k --keepParent "${{ steps.build-path.outputs.dir }}/Parakatt.app" "dist/Parakatt-${{ steps.version.outputs.version }}-arm64.zip"
+
+      - name: Create DMG
+        run: |
+          create-dmg \
+            --volname "Parakatt" \
+            --window-pos 200 120 \
+            --window-size 600 400 \
+            --icon-size 100 \
+            --icon "Parakatt.app" 175 190 \
+            --hide-extension "Parakatt.app" \
+            --app-drop-link 425 190 \
+            "dist/Parakatt-${{ steps.version.outputs.version }}-arm64.dmg" \
+            "${{ steps.build-path.outputs.dir }}/Parakatt.app"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/Parakatt-${{ steps.version.outputs.version }}-arm64.zip
+            dist/Parakatt-${{ steps.version.outputs.version }}-arm64.dmg
+
+  # Uncomment after creating the asabla/homebrew-tap repository
+  # update-homebrew:
+  #   name: Update Homebrew Cask
+  #   needs: build
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Trigger tap update
+  #       uses: peter-evans/repository-dispatch@v3
+  #       with:
+  #         token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+  #         repository: asabla/homebrew-tap
+  #         event-type: release
+  #         client-payload: '{"version": "${{ github.ref_name }}"}'
