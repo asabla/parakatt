@@ -25,8 +25,13 @@ xcode:
 build:
 	xcodebuild -project Parakatt.xcodeproj -scheme Parakatt -configuration Debug build
 
-# Run the built app
+# Run the built app (with log output)
 run:
+	@pkill -f Parakatt 2>/dev/null; sleep 1; \
+	"$$(xcodebuild -project Parakatt.xcodeproj -scheme Parakatt -configuration Debug -showBuildSettings 2>/dev/null | grep ' BUILT_PRODUCTS_DIR' | awk '{print $$NF}')/Parakatt.app/Contents/MacOS/Parakatt"
+
+# Run the built app detached (no logs)
+run-detached:
 	@open "$$(xcodebuild -project Parakatt.xcodeproj -scheme Parakatt -configuration Debug -showBuildSettings 2>/dev/null | grep ' BUILT_PRODUCTS_DIR' | awk '{print $$NF}')/Parakatt.app"
 
 # Download the Parakeet TDT 0.6B v2 ONNX model (~2.5GB)
