@@ -22,6 +22,7 @@ class AppState: ObservableObject {
     @Published var needsModelDownload = false
     @Published var isDownloading = false
     @Published var downloadProgress: ParakattCore.DownloadProgress?
+    @Published var currentAudioLevel: Float = 0
 
     // MARK: - Services
 
@@ -125,6 +126,7 @@ class AppState: ObservableObject {
         do {
             try audioCaptureService?.startCapture()
             isRecording = true
+            currentAudioLevel = 0
             liveTranscription = nil
             errorMessage = nil
             startStreamingUpdates()
@@ -141,6 +143,7 @@ class AppState: ObservableObject {
         stopStreamingUpdates()
         audioCaptureService?.stopCapture()
         isRecording = false
+        currentAudioLevel = 0
         liveTranscription = nil
         NSLog("[Parakatt] Recording stopped")
 
@@ -488,6 +491,16 @@ class AppState: ObservableObject {
         audioBuffer.append(contentsOf: samples)
         let total = audioBuffer.count
         audioBufferLock.unlock()
+
+        // Compute RMS for audio level visualization
+        let sumOfSquares = samples.reduce(Float(0)) { $0 + $1 * $1 }
+        let rms = sqrt(sumOfSquares / Float(max(samples.count, 1)))
+        // Normalize: typical speech RMS ~0.01-0.1, scale up for display
+        let normalized = min(rms * 10, 1.0)
+        let smoothed = 0.3 * currentAudioLevel + 0.7 * normalized
+        DispatchQueue.main.async {
+            self.currentAudioLevel = smoothed
+        }
 
         sampleCount += 1
         if sampleCount % 50 == 1 {

@@ -2,19 +2,46 @@ import Cocoa
 import Combine
 import SwiftUI
 
+/// Animated equalizer bars driven by audio level.
+struct AudioLevelBarsView: View {
+    let level: Float
+    private let barCount = 5
+    private let barWidth: CGFloat = 3
+    private let barSpacing: CGFloat = 2
+    private let maxHeight: CGFloat = 20
+    private let minHeight: CGFloat = 3
+
+    // Per-bar multipliers to create staggered equalizer look
+    private let multipliers: [Float] = [0.6, 0.85, 1.0, 0.85, 0.6]
+
+    var body: some View {
+        HStack(spacing: barSpacing) {
+            ForEach(0..<barCount, id: \.self) { i in
+                let barLevel = CGFloat(level * multipliers[i])
+                let height = minHeight + (maxHeight - minHeight) * barLevel
+
+                RoundedRectangle(cornerRadius: barWidth / 2)
+                    .fill(.red)
+                    .frame(width: barWidth, height: height)
+            }
+        }
+        .frame(height: maxHeight)
+        .animation(.easeOut(duration: 0.1), value: level)
+    }
+}
+
 /// Floating overlay shown during recording with live transcription preview.
 struct RecordingOverlayView: View {
     let isRecording: Bool
     let isProcessing: Bool
     let liveText: String?
+    let audioLevel: Float
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             if isRecording {
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(.red)
-                        .frame(width: 10, height: 10)
+                HStack(spacing: 8) {
+                    AudioLevelBarsView(level: audioLevel)
                     Text("Recording")
                         .font(.caption)
                         .fontWeight(.medium)
@@ -84,13 +111,15 @@ class RecordingOverlayController {
             .store(in: &cancellables)
 
         appState.$isRecording
-            .combineLatest(appState.$isProcessing, appState.$liveTranscription)
+            .combineLatest(appState.$isProcessing, appState.$liveTranscription, appState.$currentAudioLevel)
+            .throttle(for: .milliseconds(50), scheduler: DispatchQueue.main, latest: true)
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] isRecording, isProcessing, liveText in
+            .sink { [weak self] isRecording, isProcessing, liveText, audioLevel in
                 self?.hostingView?.rootView = RecordingOverlayView(
                     isRecording: isRecording,
                     isProcessing: isProcessing,
-                    liveText: liveText
+                    liveText: liveText,
+                    audioLevel: audioLevel
                 )
             }
             .store(in: &cancellables)
@@ -110,7 +139,7 @@ class RecordingOverlayController {
     }
 
     private func createPanel() {
-        let view = RecordingOverlayView(isRecording: false, isProcessing: false, liveText: nil)
+        let view = RecordingOverlayView(isRecording: false, isProcessing: false, liveText: nil, audioLevel: 0)
         let hosting = NSHostingView(rootView: view)
         hosting.frame = NSRect(x: 0, y: 0, width: 420, height: 160)
 
