@@ -155,40 +155,34 @@ class MenuBarManager: NSObject {
     private func setIcon(_ state: IconState) {
         guard let button = statusItem.button else { return }
 
-        let size = NSSize(width: 18, height: 18)
-        let image = NSImage(size: size, flipped: false) { rect in
-            NSColor.labelColor.setFill()
+        let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
 
-            switch state {
-            case .idle, .loading:
-                let mic = NSBezierPath(roundedRect: NSRect(x: 6, y: 6, width: 6, height: 9), xRadius: 3, yRadius: 3)
-                mic.fill()
-                NSBezierPath(rect: NSRect(x: 8, y: 2, width: 2, height: 4)).fill()
-                NSBezierPath(rect: NSRect(x: 5, y: 1, width: 8, height: 1.5)).fill()
-                let arc = NSBezierPath()
-                arc.lineWidth = 1.2
-                arc.appendArc(withCenter: NSPoint(x: 9, y: 10), radius: 5.5, startAngle: 200, endAngle: 340)
-                arc.stroke()
+        switch state {
+        case .idle, .loading:
+            let image = NSImage(systemSymbolName: "mic.fill", accessibilityDescription: "Parakatt")!
+                .withSymbolConfiguration(config)!
+            image.isTemplate = true
+            button.image = image
 
-            case .recording:
-                NSColor.systemRed.setFill()
-                NSBezierPath(ovalIn: rect.insetBy(dx: 1, dy: 1)).fill()
-                NSColor.white.setFill()
-                NSBezierPath(roundedRect: NSRect(x: 6.5, y: 6, width: 5, height: 8), xRadius: 2.5, yRadius: 2.5).fill()
+        case .recording:
+            let image = NSImage(systemSymbolName: "record.circle", accessibilityDescription: "Recording")!
+                .withSymbolConfiguration(config)!
+            image.isTemplate = false
+            button.contentTintColor = .systemRed
+            button.image = image
 
-            case .processing:
-                let w: CGFloat = 2; let g: CGFloat = 1.5
-                let heights: [CGFloat] = [6, 10, 14, 10, 6]
-                var x: CGFloat = 2
-                for h in heights {
-                    NSBezierPath(roundedRect: NSRect(x: x, y: (18-h)/2, width: w, height: h), xRadius: 1, yRadius: 1).fill()
-                    x += w + g
-                }
-            }
-            return true
+        case .processing:
+            let image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "Processing")!
+                .withSymbolConfiguration(config)!
+            image.isTemplate = false
+            button.contentTintColor = .labelColor
+            button.image = image
         }
-        image.isTemplate = (state == .idle || state == .loading)
-        button.image = image
+
+        // Reset tint for non-recording states
+        if state != .recording {
+            button.contentTintColor = nil
+        }
     }
 
     // MARK: - Actions
