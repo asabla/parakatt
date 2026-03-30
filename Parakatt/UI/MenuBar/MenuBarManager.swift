@@ -155,33 +155,32 @@ class MenuBarManager: NSObject {
     private func setIcon(_ state: IconState) {
         guard let button = statusItem.button else { return }
 
-        let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
+        let size = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
+        let symbolName = "waveform"
 
         switch state {
         case .idle, .loading:
-            let image = NSImage(systemSymbolName: "mic.fill", accessibilityDescription: "Parakatt")!
-                .withSymbolConfiguration(config)!
+            let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: "Parakatt")!
+                .withSymbolConfiguration(size)!
             image.isTemplate = true
+            button.contentTintColor = nil
             button.image = image
 
         case .recording:
-            let image = NSImage(systemSymbolName: "record.circle", accessibilityDescription: "Recording")!
-                .withSymbolConfiguration(config)!
+            let color = NSImage.SymbolConfiguration(paletteColors: [.systemRed])
+            let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: "Recording")!
+                .withSymbolConfiguration(size.applying(color))!
             image.isTemplate = false
-            button.contentTintColor = .systemRed
+            button.contentTintColor = nil
             button.image = image
 
         case .processing:
-            let image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "Processing")!
-                .withSymbolConfiguration(config)!
+            let color = NSImage.SymbolConfiguration(paletteColors: [.systemOrange])
+            let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: "Processing")!
+                .withSymbolConfiguration(size.applying(color))!
             image.isTemplate = false
-            button.contentTintColor = .labelColor
-            button.image = image
-        }
-
-        // Reset tint for non-recording states
-        if state != .recording {
             button.contentTintColor = nil
+            button.image = image
         }
     }
 
