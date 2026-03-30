@@ -4,6 +4,9 @@ import ParakattCore
 struct SettingsView: View {
     var body: some View {
         TabView {
+            ModelsSettingsView()
+                .tabItem { Label("Models", systemImage: "arrow.down.circle") }
+
             GeneralSettingsView()
                 .tabItem { Label("General", systemImage: "gear") }
 
@@ -14,6 +17,141 @@ struct SettingsView: View {
                 .tabItem { Label("Dictionary", systemImage: "character.book.closed") }
         }
         .frame(width: 520, height: 480)
+    }
+}
+
+// MARK: - Models
+
+struct ModelsSettingsView: View {
+    @EnvironmentObject var appState: AppState
+    @State private var models: [ParakattCore.ModelInfo] = []
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                if appState.needsModelDownload && !appState.isDownloading {
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                        Text("No speech model downloaded. Download one to start transcribing.")
+                            .font(.callout)
+                    }
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+                }
+
+                ForEach(models, id: \.id) { model in
+                    ModelRowView(model: model)
+                }
+            }
+            .padding()
+        }
+        .onAppear { refreshModels() }
+        .onReceive(appState.$isDownloading) { _ in refreshModels() }
+        .onReceive(appState.$isModelLoaded) { _ in refreshModels() }
+    }
+
+    private func refreshModels() {
+        models = appState.listModels()
+    }
+}
+
+struct ModelRowView: View {
+    @EnvironmentObject var appState: AppState
+    let model: ParakattCore.ModelInfo
+
+    private var isDownloadingThis: Bool {
+        appState.isDownloading && appState.downloadProgress?.modelId == model.id
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(model.displayName)
+                            .font(.headline)
+                        if model.downloaded {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                                .font(.caption)
+                        }
+                        if appState.activeModelId == model.id {
+                            Text("Active")
+                                .font(.caption2)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(.blue.opacity(0.15), in: Capsule())
+                                .foregroundStyle(.blue)
+                        }
+                    }
+                    if let desc = model.description {
+                        Text(desc)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Text(formatBytes(model.sizeBytes))
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+
+                Spacer()
+
+                if isDownloadingThis {
+                    Button("Cancel") {
+                        appState.cancelModelDownload()
+                    }
+                } else if model.downloaded {
+                    Button("Delete") {
+                        appState.deleteModel(model.id)
+                    }
+                } else {
+                    Button("Download") {
+                        appState.startModelDownload(model.id)
+                    }
+                    .disabled(appState.isDownloading)
+                }
+            }
+
+            if isDownloadingThis, let progress = appState.downloadProgress {
+                VStack(alignment: .leading, spacing: 4) {
+                    ProgressView(value: progressFraction(progress))
+
+                    HStack {
+                        Text("File \(progress.fileIndex + 1)/\(progress.totalFiles): \(progress.currentFile)")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        if progress.bytesTotal > 0 {
+                            Text("\(formatBytes(progress.bytesDownloaded)) / \(formatBytes(progress.bytesTotal))")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func progressFraction(_ progress: ParakattCore.DownloadProgress) -> Double {
+        guard progress.bytesTotal > 0 else { return 0 }
+        return Double(progress.bytesDownloaded) / Double(progress.bytesTotal)
+    }
+
+    private func formatBytes(_ bytes: UInt64) -> String {
+        let gb = Double(bytes) / 1_000_000_000
+        if gb >= 1.0 {
+            return String(format: "%.1f GB", gb)
+        }
+        let mb = Double(bytes) / 1_000_000
+        if mb >= 1.0 {
+            return String(format: "%.0f MB", mb)
+        }
+        let kb = Double(bytes) / 1_000
+        return String(format: "%.0f KB", kb)
     }
 }
 

@@ -554,6 +554,11 @@ fileprivate struct FfiConverterString: FfiConverter {
 public protocol EngineProtocol: AnyObject, Sendable {
     
     /**
+     * Cancel an in-progress download.
+     */
+    func cancelDownload() 
+    
+    /**
      * Configure the LLM provider at runtime.
      * provider: "ollama", "lmstudio", "openai", or "" to disable.
      * base_url: server URL (e.g. "http://localhost:11434").
@@ -563,9 +568,19 @@ public protocol EngineProtocol: AnyObject, Sendable {
     func configureLlm(provider: String, baseUrl: String, model: String, apiKey: String?) throws 
     
     /**
+     * Delete a downloaded model's files.
+     */
+    func deleteModel(modelId: String) throws 
+    
+    /**
      * Get current dictionary rules.
      */
     func getDictionaryRules()  -> [ReplacementRule]
+    
+    /**
+     * Get current download progress. Poll this from Swift on a timer.
+     */
+    func getDownloadProgress()  -> DownloadProgress
     
     /**
      * Check if an STT model is currently loaded.
@@ -597,6 +612,12 @@ public protocol EngineProtocol: AnyObject, Sendable {
      * Update the dictionary rules.
      */
     func setDictionaryRules(rules: [ReplacementRule]) throws 
+    
+    /**
+     * Start downloading a model in the background. Returns immediately.
+     * Poll `get_download_progress()` to track status.
+     */
+    func startDownload(modelId: String) throws 
     
     /**
      * Run the full transcription pipeline.
@@ -677,6 +698,16 @@ public convenience init(engineConfig: EngineConfig)throws  {
 
     
     /**
+     * Cancel an in-progress download.
+     */
+open func cancelDownload()  {try! rustCall() {
+    uniffi_parakatt_core_fn_method_engine_cancel_download(
+            self.uniffiCloneHandle(),$0
+    )
+}
+}
+    
+    /**
      * Configure the LLM provider at runtime.
      * provider: "ollama", "lmstudio", "openai", or "" to disable.
      * base_url: server URL (e.g. "http://localhost:11434").
@@ -695,11 +726,33 @@ open func configureLlm(provider: String, baseUrl: String, model: String, apiKey:
 }
     
     /**
+     * Delete a downloaded model's files.
+     */
+open func deleteModel(modelId: String)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_parakatt_core_fn_method_engine_delete_model(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(modelId),$0
+    )
+}
+}
+    
+    /**
      * Get current dictionary rules.
      */
 open func getDictionaryRules() -> [ReplacementRule]  {
     return try!  FfiConverterSequenceTypeReplacementRule.lift(try! rustCall() {
     uniffi_parakatt_core_fn_method_engine_get_dictionary_rules(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Get current download progress. Poll this from Swift on a timer.
+     */
+open func getDownloadProgress() -> DownloadProgress  {
+    return try!  FfiConverterTypeDownloadProgress_lift(try! rustCall() {
+    uniffi_parakatt_core_fn_method_engine_get_download_progress(
             self.uniffiCloneHandle(),$0
     )
 })
@@ -771,6 +824,18 @@ open func setDictionaryRules(rules: [ReplacementRule])throws   {try rustCallWith
     uniffi_parakatt_core_fn_method_engine_set_dictionary_rules(
             self.uniffiCloneHandle(),
         FfiConverterSequenceTypeReplacementRule.lower(rules),$0
+    )
+}
+}
+    
+    /**
+     * Start downloading a model in the background. Returns immediately.
+     * Poll `get_download_progress()` to track status.
+     */
+open func startDownload(modelId: String)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_parakatt_core_fn_method_engine_start_download(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(modelId),$0
     )
 }
 }
@@ -910,6 +975,83 @@ public func FfiConverterTypeAppContext_lift(_ buf: RustBuffer) throws -> AppCont
 #endif
 public func FfiConverterTypeAppContext_lower(_ value: AppContext) -> RustBuffer {
     return FfiConverterTypeAppContext.lower(value)
+}
+
+
+/**
+ * Progress of an ongoing model download, polled by Swift.
+ */
+public struct DownloadProgress: Equatable, Hashable {
+    public var modelId: String
+    public var state: DownloadState
+    public var currentFile: String
+    public var fileIndex: UInt32
+    public var totalFiles: UInt32
+    public var bytesDownloaded: UInt64
+    public var bytesTotal: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(modelId: String, state: DownloadState, currentFile: String, fileIndex: UInt32, totalFiles: UInt32, bytesDownloaded: UInt64, bytesTotal: UInt64) {
+        self.modelId = modelId
+        self.state = state
+        self.currentFile = currentFile
+        self.fileIndex = fileIndex
+        self.totalFiles = totalFiles
+        self.bytesDownloaded = bytesDownloaded
+        self.bytesTotal = bytesTotal
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension DownloadProgress: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeDownloadProgress: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> DownloadProgress {
+        return
+            try DownloadProgress(
+                modelId: FfiConverterString.read(from: &buf), 
+                state: FfiConverterTypeDownloadState.read(from: &buf), 
+                currentFile: FfiConverterString.read(from: &buf), 
+                fileIndex: FfiConverterUInt32.read(from: &buf), 
+                totalFiles: FfiConverterUInt32.read(from: &buf), 
+                bytesDownloaded: FfiConverterUInt64.read(from: &buf), 
+                bytesTotal: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: DownloadProgress, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.modelId, into: &buf)
+        FfiConverterTypeDownloadState.write(value.state, into: &buf)
+        FfiConverterString.write(value.currentFile, into: &buf)
+        FfiConverterUInt32.write(value.fileIndex, into: &buf)
+        FfiConverterUInt32.write(value.totalFiles, into: &buf)
+        FfiConverterUInt64.write(value.bytesDownloaded, into: &buf)
+        FfiConverterUInt64.write(value.bytesTotal, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDownloadProgress_lift(_ buf: RustBuffer) throws -> DownloadProgress {
+    return try FfiConverterTypeDownloadProgress.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDownloadProgress_lower(_ value: DownloadProgress) -> RustBuffer {
+    return FfiConverterTypeDownloadProgress.lower(value)
 }
 
 
@@ -1408,6 +1550,115 @@ public func FfiConverterTypeCoreError_lower(_ value: CoreError) -> RustBuffer {
     return FfiConverterTypeCoreError.lower(value)
 }
 
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * State of a model download.
+ */
+
+public enum DownloadState: Equatable, Hashable {
+    
+    /**
+     * No download in progress.
+     */
+    case idle
+    /**
+     * Currently downloading files.
+     */
+    case downloading
+    /**
+     * All files downloaded successfully.
+     */
+    case completed
+    /**
+     * Download failed.
+     */
+    case failed(message: String
+    )
+    /**
+     * Download was cancelled by the user.
+     */
+    case cancelled
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension DownloadState: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeDownloadState: FfiConverterRustBuffer {
+    typealias SwiftType = DownloadState
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> DownloadState {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .idle
+        
+        case 2: return .downloading
+        
+        case 3: return .completed
+        
+        case 4: return .failed(message: try FfiConverterString.read(from: &buf)
+        )
+        
+        case 5: return .cancelled
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: DownloadState, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .idle:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .downloading:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .completed:
+            writeInt(&buf, Int32(3))
+        
+        
+        case let .failed(message):
+            writeInt(&buf, Int32(4))
+            FfiConverterString.write(message, into: &buf)
+            
+        
+        case .cancelled:
+            writeInt(&buf, Int32(5))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDownloadState_lift(_ buf: RustBuffer) throws -> DownloadState {
+    return try FfiConverterTypeDownloadState.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDownloadState_lower(_ value: DownloadState) -> RustBuffer {
+    return FfiConverterTypeDownloadState.lower(value)
+}
+
+
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
@@ -1596,10 +1847,19 @@ private let initializationResult: InitializationResult = {
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
     }
+    if (uniffi_parakatt_core_checksum_method_engine_cancel_download() != 60120) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_parakatt_core_checksum_method_engine_configure_llm() != 30842) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_parakatt_core_checksum_method_engine_delete_model() != 27097) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_parakatt_core_checksum_method_engine_get_dictionary_rules() != 46695) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_parakatt_core_checksum_method_engine_get_download_progress() != 47159) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_parakatt_core_checksum_method_engine_is_model_loaded() != 53435) {
@@ -1618,6 +1878,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_parakatt_core_checksum_method_engine_set_dictionary_rules() != 25557) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_parakatt_core_checksum_method_engine_start_download() != 46748) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_parakatt_core_checksum_method_engine_transcribe() != 34463) {

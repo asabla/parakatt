@@ -85,4 +85,26 @@ class CoreBridge {
     func listLlmModels(provider: String, baseUrl: String, apiKey: String?) throws -> [String] {
         try engine.listLlmModels(provider: provider, baseUrl: baseUrl, apiKey: apiKey)
     }
+
+    // MARK: - Model downloading
+
+    /// Start downloading a model in the background.
+    func startDownload(_ modelId: String) throws {
+        try engine.startDownload(modelId: modelId)
+    }
+
+    /// Cancel an in-progress download.
+    func cancelDownload() {
+        engine.cancelDownload()
+    }
+
+    /// Get current download progress (poll on a timer).
+    func getDownloadProgress() -> DownloadProgress {
+        engine.getDownloadProgress()
+    }
+
+    /// Delete a downloaded model's files.
+    func deleteModel(_ modelId: String) throws {
+        try engine.deleteModel(modelId: modelId)
+    }
 }
