@@ -46,14 +46,16 @@ class MenuBarManager: NSObject {
     private var cancellables = Set<AnyCancellable>()
 
     private var recordMenuItem: NSMenuItem!
+    private var meetingMenuItem: NSMenuItem!
     private var statusMenuItem: NSMenuItem!
     private var lastTranscriptionMenuItem: NSMenuItem!
     private var modeMenuItems: [String: NSMenuItem] = [:]
     private var currentIconState: IconState = .idle
     private var settingsWindow: NSWindow?
+    private var historyWindow: NSWindow?
 
     private enum IconState: Equatable {
-        case idle, loading, recording, processing
+        case idle, loading, recording, processing, meeting
     }
 
     init(appState: AppState) {
@@ -72,6 +74,10 @@ class MenuBarManager: NSObject {
         recordMenuItem = NSMenuItem(title: "Start Recording", action: #selector(toggleRecording), keyEquivalent: "r")
         recordMenuItem.target = self
         menu.addItem(recordMenuItem)
+
+        meetingMenuItem = NSMenuItem(title: "Start Meeting Transcription", action: #selector(toggleMeeting), keyEquivalent: "m")
+        meetingMenuItem.target = self
+        menu.addItem(meetingMenuItem)
 
         menu.addItem(.separator())
 
@@ -117,6 +123,12 @@ class MenuBarManager: NSObject {
 
         menu.addItem(.separator())
 
+        let historyItem = NSMenuItem(title: "Transcription History...", action: #selector(openHistory), keyEquivalent: "h")
+        historyItem.target = self
+        menu.addItem(historyItem)
+
+        menu.addItem(.separator())
+
         let settingsItem = NSMenuItem(title: "Settings...", action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.target = self
         menu.addItem(settingsItem)
@@ -137,13 +149,16 @@ class MenuBarManager: NSObject {
     private func observeState() {
         appState.$isRecording
             .combineLatest(appState.$isProcessing, appState.$isModelLoaded)
-            .removeDuplicates { a, b in a.0 == b.0 && a.1 == b.1 && a.2 == b.2 }
+            .combineLatest(appState.$isMeetingActive)
+            .removeDuplicates { a, b in a.0.0 == b.0.0 && a.0.1 == b.0.1 && a.0.2 == b.0.2 && a.1 == b.1 }
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] isRecording, isProcessing, isModelLoaded in
+            .sink { [weak self] combined, isMeetingActive in
+                let (isRecording, isProcessing, isModelLoaded) = combined
                 guard let self else { return }
 
                 let newState: IconState
-                if isRecording { newState = .recording }
+                if isMeetingActive { newState = .meeting }
+                else if isRecording { newState = .recording }
                 else if isProcessing { newState = .processing }
                 else if !isModelLoaded { newState = .loading }
                 else { newState = .idle }
@@ -154,22 +169,32 @@ class MenuBarManager: NSObject {
                 }
 
                 switch newState {
+                case .meeting:
+                    self.statusMenuItem.title = "Meeting in progress..."
+                    self.recordMenuItem.isEnabled = false
+                    self.meetingMenuItem.title = "Stop Meeting"
+                    self.meetingMenuItem.isEnabled = true
                 case .recording:
                     self.statusMenuItem.title = "Recording..."
                     self.recordMenuItem.title = "Stop Recording"
                     self.recordMenuItem.isEnabled = true
+                    self.meetingMenuItem.isEnabled = false
                 case .processing:
                     self.statusMenuItem.title = "Processing..."
                     self.recordMenuItem.title = "Processing..."
                     self.recordMenuItem.isEnabled = false
+                    self.meetingMenuItem.isEnabled = false
                 case .loading:
                     self.statusMenuItem.title = "Loading model..."
                     self.recordMenuItem.title = "Start Recording"
                     self.recordMenuItem.isEnabled = false
+                    self.meetingMenuItem.isEnabled = false
                 case .idle:
                     self.statusMenuItem.title = "Ready"
                     self.recordMenuItem.title = "Start Recording"
                     self.recordMenuItem.isEnabled = true
+                    self.meetingMenuItem.title = "Start Meeting Transcription"
+                    self.meetingMenuItem.isEnabled = true
                 }
             }
             .store(in: &cancellables)
@@ -220,6 +245,14 @@ class MenuBarManager: NSObject {
             image.isTemplate = false
             button.contentTintColor = nil
             button.image = image
+
+        case .meeting:
+            let color = NSImage.SymbolConfiguration(paletteColors: [.systemGreen])
+            let image = NSImage(systemSymbolName: "waveform.badge.mic", accessibilityDescription: "Meeting")!
+                .withSymbolConfiguration(size.applying(color))!
+            image.isTemplate = false
+            button.contentTintColor = nil
+            button.image = image
         }
     }
 
@@ -231,6 +264,16 @@ class MenuBarManager: NSObject {
             appState.stopRecording()
         } else {
             appState.startRecording()
+        }
+    }
+
+    @objc private func toggleMeeting() {
+        if #available(macOS 14.2, *) {
+            if appState.isMeetingActive {
+                appState.stopMeeting()
+            } else {
+                appState.startMeeting()
+            }
         }
     }
 
@@ -254,6 +297,29 @@ class MenuBarManager: NSObject {
             NSPasteboard.general.setString(text, forType: .string)
             NSLog("[Parakatt] Copied transcription to clipboard")
         }
+    }
+
+    @objc private func openHistory() {
+        if let w = historyWindow, w.isVisible {
+            w.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let view = TranscriptionHistoryView().environmentObject(appState)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 650, height: 500),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Transcription History"
+        window.contentView = NSHostingView(rootView: view)
+        window.center()
+        window.isReleasedWhenClosed = false
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        historyWindow = window
     }
 
     @objc private func openSettings() {
