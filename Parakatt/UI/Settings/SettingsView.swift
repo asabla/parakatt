@@ -477,8 +477,6 @@ struct LlmSettingsView: View {
             appState.llmBaseUrl = "http://localhost:1234"
         case "openai":
             appState.llmBaseUrl = "https://api.openai.com"
-        case "anthropic":
-            appState.llmBaseUrl = "https://api.anthropic.com"
         default:
             break
         }

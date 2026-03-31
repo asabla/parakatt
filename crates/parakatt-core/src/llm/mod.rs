@@ -2,7 +2,6 @@
 ///
 /// LLM providers are used for post-processing transcribed text:
 /// grammar correction, formatting, context-aware rewriting, etc.
-
 pub mod anthropic;
 pub mod ollama;
 pub mod openai;
@@ -18,6 +17,26 @@ pub struct LlmRequest {
     pub system_prompt: String,
     /// Optional context about the focused application.
     pub context: Option<crate::AppContext>,
+}
+
+impl LlmRequest {
+    /// Format the optional application context into a human-readable string.
+    /// Returns `None` if no context fields are set.
+    pub fn format_context(&self) -> Option<String> {
+        let ctx = self.context.as_ref()?;
+        let mut parts = Vec::new();
+        if let Some(app) = &ctx.app_name {
+            parts.push(format!("Active application: {app}"));
+        }
+        if let Some(selected) = &ctx.selected_text {
+            parts.push(format!("Selected text: {selected}"));
+        }
+        if parts.is_empty() {
+            None
+        } else {
+            Some(format!("Context:\n{}", parts.join("\n")))
+        }
+    }
 }
 
 /// Trait that all LLM backends must implement.

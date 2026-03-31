@@ -35,19 +35,8 @@ impl LlmProvider for AnthropicProvider {
     fn process(&self, request: &LlmRequest) -> Result<String, CoreError> {
         let mut user_content = request.text.clone();
 
-        // Append context if available
-        if let Some(ctx) = &request.context {
-            let mut context_parts = Vec::new();
-            if let Some(app) = &ctx.app_name {
-                context_parts.push(format!("Active application: {app}"));
-            }
-            if let Some(selected) = &ctx.selected_text {
-                context_parts.push(format!("Selected text: {selected}"));
-            }
-            if !context_parts.is_empty() {
-                user_content =
-                    format!("Context:\n{}\n\n{}", context_parts.join("\n"), user_content);
-            }
+        if let Some(ctx_text) = request.format_context() {
+            user_content = format!("{ctx_text}\n\n{user_content}");
         }
 
         log::info!(
