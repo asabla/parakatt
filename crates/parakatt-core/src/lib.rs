@@ -6,6 +6,8 @@ pub mod engine;
 pub mod llm;
 pub mod models;
 pub mod modes;
+pub mod session;
+pub mod storage;
 pub mod stt;
 
 uniffi::setup_scaffolding!();
@@ -38,7 +40,7 @@ pub struct TranscriptionResult {
 }
 
 /// Context about the currently focused application, passed from Swift.
-#[derive(Debug, Clone, Default, uniffi::Record)]
+#[derive(Debug, Clone, Default, serde::Serialize, uniffi::Record)]
 pub struct AppContext {
     pub app_bundle_id: Option<String>,
     pub app_name: Option<String>,

@@ -10,6 +10,8 @@ use crate::dictionary::Dictionary;
 use crate::llm::{LlmProvider, LlmRequest};
 use crate::modes;
 use crate::models;
+use crate::session::{ChunkResult, SessionManager};
+use crate::storage::{Storage, StoredTranscription, TranscriptionQuery};
 use crate::stt::SttProvider;
 use crate::stt::parakeet::ParakeetProvider;
 use crate::download::{DownloadProgress, DownloadState};
@@ -29,6 +31,8 @@ pub struct Engine {
     dictionary: Mutex<Dictionary>,
     download_progress: Arc<Mutex<DownloadProgress>>,
     download_cancel: Arc<AtomicBool>,
+    sessions: Mutex<SessionManager>,
+    storage: Mutex<Storage>,
 }
 
 #[uniffi::export]
@@ -63,13 +67,15 @@ impl Engine {
 
         let engine = Self {
             models_dir,
-            config_dir,
+            config_dir: config_dir.clone(),
             config: Mutex::new(config),
             stt: Mutex::new(None),
             llm: Mutex::new(None),
             dictionary: Mutex::new(dictionary),
             download_progress: Arc::new(Mutex::new(DownloadProgress::idle())),
             download_cancel: Arc::new(AtomicBool::new(false)),
+            sessions: Mutex::new(SessionManager::new()),
+            storage: Mutex::new(Storage::open(&config_dir)?),
         };
 
         // Don't auto-load the model in the constructor — model loading
@@ -162,7 +168,7 @@ impl Engine {
                     let llm_request = LlmRequest {
                         text: result.text.clone(),
                         system_prompt,
-                        context: Some(ctx),
+                        context: Some(ctx.clone()),
                     };
 
                     match llm.process(&llm_request) {
@@ -182,6 +188,9 @@ impl Engine {
                 }
             }
         }
+
+        // Auto-save to history.
+        self.auto_save_transcription(&result, "push_to_talk", &mode, "mic", &ctx);
 
         Ok(result)
     }
@@ -482,9 +491,251 @@ impl Engine {
 
         Ok(())
     }
+
+    // --- Session-based chunked transcription (for meetings / long-form audio) ---
+
+    /// Start a new chunked transcription session.
+    pub fn start_session(&self, session_id: String) -> Result<(), CoreError> {
+        let mut mgr = self.sessions.lock().map_err(|e| {
+            CoreError::TranscriptionFailed(format!("Session lock poisoned: {e}"))
+        })?;
+        mgr.start(&session_id)
+    }
+
+    /// Process one audio chunk within a session.
+    ///
+    /// The audio is preprocessed and transcribed via STT, then stitched into
+    /// the session's accumulated transcript with overlap deduplication.
+    pub fn process_chunk(
+        &self,
+        session_id: String,
+        audio_samples: Vec<f32>,
+        sample_rate: u32,
+        _chunk_index: u32,
+    ) -> Result<ChunkResult, CoreError> {
+        // Preprocess audio (validate, trim silence, normalize).
+        let processed = crate::audio::preprocess(&audio_samples, sample_rate)?;
+
+        let chunk_duration_secs = audio_samples.len() as f64 / sample_rate as f64;
+
+        // Run STT on this chunk.
+        let stt_guard = self.stt.lock().map_err(|e| {
+            CoreError::TranscriptionFailed(format!("STT lock poisoned: {e}"))
+        })?;
+        let stt = stt_guard.as_ref().ok_or_else(|| {
+            CoreError::TranscriptionFailed("No STT model loaded".into())
+        })?;
+        let stt_result = stt.transcribe(&processed, sample_rate)?;
+        drop(stt_guard);
+
+        // Stitch into session with overlap dedup.
+        let mut mgr = self.sessions.lock().map_err(|e| {
+            CoreError::TranscriptionFailed(format!("Session lock poisoned: {e}"))
+        })?;
+        mgr.add_chunk(&session_id, &stt_result.text, chunk_duration_secs)
+    }
+
+    /// Finish a session: apply dictionary + LLM post-processing to the full
+    /// accumulated text, then return the final result.
+    pub fn finish_session(
+        &self,
+        session_id: String,
+        mode: String,
+        context: Option<AppContext>,
+    ) -> Result<TranscriptionResult, CoreError> {
+        // Extract accumulated text and duration from the session.
+        let mut mgr = self.sessions.lock().map_err(|e| {
+            CoreError::TranscriptionFailed(format!("Session lock poisoned: {e}"))
+        })?;
+        let (mut text, duration_secs) = mgr.finish(&session_id)?;
+        drop(mgr);
+
+        // Apply dictionary replacements.
+        let ctx = context.unwrap_or_default();
+        let dict_guard = self.dictionary.lock().map_err(|e| {
+            CoreError::TranscriptionFailed(format!("Dictionary lock poisoned: {e}"))
+        })?;
+        text = dict_guard.apply(&text, &ctx, &mode);
+        drop(dict_guard);
+
+        // Apply LLM post-processing if the mode has a system prompt.
+        let config_guard = self.config.lock().map_err(|e| {
+            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
+        })?;
+        let all_modes = if config_guard.modes.is_empty() {
+            modes::default_modes()
+        } else {
+            config_guard.modes.clone()
+        };
+        drop(config_guard);
+
+        if let Some(mode_config) = modes::find_mode(&all_modes, &mode) {
+            if let Some(base_prompt) = &mode_config.system_prompt {
+                if !text.trim().is_empty() {
+                    let llm_guard = self.llm.lock().map_err(|e| {
+                        CoreError::LlmError(format!("LLM lock poisoned: {e}"))
+                    })?;
+
+                    if let Some(llm) = llm_guard.as_ref() {
+                        let dict_guard = self.dictionary.lock().map_err(|e| {
+                            CoreError::LlmError(format!("Dictionary lock poisoned: {e}"))
+                        })?;
+                        let domain_words: Vec<String> = dict_guard
+                            .rules()
+                            .iter()
+                            .filter(|r| r.pattern == r.replacement && r.enabled)
+                            .map(|r| r.pattern.clone())
+                            .collect();
+                        drop(dict_guard);
+
+                        let mut system_prompt = base_prompt.clone();
+                        if !domain_words.is_empty() {
+                            system_prompt.push_str(&format!(
+                                "\n\nDomain-specific vocabulary (use these exact spellings when \
+                                 the transcription contains similar-sounding words): {}",
+                                domain_words.join(", ")
+                            ));
+                        }
+
+                        let llm_request = LlmRequest {
+                            text: text.clone(),
+                            system_prompt,
+                            context: Some(ctx.clone()),
+                        };
+
+                        match llm.process(&llm_request) {
+                            Ok(processed_text) => {
+                                text = processed_text;
+                            }
+                            Err(e) => {
+                                log::warn!(
+                                    "LLM processing failed on session finish, using raw text: {e}"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let result = TranscriptionResult {
+            text,
+            duration_secs,
+            provider_name: "parakeet".to_string(),
+        };
+
+        // Auto-save to history.
+        self.auto_save_transcription(&result, "meeting", &mode, "mixed", &ctx);
+
+        Ok(result)
+    }
+
+    /// Cancel and discard a session.
+    pub fn cancel_session(&self, session_id: String) {
+        if let Ok(mut mgr) = self.sessions.lock() {
+            mgr.cancel(&session_id);
+        }
+    }
+
+    // --- Transcription history CRUD ---
+
+    /// Save a transcription to history (for external callers).
+    pub fn save_transcription(&self, transcription: StoredTranscription) -> Result<String, CoreError> {
+        let storage = self.storage.lock().map_err(|e| {
+            CoreError::IoError(format!("Storage lock poisoned: {e}"))
+        })?;
+        storage.save(&transcription)
+    }
+
+    /// List transcriptions with optional filtering and search.
+    pub fn list_transcriptions(&self, query: TranscriptionQuery) -> Result<Vec<StoredTranscription>, CoreError> {
+        let storage = self.storage.lock().map_err(|e| {
+            CoreError::IoError(format!("Storage lock poisoned: {e}"))
+        })?;
+        storage.list(&query)
+    }
+
+    /// Search transcriptions using full-text search.
+    pub fn search_transcriptions(&self, search_text: String) -> Result<Vec<StoredTranscription>, CoreError> {
+        let query = TranscriptionQuery {
+            search_text: Some(search_text),
+            source_filter: None,
+            limit: 50,
+            offset: 0,
+        };
+        let storage = self.storage.lock().map_err(|e| {
+            CoreError::IoError(format!("Storage lock poisoned: {e}"))
+        })?;
+        storage.list(&query)
+    }
+
+    /// Get a single transcription by ID.
+    pub fn get_transcription(&self, id: String) -> Result<StoredTranscription, CoreError> {
+        let storage = self.storage.lock().map_err(|e| {
+            CoreError::IoError(format!("Storage lock poisoned: {e}"))
+        })?;
+        storage.get(&id)
+    }
+
+    /// Update the title of a transcription.
+    pub fn update_transcription_title(&self, id: String, title: String) -> Result<(), CoreError> {
+        let storage = self.storage.lock().map_err(|e| {
+            CoreError::IoError(format!("Storage lock poisoned: {e}"))
+        })?;
+        storage.update_title(&id, &title)
+    }
+
+    /// Delete a transcription from history.
+    pub fn delete_transcription(&self, id: String) -> Result<(), CoreError> {
+        let storage = self.storage.lock().map_err(|e| {
+            CoreError::IoError(format!("Storage lock poisoned: {e}"))
+        })?;
+        storage.delete(&id)
+    }
 }
 
 impl Engine {
+    /// Auto-save a transcription result to storage. Failures are logged, not propagated.
+    fn auto_save_transcription(
+        &self,
+        result: &TranscriptionResult,
+        source: &str,
+        mode: &str,
+        audio_source: &str,
+        context: &AppContext,
+    ) {
+        if result.text.trim().is_empty() {
+            return;
+        }
+
+        let now = chrono::Utc::now().to_rfc3339();
+        let title = format!(
+            "{} {}",
+            if source == "meeting" { "Meeting" } else { "Note" },
+            chrono::Utc::now().format("%Y-%m-%d %H:%M")
+        );
+
+        let app_context_json = serde_json::to_string(context).ok();
+
+        let transcription = StoredTranscription {
+            id: uuid::Uuid::new_v4().to_string(),
+            created_at: now,
+            duration_secs: result.duration_secs,
+            source: source.to_string(),
+            mode: mode.to_string(),
+            audio_source: Some(audio_source.to_string()),
+            app_context: app_context_json,
+            title: Some(title),
+            text: result.text.clone(),
+        };
+
+        if let Ok(storage) = self.storage.lock() {
+            if let Err(e) = storage.save(&transcription) {
+                log::warn!("Failed to auto-save transcription: {e}");
+            }
+        }
+    }
+
     /// Set up the LLM provider based on current config.
     fn setup_llm_provider(&self) -> Result<(), CoreError> {
         let config_guard = self.config.lock().map_err(|e| {
