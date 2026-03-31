@@ -1,7 +1,7 @@
 import SwiftUI
 import ParakattCore
 
-/// Main history window showing all past transcriptions with search and filtering.
+/// Main history window — master-detail split inspired by Notes.app.
 struct TranscriptionHistoryView: View {
     @EnvironmentObject var appState: AppState
 
@@ -10,90 +10,165 @@ struct TranscriptionHistoryView: View {
     @State private var transcriptions: [StoredTranscription] = []
     @State private var selectedId: String?
 
-    var body: some View {
-        HSplitView {
-            // List pane
-            VStack(spacing: 0) {
-                // Search bar
-                HStack {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundColor(.secondary)
-                    TextField("Search transcriptions...", text: $searchText)
-                        .textFieldStyle(.plain)
-                        .onSubmit { refresh() }
-                        .onChange(of: searchText) { refresh() }
-                }
-                .padding(8)
-                .background(Color(nsColor: .controlBackgroundColor))
+    private enum FilterOption: String, CaseIterable {
+        case all = "All"
+        case notes = "Notes"
+        case meetings = "Meetings"
 
-                // Filter pills
-                HStack(spacing: 6) {
-                    FilterPill(title: "All", isActive: sourceFilter == nil) {
-                        sourceFilter = nil
-                        refresh()
-                    }
-                    FilterPill(title: "Notes", isActive: sourceFilter == "push_to_talk") {
-                        sourceFilter = "push_to_talk"
-                        refresh()
-                    }
-                    FilterPill(title: "Meetings", isActive: sourceFilter == "meeting") {
-                        sourceFilter = "meeting"
-                        refresh()
-                    }
-                    Spacer()
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-
-                Divider()
-
-                // Transcription list
-                if transcriptions.isEmpty {
-                    VStack {
-                        Spacer()
-                        Text("No transcriptions yet")
-                            .foregroundColor(.secondary)
-                        Spacer()
-                    }
-                } else {
-                    List(transcriptions, id: \.id, selection: $selectedId) { item in
-                        TranscriptionRow(item: item)
-                            .contextMenu {
-                                Button("Copy Text") { copyText(item.text) }
-                                Button("Delete", role: .destructive) {
-                                    appState.deleteTranscription(id: item.id)
-                                    if selectedId == item.id { selectedId = nil }
-                                    refresh()
-                                }
-                            }
-                    }
-                }
-            }
-            .frame(minWidth: 250, idealWidth: 300)
-
-            // Detail pane
-            if let id = selectedId, let item = transcriptions.first(where: { $0.id == id }) {
-                TranscriptionDetailView(item: item, onTitleChanged: { newTitle in
-                    appState.updateTranscriptionTitle(id: id, title: newTitle)
-                    refresh()
-                }, onDelete: {
-                    appState.deleteTranscription(id: id)
-                    selectedId = nil
-                    refresh()
-                })
-            } else {
-                VStack {
-                    Spacer()
-                    Text("Select a transcription")
-                        .foregroundColor(.secondary)
-                    Spacer()
-                }
-                .frame(minWidth: 300)
+        var sourceValue: String? {
+            switch self {
+            case .all: nil
+            case .notes: "push_to_talk"
+            case .meetings: "meeting"
             }
         }
-        .frame(minWidth: 600, minHeight: 400)
+
+        var icon: String {
+            switch self {
+            case .all: "tray.full"
+            case .notes: "mic"
+            case .meetings: "person.2"
+            }
+        }
+    }
+
+    private var activeFilter: FilterOption {
+        switch sourceFilter {
+        case "push_to_talk": .notes
+        case "meeting": .meetings
+        default: .all
+        }
+    }
+
+    var body: some View {
+        NavigationSplitView {
+            sidebarContent
+                .navigationSplitViewColumnWidth(min: 280, ideal: 320, max: 420)
+        } detail: {
+            detailContent
+        }
+        .frame(minWidth: 700, minHeight: 480)
         .onAppear { refresh() }
     }
+
+    // MARK: - Sidebar
+
+    @ViewBuilder
+    private var sidebarContent: some View {
+        VStack(spacing: 0) {
+            // Filter as a proper segmented picker
+            Picker("Filter", selection: Binding(
+                get: { activeFilter },
+                set: { option in
+                    sourceFilter = option.sourceValue
+                    refresh()
+                }
+            )) {
+                ForEach(FilterOption.allCases, id: \.self) { option in
+                    Label(option.rawValue, systemImage: option.icon)
+                        .tag(option)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 12)
+            .padding(.top, 8)
+            .padding(.bottom, 6)
+
+            Divider()
+
+            // Transcription list
+            if transcriptions.isEmpty {
+                emptyListView
+            } else {
+                List(transcriptions, id: \.id, selection: $selectedId) { item in
+                    TranscriptionRow(item: item)
+                        .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+                        .listRowSeparator(.visible)
+                        .contextMenu {
+                            Button {
+                                copyText(item.text)
+                            } label: {
+                                Label("Copy Text", systemImage: "doc.on.doc")
+                            }
+                            Divider()
+                            Button(role: .destructive) {
+                                appState.deleteTranscription(id: item.id)
+                                if selectedId == item.id { selectedId = nil }
+                                refresh()
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                        }
+                }
+                .listStyle(.inset(alternatesRowBackgrounds: true))
+            }
+        }
+        .searchable(text: $searchText, prompt: "Search transcriptions")
+        .onChange(of: searchText) { refresh() }
+        .onSubmit(of: .search) { refresh() }
+    }
+
+    // MARK: - Detail
+
+    @ViewBuilder
+    private var detailContent: some View {
+        if let id = selectedId, let item = transcriptions.first(where: { $0.id == id }) {
+            TranscriptionDetailView(item: item, onTitleChanged: { newTitle in
+                appState.updateTranscriptionTitle(id: id, title: newTitle)
+                refresh()
+            }, onDelete: {
+                appState.deleteTranscription(id: id)
+                selectedId = nil
+                refresh()
+            })
+        } else {
+            emptyDetailView
+        }
+    }
+
+    // MARK: - Empty states
+
+    private var emptyListView: some View {
+        VStack(spacing: 12) {
+            Spacer()
+            Image(systemName: "waveform.slash")
+                .font(.system(size: 36, weight: .thin))
+                .foregroundStyle(.quaternary)
+            Text("No transcriptions")
+                .font(.title3)
+                .foregroundStyle(.secondary)
+            if sourceFilter != nil {
+                Text("Try changing the filter or searching for something else.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.center)
+            } else {
+                Text("Transcriptions from voice notes and meetings will appear here.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.center)
+            }
+            Spacer()
+        }
+        .padding(24)
+    }
+
+    private var emptyDetailView: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "doc.text.magnifyingglass")
+                .font(.system(size: 48, weight: .ultraLight))
+                .foregroundStyle(.quaternary)
+            Text("Select a transcription")
+                .font(.title3)
+                .foregroundStyle(.secondary)
+            Text("Choose an item from the sidebar to view its full text.")
+                .font(.callout)
+                .foregroundStyle(.tertiary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: - Helpers
 
     private func refresh() {
         transcriptions = appState.listTranscriptions(
@@ -108,90 +183,112 @@ struct TranscriptionHistoryView: View {
     }
 }
 
-// MARK: - Subviews
-
-private struct FilterPill: View {
-    let title: String
-    let isActive: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Text(title)
-                .font(.caption)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .background(isActive ? Color.accentColor.opacity(0.2) : Color.clear)
-                .cornerRadius(10)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10)
-                        .stroke(isActive ? Color.accentColor : Color.secondary.opacity(0.3), lineWidth: 1)
-                )
-        }
-        .buttonStyle(.plain)
-    }
-}
+// MARK: - Row
 
 private struct TranscriptionRow: View {
     let item: StoredTranscription
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack {
-                Image(systemName: item.source == "meeting" ? "person.2" : "mic")
-                    .font(.caption2)
-                    .foregroundColor(item.source == "meeting" ? .green : .blue)
+        VStack(alignment: .leading, spacing: 4) {
+            // Title line with source badge
+            HStack(spacing: 6) {
+                SourceBadge(source: item.source)
 
                 Text(item.title ?? "Untitled")
-                    .font(.headline)
+                    .font(.system(.body, weight: .medium))
                     .lineLimit(1)
-
-                Spacer()
+                    .truncationMode(.tail)
             }
 
-            HStack {
-                Text(formattedDate(item.createdAt))
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+            // Metadata line
+            HStack(spacing: 8) {
+                Text(relativeDate(item.createdAt))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
 
-                Text(formattedDuration(item.durationSecs))
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                if item.durationSecs >= 1.0 {
+                    Text("·")
+                        .foregroundStyle(.quaternary)
+                    Text(formattedDuration(item.durationSecs))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
             }
 
-            Text(item.text)
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .lineLimit(2)
+            // Text preview
+            if !item.text.isEmpty {
+                Text(item.text)
+                    .font(.subheadline)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(2)
+                    .truncationMode(.tail)
+            }
         }
         .padding(.vertical, 2)
     }
 
-    private func formattedDate(_ iso: String) -> String {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        guard let date = formatter.date(from: iso) else {
-            // Try without fractional seconds
-            formatter.formatOptions = [.withInternetDateTime]
-            guard let date = formatter.date(from: iso) else { return iso }
-            return formatDate(date)
-        }
-        return formatDate(date)
-    }
+    // MARK: - Formatters
 
-    private func formatDate(_ date: Date) -> String {
-        let df = DateFormatter()
-        df.dateStyle = .medium
-        df.timeStyle = .short
-        return df.string(from: date)
+    private func relativeDate(_ iso: String) -> String {
+        guard let date = parseISO(iso) else { return iso }
+
+        let calendar = Calendar.current
+        if calendar.isDateInToday(date) {
+            let tf = DateFormatter()
+            tf.timeStyle = .short
+            tf.dateStyle = .none
+            return "Today \(tf.string(from: date))"
+        } else if calendar.isDateInYesterday(date) {
+            let tf = DateFormatter()
+            tf.timeStyle = .short
+            tf.dateStyle = .none
+            return "Yesterday \(tf.string(from: date))"
+        } else if let daysAgo = calendar.dateComponents([.day], from: date, to: Date()).day, daysAgo < 7 {
+            let df = DateFormatter()
+            df.dateFormat = "EEEE HH:mm"
+            return df.string(from: date)
+        } else {
+            let df = DateFormatter()
+            df.dateStyle = .medium
+            df.timeStyle = .short
+            return df.string(from: date)
+        }
     }
 
     private func formattedDuration(_ secs: Double) -> String {
-        let minutes = Int(secs) / 60
-        let seconds = Int(secs) % 60
-        if minutes > 0 {
-            return "\(minutes)m \(seconds)s"
-        }
+        let totalSeconds = Int(secs)
+        let hours = totalSeconds / 3600
+        let minutes = (totalSeconds % 3600) / 60
+        let seconds = totalSeconds % 60
+        if hours > 0 { return "\(hours)h \(minutes)m" }
+        if minutes > 0 { return "\(minutes)m \(seconds)s" }
         return "\(seconds)s"
+    }
+
+    private func parseISO(_ iso: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: iso) { return date }
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: iso)
+    }
+}
+
+// MARK: - Source badge
+
+private struct SourceBadge: View {
+    let source: String
+
+    private var isMeeting: Bool { source == "meeting" }
+
+    var body: some View {
+        Image(systemName: isMeeting ? "person.2.fill" : "mic.fill")
+            .font(.system(size: 9, weight: .semibold))
+            .foregroundStyle(isMeeting ? .green : .blue)
+            .frame(width: 20, height: 20)
+            .background(
+                (isMeeting ? Color.green : Color.blue).opacity(0.12),
+                in: RoundedRectangle(cornerRadius: 5, style: .continuous)
+            )
     }
 }
