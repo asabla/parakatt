@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 import Combine
 import os.log
 import ParakattCore
@@ -24,11 +24,24 @@ class AppState: ObservableObject {
     @Published var downloadProgress: ParakattCore.DownloadProgress?
     @Published var currentAudioLevel: Float = 0
 
+    // Meeting state
+    @Published var isMeetingActive = false
+    @Published var meetingElapsedTime: TimeInterval = 0
+    @Published var meetingTranscription: String?
+    @Published var meetingLatestChunk: String?
+
     // MARK: - Services
 
     private var audioCaptureService: AudioCaptureService?
     private var textInsertionService: TextInsertionService?
     private var contextService: ContextService?
+    @available(macOS 14.2, *)
+    private var meetingSession: MeetingSessionService? {
+        get { _meetingSession as? MeetingSessionService }
+        set { _meetingSession = newValue }
+    }
+    private var _meetingSession: AnyObject?
+    private var meetingElapsedTimer: Timer?
 
     // MARK: - Audio buffer
 
@@ -103,6 +116,9 @@ class AppState: ObservableObject {
 
     func shutdown() {
         stopRecording()
+        if #available(macOS 14.2, *) {
+            cancelMeeting()
+        }
         bridge = nil
     }
 
@@ -261,6 +277,122 @@ class AppState: ObservableObject {
     func setInputDevice(uid: String) {
         audioCaptureService?.setInputDevice(uid: uid)
         NSLog("[Parakatt] Input device set to: %@", uid)
+    }
+
+    // MARK: - Meeting transcription
+
+    /// Start a meeting transcription session.
+    @available(macOS 14.2, *)
+    func startMeeting() {
+        guard !isMeetingActive else { return }
+        guard engineReady, let bridge else {
+            errorMessage = "Engine not ready"
+            return
+        }
+
+        let session = MeetingSessionService(bridge: bridge)
+
+        session.onChunkTranscribed = { [weak self] newText, accumulated in
+            self?.meetingLatestChunk = newText
+            self?.meetingTranscription = accumulated
+        }
+
+        session.onSessionFinished = { [weak self] result in
+            self?.isMeetingActive = false
+            self?.meetingElapsedTimer?.invalidate()
+            self?.meetingElapsedTimer = nil
+            self?.meetingTranscription = result.text
+            self?.meetingLatestChunk = nil
+            NSLog("[Parakatt] Meeting finished: %.0fs, %d chars", result.durationSecs, result.text.count)
+        }
+
+        session.onError = { [weak self] message in
+            self?.isMeetingActive = false
+            self?.meetingElapsedTimer?.invalidate()
+            self?.meetingElapsedTimer = nil
+            self?.errorMessage = message
+        }
+
+        meetingSession = session
+        isMeetingActive = true
+        meetingTranscription = nil
+        meetingLatestChunk = nil
+        meetingElapsedTime = 0
+
+        // Start elapsed time updates.
+        meetingElapsedTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            if #available(macOS 14.2, *) {
+                self.meetingElapsedTime = self.meetingSession?.elapsedTime ?? 0
+            }
+        }
+
+        do {
+            try session.start()
+        } catch {
+            isMeetingActive = false
+            meetingElapsedTimer?.invalidate()
+            meetingElapsedTimer = nil
+
+            if let audioErr = error as? SystemAudioCaptureError, case .permissionDenied = audioErr {
+                promptForSystemAudioPermission()
+            } else {
+                errorMessage = "Failed to start meeting: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    /// Stop the meeting and finalize the transcription.
+    @available(macOS 14.2, *)
+    func stopMeeting() {
+        guard isMeetingActive else { return }
+        let context = contextService?.currentContext()
+        meetingSession?.stop(mode: activeMode, context: context)
+    }
+
+    /// Cancel the meeting without saving.
+    @available(macOS 14.2, *)
+    func cancelMeeting() {
+        guard isMeetingActive else { return }
+        meetingSession?.cancel()
+        isMeetingActive = false
+        meetingElapsedTimer?.invalidate()
+        meetingElapsedTimer = nil
+        meetingTranscription = nil
+        meetingLatestChunk = nil
+    }
+
+    // MARK: - Transcription history
+
+    func listTranscriptions(
+        searchText: String? = nil,
+        sourceFilter: String? = nil,
+        limit: UInt32 = 50,
+        offset: UInt32 = 0
+    ) -> [StoredTranscription] {
+        let query = TranscriptionQuery(
+            searchText: searchText,
+            sourceFilter: sourceFilter,
+            limit: limit,
+            offset: offset
+        )
+        return (try? bridge?.listTranscriptions(query: query)) ?? []
+    }
+
+    func searchTranscriptions(query: String) -> [StoredTranscription] {
+        (try? bridge?.searchTranscriptions(searchText: query)) ?? []
+    }
+
+    func getTranscription(id: String) -> StoredTranscription? {
+        try? bridge?.getTranscription(id: id)
+    }
+
+    func updateTranscriptionTitle(id: String, title: String) {
+        try? bridge?.updateTranscriptionTitle(id: id, title: title)
+    }
+
+    func deleteTranscription(id: String) {
+        try? bridge?.deleteTranscription(id: id)
     }
 
     // MARK: - Model management
@@ -505,6 +637,28 @@ class AppState: ObservableObject {
         sampleCount += 1
         if sampleCount % 50 == 1 {
             NSLog("[Parakatt] Audio callback #%d, buffer: %d samples (%.1fs)", sampleCount, total, Double(total) / 16000.0)
+        }
+    }
+
+    // MARK: - Permission helpers
+
+    private func promptForSystemAudioPermission() {
+        DispatchQueue.main.async {
+            let alert = NSAlert()
+            alert.messageText = "System Audio Recording Permission Required"
+            alert.informativeText = "Parakatt needs permission to capture system audio for meeting transcription.\n\nClick \"Open System Settings\" and enable Parakatt under Screen & System Audio Recording, then try starting the meeting again."
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "Open System Settings")
+            alert.addButton(withTitle: "Cancel")
+
+            NSApp.activate(ignoringOtherApps: true)
+            let response = alert.runModal()
+
+            if response == .alertFirstButtonReturn {
+                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+                    NSWorkspace.shared.open(url)
+                }
+            }
         }
     }
 

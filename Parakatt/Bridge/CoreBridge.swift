@@ -107,4 +107,79 @@ class CoreBridge {
     func deleteModel(_ modelId: String) throws {
         try engine.deleteModel(modelId: modelId)
     }
+
+    // MARK: - Session-based chunked transcription (meetings / long-form)
+
+    /// Start a new chunked transcription session.
+    func startSession(sessionId: String) throws {
+        try engine.startSession(sessionId: sessionId)
+    }
+
+    /// Process one audio chunk within a session.
+    func processChunk(
+        sessionId: String,
+        audioSamples: [Float],
+        sampleRate: UInt32,
+        chunkIndex: UInt32
+    ) throws -> ChunkResult {
+        try engine.processChunk(
+            sessionId: sessionId,
+            audioSamples: audioSamples,
+            sampleRate: sampleRate,
+            chunkIndex: chunkIndex
+        )
+    }
+
+    /// Finish a session, applying dictionary + LLM post-processing.
+    func finishSession(
+        sessionId: String,
+        mode: String,
+        context: AppContextInfo?
+    ) throws -> TranscriptionResult {
+        let ctx = context.map {
+            AppContext(
+                appBundleId: $0.appBundleId,
+                appName: $0.appName,
+                selectedText: $0.selectedText,
+                windowTitle: $0.windowTitle
+            )
+        }
+        return try engine.finishSession(
+            sessionId: sessionId,
+            mode: mode,
+            context: ctx
+        )
+    }
+
+    /// Cancel and discard a session.
+    func cancelSession(sessionId: String) {
+        engine.cancelSession(sessionId: sessionId)
+    }
+
+    // MARK: - Transcription history
+
+    /// List transcriptions with optional filtering and search.
+    func listTranscriptions(query: TranscriptionQuery) throws -> [StoredTranscription] {
+        try engine.listTranscriptions(query: query)
+    }
+
+    /// Full-text search across all transcriptions.
+    func searchTranscriptions(searchText: String) throws -> [StoredTranscription] {
+        try engine.searchTranscriptions(searchText: searchText)
+    }
+
+    /// Get a single transcription by ID.
+    func getTranscription(id: String) throws -> StoredTranscription {
+        try engine.getTranscription(id: id)
+    }
+
+    /// Update the title of a transcription.
+    func updateTranscriptionTitle(id: String, title: String) throws {
+        try engine.updateTranscriptionTitle(id: id, title: title)
+    }
+
+    /// Delete a transcription from history.
+    func deleteTranscription(id: String) throws {
+        try engine.deleteTranscription(id: id)
+    }
 }

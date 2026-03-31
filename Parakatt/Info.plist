@@ -26,5 +26,7 @@
 	<string>Parakatt needs accessibility access to insert transcribed text into other applications.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Parakatt needs microphone access to transcribe your voice.</string>
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>Parakatt needs Screen Recording access to capture system audio for meeting transcription.</string>
 </dict>
 </plist>
