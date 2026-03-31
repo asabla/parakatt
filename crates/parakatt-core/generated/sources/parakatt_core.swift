@@ -559,6 +559,11 @@ public protocol EngineProtocol: AnyObject, Sendable {
     func cancelDownload() 
     
     /**
+     * Cancel and discard a session.
+     */
+    func cancelSession(sessionId: String) 
+    
+    /**
      * Configure the LLM provider at runtime.
      * provider: "ollama", "lmstudio", "openai", or "" to disable.
      * base_url: server URL (e.g. "http://localhost:11434").
@@ -573,6 +578,17 @@ public protocol EngineProtocol: AnyObject, Sendable {
     func deleteModel(modelId: String) throws 
     
     /**
+     * Delete a transcription from history.
+     */
+    func deleteTranscription(id: String) throws 
+    
+    /**
+     * Finish a session: apply dictionary + LLM post-processing to the full
+     * accumulated text, then return the final result.
+     */
+    func finishSession(sessionId: String, mode: String, context: AppContext?) throws  -> TranscriptionResult
+    
+    /**
      * Get current dictionary rules.
      */
     func getDictionaryRules()  -> [ReplacementRule]
@@ -581,6 +597,11 @@ public protocol EngineProtocol: AnyObject, Sendable {
      * Get current download progress. Poll this from Swift on a timer.
      */
     func getDownloadProgress()  -> DownloadProgress
+    
+    /**
+     * Get a single transcription by ID.
+     */
+    func getTranscription(id: String) throws  -> StoredTranscription
     
     /**
      * Check if an STT model is currently loaded.
@@ -604,9 +625,32 @@ public protocol EngineProtocol: AnyObject, Sendable {
     func listModes()  -> [ModeConfig]
     
     /**
+     * List transcriptions with optional filtering and search.
+     */
+    func listTranscriptions(query: TranscriptionQuery) throws  -> [StoredTranscription]
+    
+    /**
      * Load an STT model by ID.
      */
     func loadModel(modelId: String) throws 
+    
+    /**
+     * Process one audio chunk within a session.
+     *
+     * The audio is preprocessed and transcribed via STT, then stitched into
+     * the session's accumulated transcript with overlap deduplication.
+     */
+    func processChunk(sessionId: String, audioSamples: [Float], sampleRate: UInt32, chunkIndex: UInt32) throws  -> ChunkResult
+    
+    /**
+     * Save a transcription to history (for external callers).
+     */
+    func saveTranscription(transcription: StoredTranscription) throws  -> String
+    
+    /**
+     * Search transcriptions using full-text search.
+     */
+    func searchTranscriptions(searchText: String) throws  -> [StoredTranscription]
     
     /**
      * Update the dictionary rules.
@@ -620,6 +664,11 @@ public protocol EngineProtocol: AnyObject, Sendable {
     func startDownload(modelId: String) throws 
     
     /**
+     * Start a new chunked transcription session.
+     */
+    func startSession(sessionId: String) throws 
+    
+    /**
      * Run the full transcription pipeline.
      */
     func transcribe(audioSamples: [Float], sampleRate: UInt32, mode: String, context: AppContext?) throws  -> TranscriptionResult
@@ -628,6 +677,11 @@ public protocol EngineProtocol: AnyObject, Sendable {
      * Unload the current STT model to free resources.
      */
     func unloadModel() 
+    
+    /**
+     * Update the title of a transcription.
+     */
+    func updateTranscriptionTitle(id: String, title: String) throws 
     
 }
 /**
@@ -708,6 +762,17 @@ open func cancelDownload()  {try! rustCall() {
 }
     
     /**
+     * Cancel and discard a session.
+     */
+open func cancelSession(sessionId: String)  {try! rustCall() {
+    uniffi_parakatt_core_fn_method_engine_cancel_session(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(sessionId),$0
+    )
+}
+}
+    
+    /**
      * Configure the LLM provider at runtime.
      * provider: "ollama", "lmstudio", "openai", or "" to disable.
      * base_url: server URL (e.g. "http://localhost:11434").
@@ -737,6 +802,32 @@ open func deleteModel(modelId: String)throws   {try rustCallWithError(FfiConvert
 }
     
     /**
+     * Delete a transcription from history.
+     */
+open func deleteTranscription(id: String)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_parakatt_core_fn_method_engine_delete_transcription(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(id),$0
+    )
+}
+}
+    
+    /**
+     * Finish a session: apply dictionary + LLM post-processing to the full
+     * accumulated text, then return the final result.
+     */
+open func finishSession(sessionId: String, mode: String, context: AppContext?)throws  -> TranscriptionResult  {
+    return try  FfiConverterTypeTranscriptionResult_lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_parakatt_core_fn_method_engine_finish_session(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(sessionId),
+        FfiConverterString.lower(mode),
+        FfiConverterOptionTypeAppContext.lower(context),$0
+    )
+})
+}
+    
+    /**
      * Get current dictionary rules.
      */
 open func getDictionaryRules() -> [ReplacementRule]  {
@@ -754,6 +845,18 @@ open func getDownloadProgress() -> DownloadProgress  {
     return try!  FfiConverterTypeDownloadProgress_lift(try! rustCall() {
     uniffi_parakatt_core_fn_method_engine_get_download_progress(
             self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Get a single transcription by ID.
+     */
+open func getTranscription(id: String)throws  -> StoredTranscription  {
+    return try  FfiConverterTypeStoredTranscription_lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_parakatt_core_fn_method_engine_get_transcription(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(id),$0
     )
 })
 }
@@ -807,6 +910,18 @@ open func listModes() -> [ModeConfig]  {
 }
     
     /**
+     * List transcriptions with optional filtering and search.
+     */
+open func listTranscriptions(query: TranscriptionQuery)throws  -> [StoredTranscription]  {
+    return try  FfiConverterSequenceTypeStoredTranscription.lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_parakatt_core_fn_method_engine_list_transcriptions(
+            self.uniffiCloneHandle(),
+        FfiConverterTypeTranscriptionQuery_lower(query),$0
+    )
+})
+}
+    
+    /**
      * Load an STT model by ID.
      */
 open func loadModel(modelId: String)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
@@ -815,6 +930,48 @@ open func loadModel(modelId: String)throws   {try rustCallWithError(FfiConverter
         FfiConverterString.lower(modelId),$0
     )
 }
+}
+    
+    /**
+     * Process one audio chunk within a session.
+     *
+     * The audio is preprocessed and transcribed via STT, then stitched into
+     * the session's accumulated transcript with overlap deduplication.
+     */
+open func processChunk(sessionId: String, audioSamples: [Float], sampleRate: UInt32, chunkIndex: UInt32)throws  -> ChunkResult  {
+    return try  FfiConverterTypeChunkResult_lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_parakatt_core_fn_method_engine_process_chunk(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(sessionId),
+        FfiConverterSequenceFloat.lower(audioSamples),
+        FfiConverterUInt32.lower(sampleRate),
+        FfiConverterUInt32.lower(chunkIndex),$0
+    )
+})
+}
+    
+    /**
+     * Save a transcription to history (for external callers).
+     */
+open func saveTranscription(transcription: StoredTranscription)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_parakatt_core_fn_method_engine_save_transcription(
+            self.uniffiCloneHandle(),
+        FfiConverterTypeStoredTranscription_lower(transcription),$0
+    )
+})
+}
+    
+    /**
+     * Search transcriptions using full-text search.
+     */
+open func searchTranscriptions(searchText: String)throws  -> [StoredTranscription]  {
+    return try  FfiConverterSequenceTypeStoredTranscription.lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_parakatt_core_fn_method_engine_search_transcriptions(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(searchText),$0
+    )
+})
 }
     
     /**
@@ -841,6 +998,17 @@ open func startDownload(modelId: String)throws   {try rustCallWithError(FfiConve
 }
     
     /**
+     * Start a new chunked transcription session.
+     */
+open func startSession(sessionId: String)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_parakatt_core_fn_method_engine_start_session(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(sessionId),$0
+    )
+}
+}
+    
+    /**
      * Run the full transcription pipeline.
      */
 open func transcribe(audioSamples: [Float], sampleRate: UInt32, mode: String, context: AppContext?)throws  -> TranscriptionResult  {
@@ -861,6 +1029,18 @@ open func transcribe(audioSamples: [Float], sampleRate: UInt32, mode: String, co
 open func unloadModel()  {try! rustCall() {
     uniffi_parakatt_core_fn_method_engine_unload_model(
             self.uniffiCloneHandle(),$0
+    )
+}
+}
+    
+    /**
+     * Update the title of a transcription.
+     */
+open func updateTranscriptionTitle(id: String, title: String)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_parakatt_core_fn_method_engine_update_transcription_title(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(id),
+        FfiConverterString.lower(title),$0
     )
 }
 }
@@ -975,6 +1155,85 @@ public func FfiConverterTypeAppContext_lift(_ buf: RustBuffer) throws -> AppCont
 #endif
 public func FfiConverterTypeAppContext_lower(_ value: AppContext) -> RustBuffer {
     return FfiConverterTypeAppContext.lower(value)
+}
+
+
+/**
+ * Result of processing a single audio chunk.
+ */
+public struct ChunkResult: Equatable, Hashable {
+    /**
+     * New text from this chunk (after overlap dedup).
+     */
+    public var text: String
+    /**
+     * Zero-based index of this chunk.
+     */
+    public var chunkIndex: UInt32
+    /**
+     * Accumulated full transcript so far.
+     */
+    public var accumulatedText: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * New text from this chunk (after overlap dedup).
+         */text: String, 
+        /**
+         * Zero-based index of this chunk.
+         */chunkIndex: UInt32, 
+        /**
+         * Accumulated full transcript so far.
+         */accumulatedText: String) {
+        self.text = text
+        self.chunkIndex = chunkIndex
+        self.accumulatedText = accumulatedText
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ChunkResult: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeChunkResult: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ChunkResult {
+        return
+            try ChunkResult(
+                text: FfiConverterString.read(from: &buf), 
+                chunkIndex: FfiConverterUInt32.read(from: &buf), 
+                accumulatedText: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ChunkResult, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.text, into: &buf)
+        FfiConverterUInt32.write(value.chunkIndex, into: &buf)
+        FfiConverterString.write(value.accumulatedText, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeChunkResult_lift(_ buf: RustBuffer) throws -> ChunkResult {
+    return try FfiConverterTypeChunkResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeChunkResult_lower(_ value: ChunkResult) -> RustBuffer {
+    return FfiConverterTypeChunkResult.lower(value)
 }
 
 
@@ -1350,6 +1609,174 @@ public func FfiConverterTypeReplacementRule_lift(_ buf: RustBuffer) throws -> Re
 #endif
 public func FfiConverterTypeReplacementRule_lower(_ value: ReplacementRule) -> RustBuffer {
     return FfiConverterTypeReplacementRule.lower(value)
+}
+
+
+/**
+ * A persisted transcription record.
+ */
+public struct StoredTranscription: Equatable, Hashable {
+    public var id: String
+    public var createdAt: String
+    public var durationSecs: Double
+    /**
+     * "push_to_talk" or "meeting"
+     */
+    public var source: String
+    public var mode: String
+    public var audioSource: String?
+    public var appContext: String?
+    public var title: String?
+    public var text: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, createdAt: String, durationSecs: Double, 
+        /**
+         * "push_to_talk" or "meeting"
+         */source: String, mode: String, audioSource: String?, appContext: String?, title: String?, text: String) {
+        self.id = id
+        self.createdAt = createdAt
+        self.durationSecs = durationSecs
+        self.source = source
+        self.mode = mode
+        self.audioSource = audioSource
+        self.appContext = appContext
+        self.title = title
+        self.text = text
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension StoredTranscription: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeStoredTranscription: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> StoredTranscription {
+        return
+            try StoredTranscription(
+                id: FfiConverterString.read(from: &buf), 
+                createdAt: FfiConverterString.read(from: &buf), 
+                durationSecs: FfiConverterDouble.read(from: &buf), 
+                source: FfiConverterString.read(from: &buf), 
+                mode: FfiConverterString.read(from: &buf), 
+                audioSource: FfiConverterOptionString.read(from: &buf), 
+                appContext: FfiConverterOptionString.read(from: &buf), 
+                title: FfiConverterOptionString.read(from: &buf), 
+                text: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: StoredTranscription, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.createdAt, into: &buf)
+        FfiConverterDouble.write(value.durationSecs, into: &buf)
+        FfiConverterString.write(value.source, into: &buf)
+        FfiConverterString.write(value.mode, into: &buf)
+        FfiConverterOptionString.write(value.audioSource, into: &buf)
+        FfiConverterOptionString.write(value.appContext, into: &buf)
+        FfiConverterOptionString.write(value.title, into: &buf)
+        FfiConverterString.write(value.text, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeStoredTranscription_lift(_ buf: RustBuffer) throws -> StoredTranscription {
+    return try FfiConverterTypeStoredTranscription.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeStoredTranscription_lower(_ value: StoredTranscription) -> RustBuffer {
+    return FfiConverterTypeStoredTranscription.lower(value)
+}
+
+
+/**
+ * Query parameters for listing/searching transcriptions.
+ */
+public struct TranscriptionQuery: Equatable, Hashable {
+    /**
+     * FTS5 search query (if empty, no text filter is applied).
+     */
+    public var searchText: String?
+    /**
+     * Filter by source ("push_to_talk", "meeting", or None for all).
+     */
+    public var sourceFilter: String?
+    public var limit: UInt32
+    public var offset: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * FTS5 search query (if empty, no text filter is applied).
+         */searchText: String?, 
+        /**
+         * Filter by source ("push_to_talk", "meeting", or None for all).
+         */sourceFilter: String?, limit: UInt32, offset: UInt32) {
+        self.searchText = searchText
+        self.sourceFilter = sourceFilter
+        self.limit = limit
+        self.offset = offset
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension TranscriptionQuery: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTranscriptionQuery: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TranscriptionQuery {
+        return
+            try TranscriptionQuery(
+                searchText: FfiConverterOptionString.read(from: &buf), 
+                sourceFilter: FfiConverterOptionString.read(from: &buf), 
+                limit: FfiConverterUInt32.read(from: &buf), 
+                offset: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: TranscriptionQuery, into buf: inout [UInt8]) {
+        FfiConverterOptionString.write(value.searchText, into: &buf)
+        FfiConverterOptionString.write(value.sourceFilter, into: &buf)
+        FfiConverterUInt32.write(value.limit, into: &buf)
+        FfiConverterUInt32.write(value.offset, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTranscriptionQuery_lift(_ buf: RustBuffer) throws -> TranscriptionQuery {
+    return try FfiConverterTypeTranscriptionQuery.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTranscriptionQuery_lower(_ value: TranscriptionQuery) -> RustBuffer {
+    return FfiConverterTypeTranscriptionQuery.lower(value)
 }
 
 
@@ -1832,6 +2259,31 @@ fileprivate struct FfiConverterSequenceTypeReplacementRule: FfiConverterRustBuff
     }
 }
 
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeStoredTranscription: FfiConverterRustBuffer {
+    typealias SwiftType = [StoredTranscription]
+
+    public static func write(_ value: [StoredTranscription], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeStoredTranscription.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [StoredTranscription] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [StoredTranscription]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeStoredTranscription.read(from: &buf))
+        }
+        return seq
+    }
+}
+
 private enum InitializationResult {
     case ok
     case contractVersionMismatch
@@ -1850,16 +2302,28 @@ private let initializationResult: InitializationResult = {
     if (uniffi_parakatt_core_checksum_method_engine_cancel_download() != 60120) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_parakatt_core_checksum_method_engine_cancel_session() != 39669) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_parakatt_core_checksum_method_engine_configure_llm() != 30842) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_parakatt_core_checksum_method_engine_delete_model() != 27097) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_parakatt_core_checksum_method_engine_delete_transcription() != 49319) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_parakatt_core_checksum_method_engine_finish_session() != 32849) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_parakatt_core_checksum_method_engine_get_dictionary_rules() != 46695) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_parakatt_core_checksum_method_engine_get_download_progress() != 47159) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_parakatt_core_checksum_method_engine_get_transcription() != 25037) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_parakatt_core_checksum_method_engine_is_model_loaded() != 53435) {
@@ -1874,7 +2338,19 @@ private let initializationResult: InitializationResult = {
     if (uniffi_parakatt_core_checksum_method_engine_list_modes() != 48693) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_parakatt_core_checksum_method_engine_list_transcriptions() != 45332) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_parakatt_core_checksum_method_engine_load_model() != 48085) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_parakatt_core_checksum_method_engine_process_chunk() != 5590) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_parakatt_core_checksum_method_engine_save_transcription() != 46197) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_parakatt_core_checksum_method_engine_search_transcriptions() != 18275) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_parakatt_core_checksum_method_engine_set_dictionary_rules() != 25557) {
@@ -1883,10 +2359,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_parakatt_core_checksum_method_engine_start_download() != 46748) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_parakatt_core_checksum_method_engine_start_session() != 1813) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_parakatt_core_checksum_method_engine_transcribe() != 34463) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_parakatt_core_checksum_method_engine_unload_model() != 36456) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_parakatt_core_checksum_method_engine_update_transcription_title() != 57887) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_parakatt_core_checksum_constructor_engine_new() != 40550) {

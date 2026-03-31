@@ -263,6 +263,11 @@ uint64_t uniffi_parakatt_core_fn_constructor_engine_new(RustBuffer engine_config
 void uniffi_parakatt_core_fn_method_engine_cancel_download(uint64_t ptr, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_CANCEL_SESSION
+#define UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_CANCEL_SESSION
+void uniffi_parakatt_core_fn_method_engine_cancel_session(uint64_t ptr, RustBuffer session_id, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_CONFIGURE_LLM
 #define UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_CONFIGURE_LLM
 void uniffi_parakatt_core_fn_method_engine_configure_llm(uint64_t ptr, RustBuffer provider, RustBuffer base_url, RustBuffer model, RustBuffer api_key, RustCallStatus *_Nonnull out_status
@@ -273,6 +278,16 @@ void uniffi_parakatt_core_fn_method_engine_configure_llm(uint64_t ptr, RustBuffe
 void uniffi_parakatt_core_fn_method_engine_delete_model(uint64_t ptr, RustBuffer model_id, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_DELETE_TRANSCRIPTION
+#define UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_DELETE_TRANSCRIPTION
+void uniffi_parakatt_core_fn_method_engine_delete_transcription(uint64_t ptr, RustBuffer id, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_FINISH_SESSION
+#define UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_FINISH_SESSION
+RustBuffer uniffi_parakatt_core_fn_method_engine_finish_session(uint64_t ptr, RustBuffer session_id, RustBuffer mode, RustBuffer context, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_GET_DICTIONARY_RULES
 #define UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_GET_DICTIONARY_RULES
 RustBuffer uniffi_parakatt_core_fn_method_engine_get_dictionary_rules(uint64_t ptr, RustCallStatus *_Nonnull out_status
@@ -281,6 +296,11 @@ RustBuffer uniffi_parakatt_core_fn_method_engine_get_dictionary_rules(uint64_t p
 #ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_GET_DOWNLOAD_PROGRESS
 #define UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_GET_DOWNLOAD_PROGRESS
 RustBuffer uniffi_parakatt_core_fn_method_engine_get_download_progress(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_GET_TRANSCRIPTION
+#define UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_GET_TRANSCRIPTION
+RustBuffer uniffi_parakatt_core_fn_method_engine_get_transcription(uint64_t ptr, RustBuffer id, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_IS_MODEL_LOADED
@@ -303,9 +323,29 @@ RustBuffer uniffi_parakatt_core_fn_method_engine_list_models(uint64_t ptr, RustC
 RustBuffer uniffi_parakatt_core_fn_method_engine_list_modes(uint64_t ptr, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_LIST_TRANSCRIPTIONS
+#define UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_LIST_TRANSCRIPTIONS
+RustBuffer uniffi_parakatt_core_fn_method_engine_list_transcriptions(uint64_t ptr, RustBuffer query, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_LOAD_MODEL
 #define UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_LOAD_MODEL
 void uniffi_parakatt_core_fn_method_engine_load_model(uint64_t ptr, RustBuffer model_id, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_PROCESS_CHUNK
+#define UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_PROCESS_CHUNK
+RustBuffer uniffi_parakatt_core_fn_method_engine_process_chunk(uint64_t ptr, RustBuffer session_id, RustBuffer audio_samples, uint32_t sample_rate, uint32_t _chunk_index, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_SAVE_TRANSCRIPTION
+#define UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_SAVE_TRANSCRIPTION
+RustBuffer uniffi_parakatt_core_fn_method_engine_save_transcription(uint64_t ptr, RustBuffer transcription, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_SEARCH_TRANSCRIPTIONS
+#define UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_SEARCH_TRANSCRIPTIONS
+RustBuffer uniffi_parakatt_core_fn_method_engine_search_transcriptions(uint64_t ptr, RustBuffer search_text, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_SET_DICTIONARY_RULES
@@ -318,6 +358,11 @@ void uniffi_parakatt_core_fn_method_engine_set_dictionary_rules(uint64_t ptr, Ru
 void uniffi_parakatt_core_fn_method_engine_start_download(uint64_t ptr, RustBuffer model_id, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_START_SESSION
+#define UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_START_SESSION
+void uniffi_parakatt_core_fn_method_engine_start_session(uint64_t ptr, RustBuffer session_id, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_TRANSCRIBE
 #define UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_TRANSCRIBE
 RustBuffer uniffi_parakatt_core_fn_method_engine_transcribe(uint64_t ptr, RustBuffer audio_samples, uint32_t sample_rate, RustBuffer mode, RustBuffer context, RustCallStatus *_Nonnull out_status
@@ -326,6 +371,11 @@ RustBuffer uniffi_parakatt_core_fn_method_engine_transcribe(uint64_t ptr, RustBu
 #ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_UNLOAD_MODEL
 #define UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_UNLOAD_MODEL
 void uniffi_parakatt_core_fn_method_engine_unload_model(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_UPDATE_TRANSCRIPTION_TITLE
+#define UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_UPDATE_TRANSCRIPTION_TITLE
+void uniffi_parakatt_core_fn_method_engine_update_transcription_title(uint64_t ptr, RustBuffer id, RustBuffer title, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_FFI_PARAKATT_CORE_RUSTBUFFER_ALLOC
@@ -594,6 +644,12 @@ uint16_t uniffi_parakatt_core_checksum_method_engine_cancel_download(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_CHECKSUM_METHOD_ENGINE_CANCEL_SESSION
+#define UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_CHECKSUM_METHOD_ENGINE_CANCEL_SESSION
+uint16_t uniffi_parakatt_core_checksum_method_engine_cancel_session(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_CHECKSUM_METHOD_ENGINE_CONFIGURE_LLM
 #define UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_CHECKSUM_METHOD_ENGINE_CONFIGURE_LLM
 uint16_t uniffi_parakatt_core_checksum_method_engine_configure_llm(void
@@ -606,6 +662,18 @@ uint16_t uniffi_parakatt_core_checksum_method_engine_delete_model(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_CHECKSUM_METHOD_ENGINE_DELETE_TRANSCRIPTION
+#define UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_CHECKSUM_METHOD_ENGINE_DELETE_TRANSCRIPTION
+uint16_t uniffi_parakatt_core_checksum_method_engine_delete_transcription(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_CHECKSUM_METHOD_ENGINE_FINISH_SESSION
+#define UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_CHECKSUM_METHOD_ENGINE_FINISH_SESSION
+uint16_t uniffi_parakatt_core_checksum_method_engine_finish_session(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_CHECKSUM_METHOD_ENGINE_GET_DICTIONARY_RULES
 #define UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_CHECKSUM_METHOD_ENGINE_GET_DICTIONARY_RULES
 uint16_t uniffi_parakatt_core_checksum_method_engine_get_dictionary_rules(void
@@ -615,6 +683,12 @@ uint16_t uniffi_parakatt_core_checksum_method_engine_get_dictionary_rules(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_CHECKSUM_METHOD_ENGINE_GET_DOWNLOAD_PROGRESS
 #define UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_CHECKSUM_METHOD_ENGINE_GET_DOWNLOAD_PROGRESS
 uint16_t uniffi_parakatt_core_checksum_method_engine_get_download_progress(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_CHECKSUM_METHOD_ENGINE_GET_TRANSCRIPTION
+#define UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_CHECKSUM_METHOD_ENGINE_GET_TRANSCRIPTION
+uint16_t uniffi_parakatt_core_checksum_method_engine_get_transcription(void
     
 );
 #endif
@@ -642,9 +716,33 @@ uint16_t uniffi_parakatt_core_checksum_method_engine_list_modes(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_CHECKSUM_METHOD_ENGINE_LIST_TRANSCRIPTIONS
+#define UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_CHECKSUM_METHOD_ENGINE_LIST_TRANSCRIPTIONS
+uint16_t uniffi_parakatt_core_checksum_method_engine_list_transcriptions(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_CHECKSUM_METHOD_ENGINE_LOAD_MODEL
 #define UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_CHECKSUM_METHOD_ENGINE_LOAD_MODEL
 uint16_t uniffi_parakatt_core_checksum_method_engine_load_model(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_CHECKSUM_METHOD_ENGINE_PROCESS_CHUNK
+#define UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_CHECKSUM_METHOD_ENGINE_PROCESS_CHUNK
+uint16_t uniffi_parakatt_core_checksum_method_engine_process_chunk(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_CHECKSUM_METHOD_ENGINE_SAVE_TRANSCRIPTION
+#define UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_CHECKSUM_METHOD_ENGINE_SAVE_TRANSCRIPTION
+uint16_t uniffi_parakatt_core_checksum_method_engine_save_transcription(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_CHECKSUM_METHOD_ENGINE_SEARCH_TRANSCRIPTIONS
+#define UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_CHECKSUM_METHOD_ENGINE_SEARCH_TRANSCRIPTIONS
+uint16_t uniffi_parakatt_core_checksum_method_engine_search_transcriptions(void
     
 );
 #endif
@@ -660,6 +758,12 @@ uint16_t uniffi_parakatt_core_checksum_method_engine_start_download(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_CHECKSUM_METHOD_ENGINE_START_SESSION
+#define UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_CHECKSUM_METHOD_ENGINE_START_SESSION
+uint16_t uniffi_parakatt_core_checksum_method_engine_start_session(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_CHECKSUM_METHOD_ENGINE_TRANSCRIBE
 #define UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_CHECKSUM_METHOD_ENGINE_TRANSCRIBE
 uint16_t uniffi_parakatt_core_checksum_method_engine_transcribe(void
@@ -669,6 +773,12 @@ uint16_t uniffi_parakatt_core_checksum_method_engine_transcribe(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_CHECKSUM_METHOD_ENGINE_UNLOAD_MODEL
 #define UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_CHECKSUM_METHOD_ENGINE_UNLOAD_MODEL
 uint16_t uniffi_parakatt_core_checksum_method_engine_unload_model(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_CHECKSUM_METHOD_ENGINE_UPDATE_TRANSCRIPTION_TITLE
+#define UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_CHECKSUM_METHOD_ENGINE_UPDATE_TRANSCRIPTION_TITLE
+uint16_t uniffi_parakatt_core_checksum_method_engine_update_transcription_title(void
     
 );
 #endif
