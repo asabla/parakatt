@@ -1,7 +1,8 @@
 import SwiftUI
 import ParakattCore
+import UniformTypeIdentifiers
 
-/// Detail view for a single transcription with full text, metadata, and actions.
+/// Detail view for a single transcription — header, toolbar, scrollable text.
 struct TranscriptionDetailView: View {
     let item: StoredTranscription
     let onTitleChanged: (String) -> Void
@@ -10,136 +11,186 @@ struct TranscriptionDetailView: View {
     @State private var editingTitle = false
     @State private var titleText = ""
     @State private var showDeleteConfirm = false
+    @State private var copied = false
+    @FocusState private var titleFieldFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Header
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    if editingTitle {
-                        TextField("Title", text: $titleText, onCommit: {
-                            onTitleChanged(titleText)
-                            editingTitle = false
-                        })
-                        .textFieldStyle(.roundedBorder)
-                    } else {
-                        Text(item.title ?? "Untitled")
-                            .font(.title2)
-                            .fontWeight(.semibold)
-
-                        Button(action: {
-                            titleText = item.title ?? ""
-                            editingTitle = true
-                        }) {
-                            Image(systemName: "pencil")
-                                .font(.caption)
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundColor(.secondary)
-                    }
-
-                    Spacer()
-                }
-
-                // Metadata
-                HStack(spacing: 12) {
-                    Label(item.source == "meeting" ? "Meeting" : "Note",
-                          systemImage: item.source == "meeting" ? "person.2" : "mic")
-                        .font(.caption)
-                        .foregroundColor(item.source == "meeting" ? .green : .blue)
-
-                    Label(formattedDate(item.createdAt), systemImage: "calendar")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-
-                    Label(formattedDuration(item.durationSecs), systemImage: "clock")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-
-                    if let mode = Optional(item.mode), mode != "dictation" {
-                        Label(mode.capitalized, systemImage: "text.badge.checkmark")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-
-                // Actions
-                HStack(spacing: 8) {
-                    Button("Copy Text") {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(item.text, forType: .string)
-                    }
-
-                    Button("Export as Markdown") {
-                        exportMarkdown()
-                    }
-
-                    Spacer()
-
-                    Button("Delete", role: .destructive) {
-                        showDeleteConfirm = true
-                    }
-                    .foregroundColor(.red)
-                }
-                .font(.caption)
-            }
-            .padding()
-
+            headerSection
             Divider()
-
-            // Full text
-            ScrollView {
-                Text(item.text)
-                    .font(.body)
-                    .textSelection(.enabled)
-                    .padding()
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
+            textSection
         }
-        .frame(minWidth: 300)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .alert("Delete Transcription?", isPresented: $showDeleteConfirm) {
             Button("Cancel", role: .cancel) {}
             Button("Delete", role: .destructive) { onDelete() }
         } message: {
-            Text("This cannot be undone.")
+            Text("This transcription will be permanently removed.")
         }
     }
 
+    // MARK: - Header
+
+    private var headerSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            // Editable title
+            titleView
+
+            // Metadata chips
+            HStack(spacing: 16) {
+                MetadataChip(
+                    icon: item.source == "meeting" ? "person.2.fill" : "mic.fill",
+                    text: item.source == "meeting" ? "Meeting" : "Voice Note",
+                    color: item.source == "meeting" ? .green : .blue
+                )
+
+                MetadataChip(
+                    icon: "calendar",
+                    text: formattedDate(item.createdAt),
+                    color: .secondary
+                )
+
+                if item.durationSecs >= 1.0 {
+                    MetadataChip(
+                        icon: "clock",
+                        text: formattedDuration(item.durationSecs),
+                        color: .secondary
+                    )
+                }
+
+                if item.mode != "dictation" {
+                    MetadataChip(
+                        icon: "text.badge.checkmark",
+                        text: item.mode.capitalized,
+                        color: .secondary
+                    )
+                }
+            }
+
+            // Action toolbar
+            HStack(spacing: 8) {
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(item.text, forType: .string)
+                    withAnimation(.easeInOut(duration: 0.2)) { copied = true }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                        withAnimation(.easeInOut(duration: 0.2)) { copied = false }
+                    }
+                } label: {
+                    Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
+                }
+                .tint(copied ? .green : nil)
+
+                Button {
+                    exportMarkdown()
+                } label: {
+                    Label("Export", systemImage: "square.and.arrow.up")
+                }
+
+                Spacer()
+
+                Button(role: .destructive) {
+                    showDeleteConfirm = true
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+                .tint(.red)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
+        .padding(16)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.4))
+    }
+
+    // MARK: - Title
+
+    @ViewBuilder
+    private var titleView: some View {
+        if editingTitle {
+            TextField("Title", text: $titleText)
+                .font(.title2.weight(.semibold))
+                .textFieldStyle(.plain)
+                .focused($titleFieldFocused)
+                .onSubmit { commitTitle() }
+                .onExitCommand { cancelTitleEdit() }
+                .onAppear { titleFieldFocused = true }
+        } else {
+            Text(item.title ?? "Untitled")
+                .font(.title2.weight(.semibold))
+                .lineLimit(2)
+                .onTapGesture(count: 2) { beginTitleEdit() }
+                .overlay(alignment: .trailing) {
+                    Button { beginTitleEdit() } label: {
+                        Image(systemName: "pencil.line")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .buttonStyle(.plain)
+                    .offset(x: 24)
+                }
+        }
+    }
+
+    private func beginTitleEdit() {
+        titleText = item.title ?? ""
+        editingTitle = true
+    }
+
+    private func commitTitle() {
+        let trimmed = titleText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            onTitleChanged(trimmed)
+        }
+        editingTitle = false
+    }
+
+    private func cancelTitleEdit() {
+        editingTitle = false
+    }
+
+    // MARK: - Text body
+
+    private var textSection: some View {
+        ScrollView {
+            Text(item.text)
+                .font(.system(.body, design: .default))
+                .lineSpacing(4)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(20)
+        }
+    }
+
+    // MARK: - Export
+
     private func exportMarkdown() {
         let panel = NSSavePanel()
-        panel.allowedContentTypes = [.plainText]
+        panel.allowedContentTypes = [UTType.plainText]
         panel.nameFieldStringValue = "\(item.title ?? "transcription").md"
 
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
-            let markdown = """
+            let md = """
             # \(item.title ?? "Untitled")
 
             **Date:** \(formattedDate(item.createdAt))
             **Duration:** \(formattedDuration(item.durationSecs))
-            **Type:** \(item.source == "meeting" ? "Meeting" : "Note")
+            **Type:** \(item.source == "meeting" ? "Meeting" : "Voice Note")
             **Mode:** \(item.mode)
 
             ---
 
             \(item.text)
             """
-            try? markdown.write(to: url, atomically: true, encoding: .utf8)
+            try? md.write(to: url, atomically: true, encoding: .utf8)
         }
     }
+
+    // MARK: - Formatters
 
     private func formattedDate(_ iso: String) -> String {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        guard let date = formatter.date(from: iso) else {
-            formatter.formatOptions = [.withInternetDateTime]
-            guard let date = formatter.date(from: iso) else { return iso }
-            return formatDate(date)
-        }
-        return formatDate(date)
-    }
-
-    private func formatDate(_ date: Date) -> String {
+        guard let date = parseISO(iso) else { return iso }
         let df = DateFormatter()
         df.dateStyle = .medium
         df.timeStyle = .short
@@ -147,11 +198,39 @@ struct TranscriptionDetailView: View {
     }
 
     private func formattedDuration(_ secs: Double) -> String {
-        let minutes = Int(secs) / 60
-        let seconds = Int(secs) % 60
-        if minutes > 0 {
-            return "\(minutes)m \(seconds)s"
-        }
+        let totalSeconds = Int(secs)
+        let hours = totalSeconds / 3600
+        let minutes = (totalSeconds % 3600) / 60
+        let seconds = totalSeconds % 60
+        if hours > 0 { return "\(hours)h \(minutes)m" }
+        if minutes > 0 { return "\(minutes)m \(seconds)s" }
         return "\(seconds)s"
+    }
+
+    private func parseISO(_ iso: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: iso) { return date }
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: iso)
+    }
+}
+
+// MARK: - Metadata chip
+
+private struct MetadataChip: View {
+    let icon: String
+    let text: String
+    let color: Color
+
+    var body: some View {
+        Label {
+            Text(text)
+                .font(.caption)
+        } icon: {
+            Image(systemName: icon)
+                .font(.caption2)
+        }
+        .foregroundStyle(color)
     }
 }
