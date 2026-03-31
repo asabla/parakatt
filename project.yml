@@ -27,6 +27,7 @@ targets:
         LSUIElement: true
         NSMicrophoneUsageDescription: "Parakatt needs microphone access to transcribe your voice."
         NSAccessibilityUsageDescription: "Parakatt needs accessibility access to insert transcribed text into other applications."
+        NSScreenCaptureUsageDescription: "Parakatt needs Screen Recording access to capture system audio for meeting transcription."
         CFBundleDisplayName: Parakatt
         CFBundleShortVersionString: "0.1.0"
         CFBundleVersion: "1"

@@ -4,6 +4,8 @@ import Cocoa
 ///
 /// Accessibility is needed for text insertion into other apps.
 /// Microphone permission is requested automatically by AVAudioEngine.
+/// System Audio Recording is handled by Core Audio taps (permission prompt
+/// is triggered automatically on first tap creation).
 class PermissionService {
     private static let accessibilityPromptedKey = "accessibilityPrompted"
 
