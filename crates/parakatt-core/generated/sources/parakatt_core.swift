@@ -565,10 +565,10 @@ public protocol EngineProtocol: AnyObject, Sendable {
     
     /**
      * Configure the LLM provider at runtime.
-     * provider: "ollama", "lmstudio", "openai", or "" to disable.
+     * provider: "ollama", "lmstudio", "openai", "anthropic", or "" to disable.
      * base_url: server URL (e.g. "http://localhost:11434").
      * model: model name (e.g. "llama3.2", "gpt-4o-mini").
-     * api_key: API key (only for openai).
+     * api_key: API key or OAuth token.
      */
     func configureLlm(provider: String, baseUrl: String, model: String, apiKey: String?) throws 
     
@@ -774,10 +774,10 @@ open func cancelSession(sessionId: String)  {try! rustCall() {
     
     /**
      * Configure the LLM provider at runtime.
-     * provider: "ollama", "lmstudio", "openai", or "" to disable.
+     * provider: "ollama", "lmstudio", "openai", "anthropic", or "" to disable.
      * base_url: server URL (e.g. "http://localhost:11434").
      * model: model name (e.g. "llama3.2", "gpt-4o-mini").
-     * api_key: API key (only for openai).
+     * api_key: API key or OAuth token.
      */
 open func configureLlm(provider: String, baseUrl: String, model: String, apiKey: String?)throws   {try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_parakatt_core_fn_method_engine_configure_llm(
@@ -2305,7 +2305,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_parakatt_core_checksum_method_engine_cancel_session() != 39669) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_parakatt_core_checksum_method_engine_configure_llm() != 30842) {
+    if (uniffi_parakatt_core_checksum_method_engine_configure_llm() != 37367) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_parakatt_core_checksum_method_engine_delete_model() != 27097) {

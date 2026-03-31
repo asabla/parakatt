@@ -3,6 +3,7 @@
 /// LLM providers are used for post-processing transcribed text:
 /// grammar correction, formatting, context-aware rewriting, etc.
 
+pub mod anthropic;
 pub mod ollama;
 pub mod openai;
 
