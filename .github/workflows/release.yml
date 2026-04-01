@@ -55,10 +55,6 @@ jobs:
           # The stable launcher's CDHash never changes, so macOS TCC permissions
           # (Accessibility, Microphone, Screen Recording) persist across updates.
           cp bin/parakatt-launcher "${{ steps.build-path.outputs.dir }}/Parakatt.app/Contents/MacOS/Parakatt"
-          codesign --force --sign - \
-            --entitlements Parakatt/Parakatt.entitlements \
-            --options runtime \
-            "${{ steps.build-path.outputs.dir }}/Parakatt.app/Contents/MacOS/Parakatt"
 
       - name: Verify stable launcher CDHash
         run: |
