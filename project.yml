@@ -39,6 +39,7 @@ targets:
         com.apple.security.cs.disable-library-validation: true
     settings:
       base:
+        SWIFT_OBJC_BRIDGING_HEADER: Parakatt/Bridge/Parakatt-Bridging-Header.h
         PRODUCT_BUNDLE_IDENTIFIER: com.parakatt.app
         PRODUCT_NAME: Parakatt
         MARKETING_VERSION: "0.1.0"
