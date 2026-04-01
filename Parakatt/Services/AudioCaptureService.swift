@@ -12,6 +12,7 @@ class AudioCaptureService {
     private var audioEngine: AVAudioEngine?
     private var converter: AVAudioConverter?
     private let targetSampleRate: Double = 16_000
+    private let engineLock = NSLock()
 
     /// Currently selected device ID (nil = system default).
     private var selectedDeviceUID: String?
@@ -147,15 +148,25 @@ class AudioCaptureService {
     // MARK: - Private
 
     private func teardown() {
-        if let engine = audioEngine {
-            engine.inputNode.removeTap(onBus: 0)
-            engine.stop()
-        }
+        // Nil out state under lock FIRST so in-flight tap callbacks exit early
+        engineLock.lock()
+        let engine = audioEngine
         audioEngine = nil
         converter = nil
+        engineLock.unlock()
+
+        if let engine {
+            if engine.isRunning {
+                engine.inputNode.removeTap(onBus: 0)
+                engine.stop()
+            }
+        }
     }
 
     private func convertAndDeliver(buffer: AVAudioPCMBuffer) {
+        engineLock.lock()
+        let converter = self.converter
+        engineLock.unlock()
         guard let converter else { return }
 
         let targetFormat = AVAudioFormat(
@@ -269,7 +280,9 @@ class AudioCaptureService {
 
             if (devUID as String) == uid {
                 // Set this device as the engine's input
-                let audioUnit = engine.inputNode.audioUnit!
+                guard let audioUnit = engine.inputNode.audioUnit else {
+                    throw AudioCaptureError.noInputDevice
+                }
                 var inputDeviceID = deviceID
                 AudioUnitSetProperty(
                     audioUnit,
