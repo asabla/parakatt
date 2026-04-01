@@ -18,13 +18,8 @@ cask "parakatt" do
                    args: ["-dr", "com.apple.quarantine", "#{appdir}/Parakatt.app"],
                    sudo: false
 
-    # Clear stale TCC entries so the app can re-prompt cleanly after upgrade
-    system_command "/usr/bin/tccutil",
-                   args: ["reset", "Accessibility", "com.parakatt.app"],
-                   sudo: false
-
     ohai "Parakatt requires Microphone and Accessibility permissions."
-    ohai "If this is an upgrade, the app will guide you through re-granting permissions on first launch."
+    ohai "Grant these in System Settings > Privacy & Security on first launch."
   end
 
   zap trash: [
