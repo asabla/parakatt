@@ -11,8 +11,8 @@ import ParakattCore
 class MeetingSessionService {
     // MARK: - Callbacks
 
-    /// Called when a new chunk is transcribed (new text, accumulated text).
-    var onChunkTranscribed: ((String, String) -> Void)?
+    /// Called when a new chunk is transcribed (new text, accumulated text, segments).
+    var onChunkTranscribed: ((String, String, [TimestampedSegment]) -> Void)?
     /// Called when the session finishes with the final result.
     var onSessionFinished: ((TranscriptionResult) -> Void)?
     /// Called if an error occurs during the session.
@@ -44,6 +44,10 @@ class MeetingSessionService {
     private var chunkTimer: Timer?
     private var startTime: Date?
 
+    /// Mode and context used for per-chunk LLM processing.
+    private var activeMode: String = "dictation"
+    private var activeContext: AppContextInfo?
+
     /// Accumulated full transcript (updated after each chunk).
     private(set) var accumulatedText: String = ""
 
@@ -61,8 +65,11 @@ class MeetingSessionService {
     // MARK: - Lifecycle
 
     /// Start the meeting transcription session.
-    /// - Parameter processID: Specific process to capture system audio from, or nil for all.
-    func start(processID: pid_t? = nil) throws {
+    /// - Parameters:
+    ///   - processID: Specific process to capture system audio from, or nil for all.
+    ///   - mode: The active transcription mode (used for per-chunk LLM processing).
+    ///   - context: App context (used for per-chunk LLM processing).
+    func start(processID: pid_t? = nil, mode: String = "dictation", context: AppContextInfo? = nil) throws {
         guard !isActive else { return }
 
         // Start session in the Rust engine.
@@ -86,6 +93,8 @@ class MeetingSessionService {
         startTime = Date()
         chunkIndex = 0
         accumulatedText = ""
+        activeMode = mode
+        activeContext = context
 
         // Start the chunk dispatch timer on the main run loop.
         let chunkInterval = chunkDurationSecs - overlapDurationSecs
@@ -164,11 +173,13 @@ class MeetingSessionService {
                 sessionId: sessionId,
                 audioSamples: chunkSamples,
                 sampleRate: sampleRate,
-                chunkIndex: currentIndex
+                chunkIndex: currentIndex,
+                mode: activeMode,
+                context: activeContext
             )
             accumulatedText = result.accumulatedText
             DispatchQueue.main.async { [weak self] in
-                self?.onChunkTranscribed?(result.text, result.accumulatedText)
+                self?.onChunkTranscribed?(result.text, result.accumulatedText, result.segments)
             }
             NSLog("[Parakatt] Final chunk %d processed: %d samples", currentIndex, chunkSamples.count)
         } catch {
@@ -203,9 +214,18 @@ class MeetingSessionService {
     private let micLock = NSLock()
     private let systemLock = NSLock()
 
+    /// Maximum pending samples per source (60s at 16kHz). Prevents unbounded
+    /// memory growth if one source is much faster than the other.
+    private let maxPendingSamples = 60 * 16_000
+
     private func appendMicSamples(_ samples: [Float]) {
         micLock.lock()
         micPendingSamples.append(contentsOf: samples)
+        if micPendingSamples.count > maxPendingSamples {
+            let excess = micPendingSamples.count - maxPendingSamples
+            micPendingSamples.removeFirst(excess)
+            NSLog("[Parakatt] WARNING: Mic pending buffer overflow — dropped %d samples (%.1fs)", excess, Double(excess) / Double(sampleRate))
+        }
         micLock.unlock()
         mixPendingSamples()
     }
@@ -213,6 +233,11 @@ class MeetingSessionService {
     private func appendSystemSamples(_ samples: [Float]) {
         systemLock.lock()
         systemPendingSamples.append(contentsOf: samples)
+        if systemPendingSamples.count > maxPendingSamples {
+            let excess = systemPendingSamples.count - maxPendingSamples
+            systemPendingSamples.removeFirst(excess)
+            NSLog("[Parakatt] WARNING: System pending buffer overflow — dropped %d samples (%.1fs)", excess, Double(excess) / Double(sampleRate))
+        }
         systemLock.unlock()
         mixPendingSamples()
     }
@@ -287,11 +312,13 @@ class MeetingSessionService {
                     sessionId: self.sessionId,
                     audioSamples: chunkSamples,
                     sampleRate: self.sampleRate,
-                    chunkIndex: currentIndex
+                    chunkIndex: currentIndex,
+                    mode: self.activeMode,
+                    context: self.activeContext
                 )
                 DispatchQueue.main.async {
                     self.accumulatedText = result.accumulatedText
-                    self.onChunkTranscribed?(result.text, result.accumulatedText)
+                    self.onChunkTranscribed?(result.text, result.accumulatedText, result.segments)
                 }
             } catch {
                 NSLog("[Parakatt] Chunk %d failed: %@", currentIndex, error.localizedDescription)

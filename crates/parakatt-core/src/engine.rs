@@ -17,7 +17,7 @@ use crate::stt::parakeet::ParakeetProvider;
 use crate::download::{DownloadProgress, DownloadState};
 use crate::{
     AppContext, CoreError, EngineConfig, ModelInfo, ModeConfig, ReplacementRule,
-    TranscriptionResult,
+    TimestampedSegment, TranscriptionResult,
 };
 
 /// The main engine exposed to Swift via UniFFI.
@@ -121,73 +121,7 @@ impl Engine {
         drop(dict_guard);
 
         // 4. LLM post-processing (if mode has a system prompt and LLM is configured)
-        let config_guard = self.config.lock().map_err(|e| {
-            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
-        })?;
-        let all_modes = if config_guard.modes.is_empty() {
-            modes::default_modes()
-        } else {
-            config_guard.modes.clone()
-        };
-        drop(config_guard);
-
-        if let Some(mode_config) = modes::find_mode(&all_modes, &mode) {
-            if let Some(base_prompt) = &mode_config.system_prompt {
-                // Skip LLM if transcription is empty
-                if result.text.trim().is_empty() {
-                    log::debug!("Skipping LLM: transcription is empty");
-                    return Ok(result);
-                }
-
-                let llm_guard = self.llm.lock().map_err(|e| {
-                    CoreError::LlmError(format!("LLM lock poisoned: {e}"))
-                })?;
-
-                if let Some(llm) = llm_guard.as_ref() {
-                    // Inject domain words into the system prompt
-                    let dict_guard = self.dictionary.lock().map_err(|e| {
-                        CoreError::LlmError(format!("Dictionary lock poisoned: {e}"))
-                    })?;
-                    let domain_words: Vec<String> = dict_guard
-                        .rules()
-                        .iter()
-                        .filter(|r| r.pattern == r.replacement && r.enabled)
-                        .map(|r| r.pattern.clone())
-                        .collect();
-                    drop(dict_guard);
-
-                    let mut system_prompt = base_prompt.clone();
-                    if !domain_words.is_empty() {
-                        system_prompt.push_str(&format!(
-                            "\n\nDomain-specific vocabulary (use these exact spellings when the \
-                             transcription contains similar-sounding words): {}",
-                            domain_words.join(", ")
-                        ));
-                    }
-
-                    let llm_request = LlmRequest {
-                        text: result.text.clone(),
-                        system_prompt,
-                        context: Some(ctx.clone()),
-                    };
-
-                    match llm.process(&llm_request) {
-                        Ok(processed_text) => {
-                            result.text = processed_text;
-                        }
-                        Err(e) => {
-                            log::warn!("LLM processing failed, using raw transcription: {e}");
-                            // Fall through with the un-processed text
-                        }
-                    }
-                } else {
-                    log::debug!(
-                        "Mode '{}' has a system prompt but no LLM provider is configured",
-                        mode
-                    );
-                }
-            }
-        }
+        self.apply_llm(&mut result.text, &mode, &ctx)?;
 
         // Auto-save to history.
         self.auto_save_transcription(&result, "push_to_talk", &mode, "mic", &ctx);
@@ -504,14 +438,17 @@ impl Engine {
 
     /// Process one audio chunk within a session.
     ///
-    /// The audio is preprocessed and transcribed via STT, then stitched into
-    /// the session's accumulated transcript with overlap deduplication.
+    /// The audio is preprocessed, transcribed via STT, dictionary + LLM
+    /// processed per-chunk, then stitched into the session's accumulated
+    /// transcript with overlap deduplication.
     pub fn process_chunk(
         &self,
         session_id: String,
         audio_samples: Vec<f32>,
         sample_rate: u32,
         _chunk_index: u32,
+        mode: String,
+        context: Option<AppContext>,
     ) -> Result<ChunkResult, CoreError> {
         // Preprocess audio (validate, trim silence, normalize).
         let processed = crate::audio::preprocess(&audio_samples, sample_rate)?;
@@ -528,106 +465,65 @@ impl Engine {
         let stt_result = stt.transcribe(&processed, sample_rate)?;
         drop(stt_guard);
 
+        // Apply dictionary replacements per-chunk.
+        let ctx = context.unwrap_or_default();
+        let mut chunk_text = stt_result.text.clone();
+        let dict_guard = self.dictionary.lock().map_err(|e| {
+            CoreError::TranscriptionFailed(format!("Dictionary lock poisoned: {e}"))
+        })?;
+        chunk_text = dict_guard.apply(&chunk_text, &ctx, &mode);
+        drop(dict_guard);
+
+        // Apply LLM post-processing per-chunk to avoid accumulating
+        // a huge transcript that overwhelms the LLM at session end.
+        self.apply_llm(&mut chunk_text, &mode, &ctx)?;
+
         // Stitch into session with overlap dedup.
         let mut mgr = self.sessions.lock().map_err(|e| {
             CoreError::TranscriptionFailed(format!("Session lock poisoned: {e}"))
         })?;
-        mgr.add_chunk(&session_id, &stt_result.text, chunk_duration_secs)
+        mgr.add_chunk(&session_id, &chunk_text, chunk_duration_secs, stt_result.segments)
     }
 
-    /// Finish a session: apply dictionary + LLM post-processing to the full
-    /// accumulated text, then return the final result.
+    /// Finish a session and return the final result.
+    ///
+    /// Dictionary and LLM processing are already applied per-chunk in
+    /// `process_chunk()`, so this just extracts the accumulated text
+    /// and persists the result.
     pub fn finish_session(
         &self,
         session_id: String,
         mode: String,
         context: Option<AppContext>,
     ) -> Result<TranscriptionResult, CoreError> {
-        // Extract accumulated text and duration from the session.
+        // Extract accumulated text, duration, and segments from the session.
         let mut mgr = self.sessions.lock().map_err(|e| {
             CoreError::TranscriptionFailed(format!("Session lock poisoned: {e}"))
         })?;
-        let (mut text, duration_secs) = mgr.finish(&session_id)?;
+        let (text, duration_secs, segments) = mgr.finish(&session_id)?;
         drop(mgr);
-
-        // Apply dictionary replacements.
-        let ctx = context.unwrap_or_default();
-        let dict_guard = self.dictionary.lock().map_err(|e| {
-            CoreError::TranscriptionFailed(format!("Dictionary lock poisoned: {e}"))
-        })?;
-        text = dict_guard.apply(&text, &ctx, &mode);
-        drop(dict_guard);
-
-        // Apply LLM post-processing if the mode has a system prompt.
-        let config_guard = self.config.lock().map_err(|e| {
-            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
-        })?;
-        let all_modes = if config_guard.modes.is_empty() {
-            modes::default_modes()
-        } else {
-            config_guard.modes.clone()
-        };
-        drop(config_guard);
-
-        if let Some(mode_config) = modes::find_mode(&all_modes, &mode) {
-            if let Some(base_prompt) = &mode_config.system_prompt {
-                if !text.trim().is_empty() {
-                    let llm_guard = self.llm.lock().map_err(|e| {
-                        CoreError::LlmError(format!("LLM lock poisoned: {e}"))
-                    })?;
-
-                    if let Some(llm) = llm_guard.as_ref() {
-                        let dict_guard = self.dictionary.lock().map_err(|e| {
-                            CoreError::LlmError(format!("Dictionary lock poisoned: {e}"))
-                        })?;
-                        let domain_words: Vec<String> = dict_guard
-                            .rules()
-                            .iter()
-                            .filter(|r| r.pattern == r.replacement && r.enabled)
-                            .map(|r| r.pattern.clone())
-                            .collect();
-                        drop(dict_guard);
-
-                        let mut system_prompt = base_prompt.clone();
-                        if !domain_words.is_empty() {
-                            system_prompt.push_str(&format!(
-                                "\n\nDomain-specific vocabulary (use these exact spellings when \
-                                 the transcription contains similar-sounding words): {}",
-                                domain_words.join(", ")
-                            ));
-                        }
-
-                        let llm_request = LlmRequest {
-                            text: text.clone(),
-                            system_prompt,
-                            context: Some(ctx.clone()),
-                        };
-
-                        match llm.process(&llm_request) {
-                            Ok(processed_text) => {
-                                text = processed_text;
-                            }
-                            Err(e) => {
-                                log::warn!(
-                                    "LLM processing failed on session finish, using raw text: {e}"
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-        }
 
         let result = TranscriptionResult {
             text,
             duration_secs,
             provider_name: "parakeet".to_string(),
+            segments,
         };
 
+        let ctx = context.unwrap_or_default();
         // Auto-save to history.
         self.auto_save_transcription(&result, "meeting", &mode, "mixed", &ctx);
 
         Ok(result)
+    }
+
+    /// Get the accumulated text for a session on demand, without the per-chunk
+    /// cloning overhead of `ChunkResult.accumulated_text`.
+    pub fn get_session_text(&self, session_id: String) -> Result<String, CoreError> {
+        let mgr = self.sessions.lock().map_err(|e| {
+            CoreError::TranscriptionFailed(format!("Session lock poisoned: {e}"))
+        })?;
+        mgr.get_session_text(&session_id)
     }
 
     /// Cancel and discard a session.
@@ -692,9 +588,124 @@ impl Engine {
         })?;
         storage.delete(&id)
     }
+
+    /// Get timestamp segments for a transcription (for timeline display).
+    pub fn get_transcription_segments(&self, id: String) -> Result<Vec<TimestampedSegment>, CoreError> {
+        let storage = self.storage.lock().map_err(|e| {
+            CoreError::IoError(format!("Storage lock poisoned: {e}"))
+        })?;
+        storage.get_segments(&id)
+    }
 }
 
+/// Maximum word count to send to LLM. Beyond this, the text is truncated
+/// with a warning to prevent timeouts or crashes on large transcripts.
+const LLM_MAX_WORD_COUNT: usize = 4000;
+
 impl Engine {
+    /// Apply LLM post-processing to text if the mode has a system prompt and
+    /// an LLM provider is configured. Includes a token guard to prevent
+    /// sending excessively long text to the LLM.
+    fn apply_llm(
+        &self,
+        text: &mut String,
+        mode: &str,
+        ctx: &AppContext,
+    ) -> Result<(), CoreError> {
+        if text.trim().is_empty() {
+            return Ok(());
+        }
+
+        let config_guard = self.config.lock().map_err(|e| {
+            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
+        })?;
+        let all_modes = if config_guard.modes.is_empty() {
+            modes::default_modes()
+        } else {
+            config_guard.modes.clone()
+        };
+        drop(config_guard);
+
+        let mode_config = match modes::find_mode(&all_modes, mode) {
+            Some(m) => m,
+            None => return Ok(()),
+        };
+
+        let base_prompt = match &mode_config.system_prompt {
+            Some(p) => p.clone(),
+            None => return Ok(()),
+        };
+
+        let llm_guard = self.llm.lock().map_err(|e| {
+            CoreError::LlmError(format!("LLM lock poisoned: {e}"))
+        })?;
+
+        let llm = match llm_guard.as_ref() {
+            Some(l) => l,
+            None => {
+                log::debug!(
+                    "Mode '{}' has a system prompt but no LLM provider is configured",
+                    mode
+                );
+                return Ok(());
+            }
+        };
+
+        // Token guard: truncate excessively long text to avoid LLM timeouts.
+        let word_count = text.split_whitespace().count();
+        let llm_text = if word_count > LLM_MAX_WORD_COUNT {
+            log::warn!(
+                "Text has {} words, truncating to {} for LLM processing",
+                word_count,
+                LLM_MAX_WORD_COUNT
+            );
+            text.split_whitespace()
+                .take(LLM_MAX_WORD_COUNT)
+                .collect::<Vec<_>>()
+                .join(" ")
+        } else {
+            text.clone()
+        };
+
+        // Inject domain words into the system prompt.
+        let dict_guard = self.dictionary.lock().map_err(|e| {
+            CoreError::LlmError(format!("Dictionary lock poisoned: {e}"))
+        })?;
+        let domain_words: Vec<String> = dict_guard
+            .rules()
+            .iter()
+            .filter(|r| r.pattern == r.replacement && r.enabled)
+            .map(|r| r.pattern.clone())
+            .collect();
+        drop(dict_guard);
+
+        let mut system_prompt = base_prompt;
+        if !domain_words.is_empty() {
+            system_prompt.push_str(&format!(
+                "\n\nDomain-specific vocabulary (use these exact spellings when the \
+                 transcription contains similar-sounding words): {}",
+                domain_words.join(", ")
+            ));
+        }
+
+        let llm_request = LlmRequest {
+            text: llm_text,
+            system_prompt,
+            context: Some(ctx.clone()),
+        };
+
+        match llm.process(&llm_request) {
+            Ok(processed_text) => {
+                *text = processed_text;
+            }
+            Err(e) => {
+                log::warn!("LLM processing failed, using raw transcription: {e}");
+            }
+        }
+
+        Ok(())
+    }
+
     /// Auto-save a transcription result to storage. Failures are logged, not propagated.
     fn auto_save_transcription(
         &self,
@@ -732,6 +743,17 @@ impl Engine {
         if let Ok(storage) = self.storage.lock() {
             if let Err(e) = storage.save(&transcription) {
                 log::warn!("Failed to auto-save transcription: {e}");
+            } else {
+                log::info!(
+                    "Saved transcription '{}' with {} segments",
+                    transcription.id,
+                    result.segments.len()
+                );
+                if !result.segments.is_empty() {
+                    if let Err(e) = storage.save_segments(&transcription.id, &result.segments, None) {
+                        log::warn!("Failed to save segments: {e}");
+                    }
+                }
             }
         }
     }

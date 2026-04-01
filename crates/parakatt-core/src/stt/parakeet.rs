@@ -11,7 +11,7 @@ use std::sync::Mutex;
 
 use parakeet_rs::{ParakeetTDT, TimestampMode, Transcriber};
 
-use crate::{CoreError, TranscriptionResult};
+use crate::{CoreError, TimestampedSegment, TranscriptionResult};
 
 use super::SttProvider;
 
@@ -64,10 +64,23 @@ impl SttProvider for ParakeetProvider {
         let duration = start.elapsed();
         let text = result.text.trim().to_string();
 
+        // Extract sentence-level timestamps from parakeet-rs TimedToken.
+        let segments: Vec<TimestampedSegment> = result
+            .tokens
+            .iter()
+            .filter(|t| !t.text.trim().is_empty())
+            .map(|t| TimestampedSegment {
+                text: t.text.trim().to_string(),
+                start_secs: t.start as f64,
+                end_secs: t.end as f64,
+            })
+            .collect();
+
         log::debug!(
-            "Parakeet transcribed {} samples in {:.2}s: '{}'",
+            "Parakeet transcribed {} samples in {:.2}s ({} segments): '{}'",
             audio.len(),
             duration.as_secs_f64(),
+            segments.len(),
             &text
         );
 
@@ -75,6 +88,7 @@ impl SttProvider for ParakeetProvider {
             text,
             duration_secs: duration.as_secs_f64(),
             provider_name: self.name().to_string(),
+            segments,
         })
     }
 

@@ -31,12 +31,24 @@ pub enum CoreError {
     IoError(String),
 }
 
+/// A sentence-level timestamp segment from STT.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct TimestampedSegment {
+    pub text: String,
+    /// Start time in seconds relative to the audio start.
+    pub start_secs: f64,
+    /// End time in seconds relative to the audio start.
+    pub end_secs: f64,
+}
+
 /// Result of a transcription + optional LLM processing pipeline.
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct TranscriptionResult {
     pub text: String,
     pub duration_secs: f64,
     pub provider_name: String,
+    /// Sentence-level timestamp segments from STT.
+    pub segments: Vec<TimestampedSegment>,
 }
 
 /// Context about the currently focused application, passed from Swift.

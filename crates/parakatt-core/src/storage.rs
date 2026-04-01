@@ -4,7 +4,7 @@ use std::path::Path;
 
 use rusqlite::{Connection, params};
 
-use crate::CoreError;
+use crate::{CoreError, TimestampedSegment};
 
 /// A persisted transcription record.
 #[derive(Debug, Clone, uniffi::Record)]
@@ -52,6 +52,10 @@ impl Storage {
         conn.execute_batch("PRAGMA journal_mode=WAL;")
             .map_err(|e| CoreError::IoError(format!("Failed to set WAL mode: {e}")))?;
 
+        // Enable foreign key constraints for CASCADE deletes.
+        conn.execute_batch("PRAGMA foreign_keys=ON;")
+            .map_err(|e| CoreError::IoError(format!("Failed to enable foreign keys: {e}")))?;
+
         let storage = Self { conn };
         storage.migrate()?;
         Ok(storage)
@@ -95,6 +99,19 @@ impl Storage {
                     INSERT INTO transcriptions_fts(rowid, title, text)
                     VALUES (new.rowid, new.title, new.text);
                 END;
+
+                -- Timestamp segments for timeline navigation.
+                CREATE TABLE IF NOT EXISTS transcript_segments (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    transcription_id TEXT NOT NULL,
+                    text TEXT NOT NULL,
+                    start_secs REAL NOT NULL,
+                    end_secs REAL NOT NULL,
+                    chunk_index INTEGER,
+                    FOREIGN KEY (transcription_id) REFERENCES transcriptions(id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_segments_transcription
+                    ON transcript_segments(transcription_id);
                 ",
             )
             .map_err(|e| CoreError::IoError(format!("Database migration failed: {e}")))?;
@@ -272,6 +289,69 @@ impl Storage {
         Ok(())
     }
 
+    /// Save timestamp segments for a transcription (bulk insert).
+    pub fn save_segments(
+        &self,
+        transcription_id: &str,
+        segments: &[TimestampedSegment],
+        chunk_index: Option<u32>,
+    ) -> Result<(), CoreError> {
+        if segments.is_empty() {
+            return Ok(());
+        }
+
+        let mut stmt = self
+            .conn
+            .prepare(
+                "INSERT INTO transcript_segments (transcription_id, text, start_secs, end_secs, chunk_index)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+            )
+            .map_err(|e| CoreError::IoError(format!("Failed to prepare segment insert: {e}")))?;
+
+        for seg in segments {
+            stmt.execute(params![
+                transcription_id,
+                seg.text,
+                seg.start_secs,
+                seg.end_secs,
+                chunk_index,
+            ])
+            .map_err(|e| CoreError::IoError(format!("Failed to save segment: {e}")))?;
+        }
+
+        Ok(())
+    }
+
+    /// Get timestamp segments for a transcription, ordered by start time.
+    pub fn get_segments(&self, transcription_id: &str) -> Result<Vec<TimestampedSegment>, CoreError> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT text, start_secs, end_secs FROM transcript_segments
+                 WHERE transcription_id = ?1 ORDER BY start_secs ASC",
+            )
+            .map_err(|e| CoreError::IoError(format!("Failed to query segments: {e}")))?;
+
+        let rows = stmt
+            .query_map(params![transcription_id], |row| {
+                Ok(TimestampedSegment {
+                    text: row.get(0)?,
+                    start_secs: row.get(1)?,
+                    end_secs: row.get(2)?,
+                })
+            })
+            .map_err(|e| CoreError::IoError(format!("Failed to query segments: {e}")))?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(
+                row.map_err(|e| CoreError::IoError(format!("Segment read failed: {e}")))?
+            );
+        }
+
+        Ok(results)
+    }
+
     /// Delete a transcription by ID.
     pub fn delete(&self, id: &str) -> Result<(), CoreError> {
         self.conn
@@ -385,6 +465,53 @@ mod tests {
 
         storage.delete(&id).unwrap();
         assert!(storage.get(&id).is_err());
+    }
+
+    #[test]
+    fn test_save_and_get_segments() {
+        let (storage, _dir) = temp_storage();
+        let t = sample_transcription("push_to_talk", "hello world");
+        let id = storage.save(&t).unwrap();
+
+        let segments = vec![
+            TimestampedSegment {
+                text: "hello".to_string(),
+                start_secs: 0.0,
+                end_secs: 1.5,
+            },
+            TimestampedSegment {
+                text: "world".to_string(),
+                start_secs: 1.5,
+                end_secs: 3.0,
+            },
+        ];
+
+        storage.save_segments(&id, &segments, None).unwrap();
+
+        let loaded = storage.get_segments(&id).unwrap();
+        assert_eq!(loaded.len(), 2);
+        assert_eq!(loaded[0].text, "hello");
+        assert!((loaded[0].start_secs - 0.0).abs() < 0.01);
+        assert!((loaded[0].end_secs - 1.5).abs() < 0.01);
+        assert_eq!(loaded[1].text, "world");
+    }
+
+    #[test]
+    fn test_segments_deleted_with_transcription() {
+        let (storage, _dir) = temp_storage();
+        let t = sample_transcription("meeting", "test text");
+        let id = storage.save(&t).unwrap();
+
+        let segments = vec![TimestampedSegment {
+            text: "test text".to_string(),
+            start_secs: 0.0,
+            end_secs: 2.0,
+        }];
+        storage.save_segments(&id, &segments, Some(0)).unwrap();
+
+        storage.delete(&id).unwrap();
+        let loaded = storage.get_segments(&id).unwrap();
+        assert!(loaded.is_empty());
     }
 
     #[test]
