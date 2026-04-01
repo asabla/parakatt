@@ -298,9 +298,19 @@ RustBuffer uniffi_parakatt_core_fn_method_engine_get_dictionary_rules(uint64_t p
 RustBuffer uniffi_parakatt_core_fn_method_engine_get_download_progress(uint64_t ptr, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_GET_SESSION_TEXT
+#define UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_GET_SESSION_TEXT
+RustBuffer uniffi_parakatt_core_fn_method_engine_get_session_text(uint64_t ptr, RustBuffer session_id, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_GET_TRANSCRIPTION
 #define UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_GET_TRANSCRIPTION
 RustBuffer uniffi_parakatt_core_fn_method_engine_get_transcription(uint64_t ptr, RustBuffer id, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_GET_TRANSCRIPTION_SEGMENTS
+#define UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_GET_TRANSCRIPTION_SEGMENTS
+RustBuffer uniffi_parakatt_core_fn_method_engine_get_transcription_segments(uint64_t ptr, RustBuffer id, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_IS_MODEL_LOADED
@@ -335,7 +345,7 @@ void uniffi_parakatt_core_fn_method_engine_load_model(uint64_t ptr, RustBuffer m
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_PROCESS_CHUNK
 #define UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_PROCESS_CHUNK
-RustBuffer uniffi_parakatt_core_fn_method_engine_process_chunk(uint64_t ptr, RustBuffer session_id, RustBuffer audio_samples, uint32_t sample_rate, uint32_t _chunk_index, RustCallStatus *_Nonnull out_status
+RustBuffer uniffi_parakatt_core_fn_method_engine_process_chunk(uint64_t ptr, RustBuffer session_id, RustBuffer audio_samples, uint32_t sample_rate, uint32_t _chunk_index, RustBuffer mode, RustBuffer context, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_FN_METHOD_ENGINE_SAVE_TRANSCRIPTION
@@ -686,9 +696,21 @@ uint16_t uniffi_parakatt_core_checksum_method_engine_get_download_progress(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_CHECKSUM_METHOD_ENGINE_GET_SESSION_TEXT
+#define UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_CHECKSUM_METHOD_ENGINE_GET_SESSION_TEXT
+uint16_t uniffi_parakatt_core_checksum_method_engine_get_session_text(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_CHECKSUM_METHOD_ENGINE_GET_TRANSCRIPTION
 #define UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_CHECKSUM_METHOD_ENGINE_GET_TRANSCRIPTION
 uint16_t uniffi_parakatt_core_checksum_method_engine_get_transcription(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_CHECKSUM_METHOD_ENGINE_GET_TRANSCRIPTION_SEGMENTS
+#define UNIFFI_FFIDEF_UNIFFI_PARAKATT_CORE_CHECKSUM_METHOD_ENGINE_GET_TRANSCRIPTION_SEGMENTS
+uint16_t uniffi_parakatt_core_checksum_method_engine_get_transcription_segments(void
     
 );
 #endif

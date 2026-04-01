@@ -583,8 +583,11 @@ public protocol EngineProtocol: AnyObject, Sendable {
     func deleteTranscription(id: String) throws 
     
     /**
-     * Finish a session: apply dictionary + LLM post-processing to the full
-     * accumulated text, then return the final result.
+     * Finish a session and return the final result.
+     *
+     * Dictionary and LLM processing are already applied per-chunk in
+     * `process_chunk()`, so this just extracts the accumulated text
+     * and persists the result.
      */
     func finishSession(sessionId: String, mode: String, context: AppContext?) throws  -> TranscriptionResult
     
@@ -599,9 +602,20 @@ public protocol EngineProtocol: AnyObject, Sendable {
     func getDownloadProgress()  -> DownloadProgress
     
     /**
+     * Get the accumulated text for a session on demand, without the per-chunk
+     * cloning overhead of `ChunkResult.accumulated_text`.
+     */
+    func getSessionText(sessionId: String) throws  -> String
+    
+    /**
      * Get a single transcription by ID.
      */
     func getTranscription(id: String) throws  -> StoredTranscription
+    
+    /**
+     * Get timestamp segments for a transcription (for timeline display).
+     */
+    func getTranscriptionSegments(id: String) throws  -> [TimestampedSegment]
     
     /**
      * Check if an STT model is currently loaded.
@@ -637,10 +651,11 @@ public protocol EngineProtocol: AnyObject, Sendable {
     /**
      * Process one audio chunk within a session.
      *
-     * The audio is preprocessed and transcribed via STT, then stitched into
-     * the session's accumulated transcript with overlap deduplication.
+     * The audio is preprocessed, transcribed via STT, dictionary + LLM
+     * processed per-chunk, then stitched into the session's accumulated
+     * transcript with overlap deduplication.
      */
-    func processChunk(sessionId: String, audioSamples: [Float], sampleRate: UInt32, chunkIndex: UInt32) throws  -> ChunkResult
+    func processChunk(sessionId: String, audioSamples: [Float], sampleRate: UInt32, chunkIndex: UInt32, mode: String, context: AppContext?) throws  -> ChunkResult
     
     /**
      * Save a transcription to history (for external callers).
@@ -813,8 +828,11 @@ open func deleteTranscription(id: String)throws   {try rustCallWithError(FfiConv
 }
     
     /**
-     * Finish a session: apply dictionary + LLM post-processing to the full
-     * accumulated text, then return the final result.
+     * Finish a session and return the final result.
+     *
+     * Dictionary and LLM processing are already applied per-chunk in
+     * `process_chunk()`, so this just extracts the accumulated text
+     * and persists the result.
      */
 open func finishSession(sessionId: String, mode: String, context: AppContext?)throws  -> TranscriptionResult  {
     return try  FfiConverterTypeTranscriptionResult_lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
@@ -850,11 +868,36 @@ open func getDownloadProgress() -> DownloadProgress  {
 }
     
     /**
+     * Get the accumulated text for a session on demand, without the per-chunk
+     * cloning overhead of `ChunkResult.accumulated_text`.
+     */
+open func getSessionText(sessionId: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_parakatt_core_fn_method_engine_get_session_text(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(sessionId),$0
+    )
+})
+}
+    
+    /**
      * Get a single transcription by ID.
      */
 open func getTranscription(id: String)throws  -> StoredTranscription  {
     return try  FfiConverterTypeStoredTranscription_lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_parakatt_core_fn_method_engine_get_transcription(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(id),$0
+    )
+})
+}
+    
+    /**
+     * Get timestamp segments for a transcription (for timeline display).
+     */
+open func getTranscriptionSegments(id: String)throws  -> [TimestampedSegment]  {
+    return try  FfiConverterSequenceTypeTimestampedSegment.lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
+    uniffi_parakatt_core_fn_method_engine_get_transcription_segments(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(id),$0
     )
@@ -935,17 +978,20 @@ open func loadModel(modelId: String)throws   {try rustCallWithError(FfiConverter
     /**
      * Process one audio chunk within a session.
      *
-     * The audio is preprocessed and transcribed via STT, then stitched into
-     * the session's accumulated transcript with overlap deduplication.
+     * The audio is preprocessed, transcribed via STT, dictionary + LLM
+     * processed per-chunk, then stitched into the session's accumulated
+     * transcript with overlap deduplication.
      */
-open func processChunk(sessionId: String, audioSamples: [Float], sampleRate: UInt32, chunkIndex: UInt32)throws  -> ChunkResult  {
+open func processChunk(sessionId: String, audioSamples: [Float], sampleRate: UInt32, chunkIndex: UInt32, mode: String, context: AppContext?)throws  -> ChunkResult  {
     return try  FfiConverterTypeChunkResult_lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
     uniffi_parakatt_core_fn_method_engine_process_chunk(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(sessionId),
         FfiConverterSequenceFloat.lower(audioSamples),
         FfiConverterUInt32.lower(sampleRate),
-        FfiConverterUInt32.lower(chunkIndex),$0
+        FfiConverterUInt32.lower(chunkIndex),
+        FfiConverterString.lower(mode),
+        FfiConverterOptionTypeAppContext.lower(context),$0
     )
 })
 }
@@ -1174,6 +1220,14 @@ public struct ChunkResult: Equatable, Hashable {
      * Accumulated full transcript so far.
      */
     public var accumulatedText: String
+    /**
+     * Sentence-level timestamp segments for this chunk.
+     */
+    public var segments: [TimestampedSegment]
+    /**
+     * Offset in seconds from session start for this chunk's timestamps.
+     */
+    public var chunkOffsetSecs: Double
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -1186,10 +1240,18 @@ public struct ChunkResult: Equatable, Hashable {
          */chunkIndex: UInt32, 
         /**
          * Accumulated full transcript so far.
-         */accumulatedText: String) {
+         */accumulatedText: String, 
+        /**
+         * Sentence-level timestamp segments for this chunk.
+         */segments: [TimestampedSegment], 
+        /**
+         * Offset in seconds from session start for this chunk's timestamps.
+         */chunkOffsetSecs: Double) {
         self.text = text
         self.chunkIndex = chunkIndex
         self.accumulatedText = accumulatedText
+        self.segments = segments
+        self.chunkOffsetSecs = chunkOffsetSecs
     }
 
     
@@ -1210,7 +1272,9 @@ public struct FfiConverterTypeChunkResult: FfiConverterRustBuffer {
             try ChunkResult(
                 text: FfiConverterString.read(from: &buf), 
                 chunkIndex: FfiConverterUInt32.read(from: &buf), 
-                accumulatedText: FfiConverterString.read(from: &buf)
+                accumulatedText: FfiConverterString.read(from: &buf), 
+                segments: FfiConverterSequenceTypeTimestampedSegment.read(from: &buf), 
+                chunkOffsetSecs: FfiConverterDouble.read(from: &buf)
         )
     }
 
@@ -1218,6 +1282,8 @@ public struct FfiConverterTypeChunkResult: FfiConverterRustBuffer {
         FfiConverterString.write(value.text, into: &buf)
         FfiConverterUInt32.write(value.chunkIndex, into: &buf)
         FfiConverterString.write(value.accumulatedText, into: &buf)
+        FfiConverterSequenceTypeTimestampedSegment.write(value.segments, into: &buf)
+        FfiConverterDouble.write(value.chunkOffsetSecs, into: &buf)
     }
 }
 
@@ -1704,6 +1770,79 @@ public func FfiConverterTypeStoredTranscription_lower(_ value: StoredTranscripti
 
 
 /**
+ * A sentence-level timestamp segment from STT.
+ */
+public struct TimestampedSegment: Equatable, Hashable {
+    public var text: String
+    /**
+     * Start time in seconds relative to the audio start.
+     */
+    public var startSecs: Double
+    /**
+     * End time in seconds relative to the audio start.
+     */
+    public var endSecs: Double
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(text: String, 
+        /**
+         * Start time in seconds relative to the audio start.
+         */startSecs: Double, 
+        /**
+         * End time in seconds relative to the audio start.
+         */endSecs: Double) {
+        self.text = text
+        self.startSecs = startSecs
+        self.endSecs = endSecs
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension TimestampedSegment: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTimestampedSegment: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TimestampedSegment {
+        return
+            try TimestampedSegment(
+                text: FfiConverterString.read(from: &buf), 
+                startSecs: FfiConverterDouble.read(from: &buf), 
+                endSecs: FfiConverterDouble.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: TimestampedSegment, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.text, into: &buf)
+        FfiConverterDouble.write(value.startSecs, into: &buf)
+        FfiConverterDouble.write(value.endSecs, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTimestampedSegment_lift(_ buf: RustBuffer) throws -> TimestampedSegment {
+    return try FfiConverterTypeTimestampedSegment.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTimestampedSegment_lower(_ value: TimestampedSegment) -> RustBuffer {
+    return FfiConverterTypeTimestampedSegment.lower(value)
+}
+
+
+/**
  * Query parameters for listing/searching transcriptions.
  */
 public struct TranscriptionQuery: Equatable, Hashable {
@@ -1787,13 +1926,21 @@ public struct TranscriptionResult: Equatable, Hashable {
     public var text: String
     public var durationSecs: Double
     public var providerName: String
+    /**
+     * Sentence-level timestamp segments from STT.
+     */
+    public var segments: [TimestampedSegment]
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(text: String, durationSecs: Double, providerName: String) {
+    public init(text: String, durationSecs: Double, providerName: String, 
+        /**
+         * Sentence-level timestamp segments from STT.
+         */segments: [TimestampedSegment]) {
         self.text = text
         self.durationSecs = durationSecs
         self.providerName = providerName
+        self.segments = segments
     }
 
     
@@ -1814,7 +1961,8 @@ public struct FfiConverterTypeTranscriptionResult: FfiConverterRustBuffer {
             try TranscriptionResult(
                 text: FfiConverterString.read(from: &buf), 
                 durationSecs: FfiConverterDouble.read(from: &buf), 
-                providerName: FfiConverterString.read(from: &buf)
+                providerName: FfiConverterString.read(from: &buf), 
+                segments: FfiConverterSequenceTypeTimestampedSegment.read(from: &buf)
         )
     }
 
@@ -1822,6 +1970,7 @@ public struct FfiConverterTypeTranscriptionResult: FfiConverterRustBuffer {
         FfiConverterString.write(value.text, into: &buf)
         FfiConverterDouble.write(value.durationSecs, into: &buf)
         FfiConverterString.write(value.providerName, into: &buf)
+        FfiConverterSequenceTypeTimestampedSegment.write(value.segments, into: &buf)
     }
 }
 
@@ -2284,6 +2433,31 @@ fileprivate struct FfiConverterSequenceTypeStoredTranscription: FfiConverterRust
     }
 }
 
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeTimestampedSegment: FfiConverterRustBuffer {
+    typealias SwiftType = [TimestampedSegment]
+
+    public static func write(_ value: [TimestampedSegment], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeTimestampedSegment.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [TimestampedSegment] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [TimestampedSegment]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeTimestampedSegment.read(from: &buf))
+        }
+        return seq
+    }
+}
+
 private enum InitializationResult {
     case ok
     case contractVersionMismatch
@@ -2314,7 +2488,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_parakatt_core_checksum_method_engine_delete_transcription() != 49319) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_parakatt_core_checksum_method_engine_finish_session() != 32849) {
+    if (uniffi_parakatt_core_checksum_method_engine_finish_session() != 65382) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_parakatt_core_checksum_method_engine_get_dictionary_rules() != 46695) {
@@ -2323,7 +2497,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_parakatt_core_checksum_method_engine_get_download_progress() != 47159) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_parakatt_core_checksum_method_engine_get_session_text() != 50965) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_parakatt_core_checksum_method_engine_get_transcription() != 25037) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_parakatt_core_checksum_method_engine_get_transcription_segments() != 47798) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_parakatt_core_checksum_method_engine_is_model_loaded() != 53435) {
@@ -2344,7 +2524,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_parakatt_core_checksum_method_engine_load_model() != 48085) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_parakatt_core_checksum_method_engine_process_chunk() != 5590) {
+    if (uniffi_parakatt_core_checksum_method_engine_process_chunk() != 30607) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_parakatt_core_checksum_method_engine_save_transcription() != 46197) {

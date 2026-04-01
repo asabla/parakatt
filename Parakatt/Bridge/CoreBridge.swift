@@ -116,21 +116,35 @@ class CoreBridge {
     }
 
     /// Process one audio chunk within a session.
+    /// Dictionary + LLM processing is applied per-chunk to avoid
+    /// accumulating a huge transcript for the LLM at session end.
     func processChunk(
         sessionId: String,
         audioSamples: [Float],
         sampleRate: UInt32,
-        chunkIndex: UInt32
+        chunkIndex: UInt32,
+        mode: String,
+        context: AppContextInfo?
     ) throws -> ChunkResult {
-        try engine.processChunk(
+        let ctx = context.map {
+            AppContext(
+                appBundleId: $0.appBundleId,
+                appName: $0.appName,
+                selectedText: $0.selectedText,
+                windowTitle: $0.windowTitle
+            )
+        }
+        return try engine.processChunk(
             sessionId: sessionId,
             audioSamples: audioSamples,
             sampleRate: sampleRate,
-            chunkIndex: chunkIndex
+            chunkIndex: chunkIndex,
+            mode: mode,
+            context: ctx
         )
     }
 
-    /// Finish a session, applying dictionary + LLM post-processing.
+    /// Finish a session and return the accumulated result.
     func finishSession(
         sessionId: String,
         mode: String,
@@ -181,5 +195,10 @@ class CoreBridge {
     /// Delete a transcription from history.
     func deleteTranscription(id: String) throws {
         try engine.deleteTranscription(id: id)
+    }
+
+    /// Get timestamp segments for a transcription (for timeline display).
+    func getTranscriptionSegments(id: String) throws -> [TimestampedSegment] {
+        try engine.getTranscriptionSegments(id: id)
     }
 }

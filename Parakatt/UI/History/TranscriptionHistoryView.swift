@@ -113,14 +113,19 @@ struct TranscriptionHistoryView: View {
     @ViewBuilder
     private var detailContent: some View {
         if let id = selectedId, let item = transcriptions.first(where: { $0.id == id }) {
-            TranscriptionDetailView(item: item, onTitleChanged: { newTitle in
-                appState.updateTranscriptionTitle(id: id, title: newTitle)
-                refresh()
-            }, onDelete: {
-                appState.deleteTranscription(id: id)
-                selectedId = nil
-                refresh()
-            })
+            TranscriptionDetailView(
+                item: item,
+                segments: appState.getTranscriptionSegments(id: id),
+                onTitleChanged: { newTitle in
+                    appState.updateTranscriptionTitle(id: id, title: newTitle)
+                    refresh()
+                },
+                onDelete: {
+                    appState.deleteTranscription(id: id)
+                    selectedId = nil
+                    refresh()
+                }
+            )
         } else {
             emptyDetailView
         }

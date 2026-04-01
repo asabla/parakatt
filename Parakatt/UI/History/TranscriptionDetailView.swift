@@ -3,8 +3,10 @@ import ParakattCore
 import UniformTypeIdentifiers
 
 /// Detail view for a single transcription — header, toolbar, scrollable text.
+/// When timestamp segments are available, shows a timeline view instead of flat text.
 struct TranscriptionDetailView: View {
     let item: StoredTranscription
+    let segments: [TimestampedSegment]
     let onTitleChanged: (String) -> Void
     let onDelete: () -> Void
 
@@ -153,13 +155,56 @@ struct TranscriptionDetailView: View {
 
     private var textSection: some View {
         ScrollView {
-            Text(item.text)
-                .font(.system(.body, design: .default))
-                .lineSpacing(4)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(20)
+            if segments.isEmpty {
+                // Flat text for transcriptions without timestamp data.
+                Text(item.text)
+                    .font(.system(.body, design: .default))
+                    .lineSpacing(4)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(20)
+            } else {
+                // Timeline view with timestamps.
+                timelineView
+            }
         }
+    }
+
+    private var timelineView: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(segments.enumerated()), id: \.offset) { index, segment in
+                HStack(alignment: .top, spacing: 12) {
+                    // Timestamp label
+                    Text(formatTimestamp(segment.startSecs))
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 50, alignment: .trailing)
+
+                    // Timeline dot and line
+                    VStack(spacing: 0) {
+                        Circle()
+                            .fill(Color.accentColor.opacity(0.7))
+                            .frame(width: 8, height: 8)
+                            .padding(.top, 4)
+                        if index < segments.count - 1 {
+                            Rectangle()
+                                .fill(Color.accentColor.opacity(0.2))
+                                .frame(width: 2)
+                                .frame(maxHeight: .infinity)
+                        }
+                    }
+
+                    // Segment text
+                    Text(segment.text)
+                        .font(.system(.body, design: .default))
+                        .lineSpacing(4)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.bottom, 12)
+                }
+            }
+        }
+        .padding(20)
     }
 
     // MARK: - Export
@@ -171,6 +216,16 @@ struct TranscriptionDetailView: View {
 
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
+
+            let bodyText: String
+            if segments.isEmpty {
+                bodyText = item.text
+            } else {
+                bodyText = segments.map { seg in
+                    "[\(formatTimestamp(seg.startSecs))] \(seg.text)"
+                }.joined(separator: "\n\n")
+            }
+
             let md = """
             # \(item.title ?? "Untitled")
 
@@ -181,7 +236,7 @@ struct TranscriptionDetailView: View {
 
             ---
 
-            \(item.text)
+            \(bodyText)
             """
             try? md.write(to: url, atomically: true, encoding: .utf8)
         }
@@ -205,6 +260,13 @@ struct TranscriptionDetailView: View {
         if hours > 0 { return "\(hours)h \(minutes)m" }
         if minutes > 0 { return "\(minutes)m \(seconds)s" }
         return "\(seconds)s"
+    }
+
+    private func formatTimestamp(_ secs: Double) -> String {
+        let totalSeconds = Int(secs)
+        let minutes = totalSeconds / 60
+        let seconds = totalSeconds % 60
+        return String(format: "%02d:%02d", minutes, seconds)
     }
 
     private func parseISO(_ iso: String) -> Date? {

@@ -135,6 +135,7 @@ class AppState: ObservableObject {
         }
 
         sampleCount = 0
+        longRecordingWarned = false
         audioBufferLock.lock()
         audioBuffer.removeAll()
         audioBufferLock.unlock()
@@ -292,7 +293,7 @@ class AppState: ObservableObject {
 
         let session = MeetingSessionService(bridge: bridge)
 
-        session.onChunkTranscribed = { [weak self] newText, accumulated in
+        session.onChunkTranscribed = { [weak self] newText, accumulated, _ in
             self?.meetingLatestChunk = newText
             self?.meetingTranscription = accumulated
         }
@@ -328,7 +329,8 @@ class AppState: ObservableObject {
         }
 
         do {
-            try session.start()
+            let context = contextService?.currentContext()
+            try session.start(mode: activeMode, context: context)
         } catch {
             isMeetingActive = false
             meetingElapsedTimer?.invalidate()
@@ -393,6 +395,10 @@ class AppState: ObservableObject {
 
     func deleteTranscription(id: String) {
         try? bridge?.deleteTranscription(id: id)
+    }
+
+    func getTranscriptionSegments(id: String) -> [TimestampedSegment] {
+        (try? bridge?.getTranscriptionSegments(id: id)) ?? []
     }
 
     // MARK: - Model management
@@ -600,7 +606,9 @@ class AppState: ObservableObject {
                         sessionId: sessionId,
                         audioSamples: chunk,
                         sampleRate: self.sttSampleRate,
-                        chunkIndex: chunkIndex
+                        chunkIndex: chunkIndex,
+                        mode: self.activeMode,
+                        context: context
                     )
                     NSLog("[Parakatt] Chunk %d/%d: \"%@\"", chunkIndex + 1, totalChunks, result.text)
 
@@ -703,11 +711,22 @@ class AppState: ObservableObject {
 
     private var sampleCount = 0
 
+    /// Threshold for warning about long push-to-talk recordings (5 minutes).
+    private let longRecordingWarningSamples = 5 * 60 * 16000
+    private var longRecordingWarned = false
+
     private func appendAudioSamples(_ samples: [Float]) {
         audioBufferLock.lock()
         audioBuffer.append(contentsOf: samples)
         let total = audioBuffer.count
         audioBufferLock.unlock()
+
+        // Warn once when push-to-talk exceeds 5 minutes.
+        if total > longRecordingWarningSamples && !longRecordingWarned {
+            longRecordingWarned = true
+            let durationMins = Double(total) / 16000.0 / 60.0
+            NSLog("[Parakatt] WARNING: Push-to-talk recording exceeds %.0f minutes — consider using meeting mode for long recordings", durationMins)
+        }
 
         // Compute RMS for audio level visualization
         let sumOfSquares = samples.reduce(Float(0)) { $0 + $1 * $1 }

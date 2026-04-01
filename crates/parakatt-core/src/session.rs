@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 
-use crate::CoreError;
+use crate::{CoreError, TimestampedSegment};
 
 /// Result of processing a single audio chunk.
 #[derive(Debug, Clone, uniffi::Record)]
@@ -17,6 +17,10 @@ pub struct ChunkResult {
     pub chunk_index: u32,
     /// Accumulated full transcript so far.
     pub accumulated_text: String,
+    /// Sentence-level timestamp segments for this chunk.
+    pub segments: Vec<TimestampedSegment>,
+    /// Offset in seconds from session start for this chunk's timestamps.
+    pub chunk_offset_secs: f64,
 }
 
 /// Internal state for a running transcription session.
@@ -29,6 +33,8 @@ struct SessionState {
     chunk_count: u32,
     /// Total audio duration processed (seconds).
     total_duration_secs: f64,
+    /// All segments accumulated across chunks, with absolute timestamps.
+    accumulated_segments: Vec<TimestampedSegment>,
 }
 
 /// Manages multiple concurrent transcription sessions.
@@ -61,6 +67,7 @@ impl SessionManager {
                 prev_trailing_words: Vec::new(),
                 chunk_count: 0,
                 total_duration_secs: 0.0,
+                accumulated_segments: Vec::new(),
             },
         );
 
@@ -71,17 +78,21 @@ impl SessionManager {
     ///
     /// `raw_text` is the STT output for this chunk (caller runs STT externally).
     /// `chunk_duration_secs` is the audio duration of this chunk.
+    /// `segments` are the sentence-level timestamp segments from STT for this chunk.
     pub fn add_chunk(
         &mut self,
         session_id: &str,
         raw_text: &str,
         chunk_duration_secs: f64,
+        segments: Vec<TimestampedSegment>,
     ) -> Result<ChunkResult, CoreError> {
         let state = self.sessions.get_mut(session_id).ok_or_else(|| {
             CoreError::TranscriptionFailed(format!("Session not found: {session_id}"))
         })?;
 
         let chunk_index = state.chunk_count;
+        let chunk_offset_secs = state.total_duration_secs;
+
         let new_text = if chunk_index == 0 {
             // First chunk — no dedup needed.
             raw_text.to_string()
@@ -110,6 +121,15 @@ impl SessionManager {
             state.accumulated_text.push_str(&new_text);
         }
 
+        // Accumulate segments with absolute timestamps (offset by chunk start).
+        for seg in &segments {
+            state.accumulated_segments.push(TimestampedSegment {
+                text: seg.text.clone(),
+                start_secs: chunk_offset_secs + seg.start_secs,
+                end_secs: chunk_offset_secs + seg.end_secs,
+            });
+        }
+
         state.chunk_count += 1;
         state.total_duration_secs += chunk_duration_secs;
 
@@ -117,22 +137,41 @@ impl SessionManager {
             text: new_text,
             chunk_index,
             accumulated_text: state.accumulated_text.clone(),
+            segments,
+            chunk_offset_secs,
         })
     }
 
-    /// Finish a session and return the full accumulated text.
+    /// Finish a session and return the full accumulated text + segments.
     /// Removes the session from the manager.
-    pub fn finish(&mut self, session_id: &str) -> Result<(String, f64), CoreError> {
+    pub fn finish(
+        &mut self,
+        session_id: &str,
+    ) -> Result<(String, f64, Vec<TimestampedSegment>), CoreError> {
         let state = self.sessions.remove(session_id).ok_or_else(|| {
             CoreError::TranscriptionFailed(format!("Session not found: {session_id}"))
         })?;
 
-        Ok((state.accumulated_text, state.total_duration_secs))
+        Ok((
+            state.accumulated_text,
+            state.total_duration_secs,
+            state.accumulated_segments,
+        ))
     }
 
     /// Cancel and remove a session without returning results.
     pub fn cancel(&mut self, session_id: &str) {
         self.sessions.remove(session_id);
+    }
+
+    /// Get the accumulated text for a session without consuming it.
+    /// Use this instead of reading `accumulated_text` from `ChunkResult`
+    /// to avoid cloning the full transcript on every chunk.
+    pub fn get_session_text(&self, session_id: &str) -> Result<String, CoreError> {
+        let state = self.sessions.get(session_id).ok_or_else(|| {
+            CoreError::TranscriptionFailed(format!("Session not found: {session_id}"))
+        })?;
+        Ok(state.accumulated_text.clone())
     }
 
     /// Check if a session exists.
@@ -239,23 +278,26 @@ mod tests {
         assert!(mgr.has_session("test-1"));
 
         // First chunk
-        let r1 = mgr.add_chunk("test-1", "hello world this is chunk one", 30.0).unwrap();
+        let r1 = mgr.add_chunk("test-1", "hello world this is chunk one", 30.0, vec![]).unwrap();
         assert_eq!(r1.chunk_index, 0);
         assert_eq!(r1.text, "hello world this is chunk one");
+        assert!((r1.chunk_offset_secs - 0.0).abs() < 0.01);
 
         // Second chunk with overlap ("chunk one" repeated)
-        let r2 = mgr.add_chunk("test-1", "chunk one and here is chunk two", 30.0).unwrap();
+        let r2 = mgr.add_chunk("test-1", "chunk one and here is chunk two", 30.0, vec![]).unwrap();
         assert_eq!(r2.chunk_index, 1);
         assert_eq!(r2.text, "and here is chunk two");
         assert_eq!(
             r2.accumulated_text,
             "hello world this is chunk one and here is chunk two"
         );
+        assert!((r2.chunk_offset_secs - 30.0).abs() < 0.01);
 
         // Finish
-        let (text, duration) = mgr.finish("test-1").unwrap();
+        let (text, duration, segments) = mgr.finish("test-1").unwrap();
         assert_eq!(text, "hello world this is chunk one and here is chunk two");
         assert!((duration - 60.0).abs() < 0.01);
+        assert!(segments.is_empty()); // No segments passed in this test
         assert!(!mgr.has_session("test-1"));
     }
 
@@ -263,7 +305,7 @@ mod tests {
     fn test_session_cancel() {
         let mut mgr = SessionManager::new();
         mgr.start("cancel-me").unwrap();
-        mgr.add_chunk("cancel-me", "some text", 10.0).unwrap();
+        mgr.add_chunk("cancel-me", "some text", 10.0, vec![]).unwrap();
         mgr.cancel("cancel-me");
         assert!(!mgr.has_session("cancel-me"));
     }
@@ -283,26 +325,26 @@ mod tests {
         mgr.start("long").unwrap();
 
         // Chunk 1: full new content
-        let r1 = mgr.add_chunk("long", "the meeting started with introductions", 30.0).unwrap();
+        let r1 = mgr.add_chunk("long", "the meeting started with introductions", 30.0, vec![]).unwrap();
         assert_eq!(r1.chunk_index, 0);
         assert_eq!(r1.text, "the meeting started with introductions");
 
         // Chunk 2: overlap on "with introductions"
-        let r2 = mgr.add_chunk("long", "with introductions and then we discussed the budget", 30.0).unwrap();
+        let r2 = mgr.add_chunk("long", "with introductions and then we discussed the budget", 30.0, vec![]).unwrap();
         assert_eq!(r2.chunk_index, 1);
         assert_eq!(r2.text, "and then we discussed the budget");
 
         // Chunk 3: overlap on "the budget"
-        let r3 = mgr.add_chunk("long", "the budget was reviewed by the finance team", 30.0).unwrap();
+        let r3 = mgr.add_chunk("long", "the budget was reviewed by the finance team", 30.0, vec![]).unwrap();
         assert_eq!(r3.chunk_index, 2);
         assert_eq!(r3.text, "was reviewed by the finance team");
 
         // Chunk 4: no overlap (clean boundary)
-        let r4 = mgr.add_chunk("long", "next steps were assigned to everyone", 30.0).unwrap();
+        let r4 = mgr.add_chunk("long", "next steps were assigned to everyone", 30.0, vec![]).unwrap();
         assert_eq!(r4.chunk_index, 3);
         assert_eq!(r4.text, "next steps were assigned to everyone");
 
-        let (text, duration) = mgr.finish("long").unwrap();
+        let (text, duration, _segments) = mgr.finish("long").unwrap();
         assert_eq!(
             text,
             "the meeting started with introductions and then we discussed the budget was reviewed by the finance team next steps were assigned to everyone"
@@ -311,9 +353,48 @@ mod tests {
     }
 
     #[test]
+    fn test_segments_accumulated_with_absolute_timestamps() {
+        use crate::TimestampedSegment;
+
+        let mut mgr = SessionManager::new();
+        mgr.start("seg-test").unwrap();
+
+        // Chunk 1 at offset 0s: segment at 1.0-3.0s
+        let seg1 = vec![TimestampedSegment {
+            text: "hello world".into(),
+            start_secs: 1.0,
+            end_secs: 3.0,
+        }];
+        let r1 = mgr.add_chunk("seg-test", "hello world", 30.0, seg1).unwrap();
+        assert!((r1.chunk_offset_secs - 0.0).abs() < 0.01);
+
+        // Chunk 2 at offset 30s: segment at 2.0-5.0s relative to chunk
+        let seg2 = vec![TimestampedSegment {
+            text: "second sentence".into(),
+            start_secs: 2.0,
+            end_secs: 5.0,
+        }];
+        let r2 = mgr.add_chunk("seg-test", "second sentence", 30.0, seg2).unwrap();
+        assert!((r2.chunk_offset_secs - 30.0).abs() < 0.01);
+
+        let (_text, _dur, segments) = mgr.finish("seg-test").unwrap();
+        assert_eq!(segments.len(), 2);
+
+        // First segment: absolute 1.0-3.0s (chunk offset 0)
+        assert_eq!(segments[0].text, "hello world");
+        assert!((segments[0].start_secs - 1.0).abs() < 0.01);
+        assert!((segments[0].end_secs - 3.0).abs() < 0.01);
+
+        // Second segment: absolute 32.0-35.0s (chunk offset 30 + relative 2.0-5.0)
+        assert_eq!(segments[1].text, "second sentence");
+        assert!((segments[1].start_secs - 32.0).abs() < 0.01);
+        assert!((segments[1].end_secs - 35.0).abs() < 0.01);
+    }
+
+    #[test]
     fn test_chunked_session_error_on_unknown_id() {
         let mut mgr = SessionManager::new();
-        assert!(mgr.add_chunk("nonexistent", "text", 10.0).is_err());
+        assert!(mgr.add_chunk("nonexistent", "text", 10.0, vec![]).is_err());
         assert!(mgr.finish("nonexistent").is_err());
     }
 }
