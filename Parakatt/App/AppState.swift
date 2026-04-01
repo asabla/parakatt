@@ -48,6 +48,19 @@ class AppState: ObservableObject {
     private var audioBuffer: [Float] = []
     private let audioBufferLock = NSLock()
 
+    // MARK: - Incremental push-to-talk session
+
+    /// Session ID for incremental processing (nil = short recording, single-shot).
+    private var pttSessionId: String?
+    private var pttChunkIndex: UInt32 = 0
+    private var pttChunkTimer: Timer?
+    private let pttChunkLock = NSLock()  // serializes chunk processing
+
+    /// Seconds before transitioning from single-shot preview to incremental chunking.
+    private let firstChunkDelaySecs: TimeInterval = 5.0
+    /// Chunk dispatch interval after the first chunk (30s chunk - 2s overlap).
+    private let pttChunkIntervalSecs: TimeInterval = 28.0
+
     // MARK: - Engine bridge
 
     private var bridge: CoreBridge?
@@ -116,6 +129,10 @@ class AppState: ObservableObject {
 
     func shutdown() {
         stopRecording()
+        if let sessionId = pttSessionId {
+            bridge?.cancelSession(sessionId: sessionId)
+            pttSessionId = nil
+        }
         if #available(macOS 14.2, *) {
             cancelMeeting()
         }
@@ -136,6 +153,11 @@ class AppState: ObservableObject {
 
         sampleCount = 0
         longRecordingWarned = false
+        pttSessionId = nil
+        pttChunkIndex = 0
+        pttChunkTimer?.invalidate()
+        pttChunkTimer = nil
+
         audioBufferLock.lock()
         audioBuffer.removeAll()
         audioBufferLock.unlock()
@@ -146,8 +168,19 @@ class AppState: ObservableObject {
             currentAudioLevel = 0
             liveTranscription = nil
             errorMessage = nil
+
+            // Start throwaway 2s preview for immediate feedback.
             startStreamingUpdates()
-            NSLog("[Parakatt] Recording STARTED (modelLoaded=%d, streaming=%.0fs)", isModelLoaded ? 1 : 0, streamingInterval)
+
+            // After 5s, transition to incremental session-based processing.
+            pttChunkTimer = Timer.scheduledTimer(
+                withTimeInterval: firstChunkDelaySecs,
+                repeats: false
+            ) { [weak self] _ in
+                self?.startIncrementalSession()
+            }
+
+            NSLog("[Parakatt] Recording STARTED (modelLoaded=%d, incremental after %.0fs)", isModelLoaded ? 1 : 0, firstChunkDelaySecs)
         } catch {
             errorMessage = "Failed to start recording: \(error.localizedDescription)"
             NSLog("[Parakatt] Recording FAILED: %@", error.localizedDescription)
@@ -157,29 +190,108 @@ class AppState: ObservableObject {
     func stopRecording() {
         guard isRecording else { return }
 
+        pttChunkTimer?.invalidate()
+        pttChunkTimer = nil
         stopStreamingUpdates()
         audioCaptureService?.stopCapture()
         isRecording = false
         currentAudioLevel = 0
-        liveTranscription = nil
-        NSLog("[Parakatt] Recording stopped")
 
-        // Get the captured audio
-        audioBufferLock.lock()
-        let samples = audioBuffer
-        audioBuffer.removeAll()
-        audioBufferLock.unlock()
+        if let sessionId = pttSessionId {
+            // Path B: incremental session was active — only process the tail.
+            isProcessing = true
+            // Keep liveTranscription visible while processing the tail.
+            NSLog("[Parakatt] Recording stopped (incremental session, processing tail)")
 
-        guard !samples.isEmpty else {
-            NSLog("[Parakatt] stopRecording: NO AUDIO IN BUFFER")
-            errorMessage = "No audio captured"
-            return
+            audioBufferLock.lock()
+            let remainingSamples = audioBuffer
+            audioBuffer.removeAll()
+            audioBufferLock.unlock()
+
+            let context = contextService?.currentContext()
+            let mode = activeMode
+            let currentIndex = pttChunkIndex
+
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                guard let self, let bridge = self.bridge else {
+                    DispatchQueue.main.async { self?.isProcessing = false }
+                    return
+                }
+
+                // Wait for any in-flight chunk to complete.
+                self.pttChunkLock.lock()
+
+                // Process remaining tail (if >= 1s of audio).
+                if remainingSamples.count >= Int(self.sttSampleRate) {
+                    do {
+                        let result = try bridge.processChunk(
+                            sessionId: sessionId,
+                            audioSamples: remainingSamples,
+                            sampleRate: self.sttSampleRate,
+                            chunkIndex: currentIndex,
+                            mode: mode,
+                            context: context
+                        )
+                        NSLog("[Parakatt] PTT final chunk %d: \"%@\"", currentIndex, result.text)
+                    } catch {
+                        NSLog("[Parakatt] PTT final chunk failed: %@", error.localizedDescription)
+                    }
+                } else {
+                    NSLog("[Parakatt] PTT tail too short (%.1fs), skipping",
+                          Double(remainingSamples.count) / Double(self.sttSampleRate))
+                }
+
+                self.pttChunkLock.unlock()
+
+                // Finish the session.
+                do {
+                    let result = try bridge.finishSession(
+                        sessionId: sessionId,
+                        mode: mode,
+                        context: context
+                    )
+                    DispatchQueue.main.async {
+                        self.isProcessing = false
+                        self.liveTranscription = nil
+                        self.lastTranscription = result.text
+                        self.pttSessionId = nil
+                        self.errorMessage = nil
+
+                        if !result.text.isEmpty {
+                            self.textInsertionService?.insertText(result.text)
+                            NSLog("[Parakatt] PTT session result (%@, %.2fs): %@",
+                                  mode, result.durationSecs, result.text)
+                        }
+                    }
+                } catch {
+                    bridge.cancelSession(sessionId: sessionId)
+                    DispatchQueue.main.async {
+                        self.isProcessing = false
+                        self.liveTranscription = nil
+                        self.pttSessionId = nil
+                        self.errorMessage = "Transcription failed: \(error.localizedDescription)"
+                        NSLog("[Parakatt] PTT session finish FAILED: %@", error.localizedDescription)
+                    }
+                }
+            }
+        } else {
+            // Path A: short recording, no session — single-shot processing.
+            liveTranscription = nil
+            NSLog("[Parakatt] Recording stopped (short, single-shot)")
+
+            audioBufferLock.lock()
+            let samples = audioBuffer
+            audioBuffer.removeAll()
+            audioBufferLock.unlock()
+
+            guard !samples.isEmpty else {
+                NSLog("[Parakatt] stopRecording: NO AUDIO IN BUFFER")
+                errorMessage = "No audio captured"
+                return
+            }
+
+            processAudio(samples)
         }
-
-        let durationSecs = Double(samples.count) / 16000.0
-        NSLog("[Parakatt] Captured \(samples.count) samples (\(String(format: "%.1f", durationSecs))s)")
-
-        processAudio(samples)
     }
 
     // MARK: - Diagnostics
@@ -519,13 +631,8 @@ class AppState: ObservableObject {
     private let overlapDurationSecs: Double = 2.0
     private let sttSampleRate: UInt32 = 16_000
 
+    /// Single-shot transcription for short recordings (used when no incremental session was opened).
     private func processAudio(_ samples: [Float]) {
-        let durationSecs = Double(samples.count) / Double(sttSampleRate)
-        if durationSecs > chunkDurationSecs {
-            processAudioChunked(samples)
-            return
-        }
-
         isProcessing = true
 
         let maxAmp = samples.map { abs($0) }.max() ?? 0
@@ -570,82 +677,97 @@ class AppState: ObservableObject {
         }
     }
 
-    /// Process long recordings by splitting into overlapping chunks and using
-    /// the session-based transcription pipeline (same as meetings).
-    private func processAudioChunked(_ samples: [Float]) {
-        isProcessing = true
+    // MARK: - Incremental push-to-talk processing
 
-        let chunkSize = Int(chunkDurationSecs * Double(sttSampleRate))
-        let overlapSize = Int(overlapDurationSecs * Double(sttSampleRate))
-        let stride = chunkSize - overlapSize
-        let totalChunks = max(1, (samples.count - overlapSize + stride - 1) / stride)
+    /// Transition from throwaway streaming preview to incremental session-based
+    /// processing. Called after `firstChunkDelaySecs` of recording.
+    private func startIncrementalSession() {
+        guard isRecording, let bridge else { return }
 
-        NSLog("[Parakatt] Chunked processing: %d samples (%.1fs) → %d chunks of %.0fs with %.0fs overlap, mode=%@",
-              samples.count, Double(samples.count) / Double(sttSampleRate),
-              totalChunks, chunkDurationSecs, overlapDurationSecs, activeMode)
+        let sessionId = UUID().uuidString
+
+        do {
+            try bridge.startSession(sessionId: sessionId)
+        } catch {
+            NSLog("[Parakatt] Failed to start PTT session: %@ — will use single-shot on stop",
+                  error.localizedDescription)
+            return  // pttSessionId stays nil → falls through to single-shot
+        }
+
+        pttSessionId = sessionId
+
+        // Stop the throwaway streaming preview — chunk results become the live text.
+        stopStreamingUpdates()
+
+        // Dispatch the first chunk immediately (~5s of audio).
+        dispatchPttChunk()
+
+        // Set up repeating timer for subsequent chunks.
+        pttChunkTimer = Timer.scheduledTimer(
+            withTimeInterval: pttChunkIntervalSecs,
+            repeats: true
+        ) { [weak self] _ in
+            self?.dispatchPttChunk()
+        }
+
+        NSLog("[Parakatt] Incremental session started (id: %@)", sessionId)
+    }
+
+    /// Dispatch the next chunk from the audio buffer for incremental processing.
+    /// Adapted from MeetingSessionService.dispatchChunk().
+    private func dispatchPttChunk() {
+        guard let sessionId = pttSessionId, isRecording else { return }
+
+        let samplesPerChunk = Int(chunkDurationSecs * Double(sttSampleRate))
+        let overlapSamples = Int(overlapDurationSecs * Double(sttSampleRate))
+
+        audioBufferLock.lock()
+        guard audioBuffer.count >= Int(sttSampleRate) else {
+            // Less than 1 second of audio — skip this dispatch.
+            audioBufferLock.unlock()
+            return
+        }
+        let chunkSamples = Array(audioBuffer.prefix(samplesPerChunk))
+        let consumed = max(0, chunkSamples.count - overlapSamples)
+        if consumed > 0 {
+            audioBuffer.removeFirst(consumed)
+        }
+        audioBufferLock.unlock()
+
+        let currentIndex = pttChunkIndex
+        pttChunkIndex += 1
+        let context = contextService?.currentContext()
+        let mode = activeMode
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            guard let self, let bridge = self.bridge else {
-                DispatchQueue.main.async { self?.isProcessing = false }
-                return
-            }
+            guard let self, let bridge = self.bridge else { return }
 
-            let sessionId = UUID().uuidString
-            let context = self.contextService?.currentContext()
+            self.pttChunkLock.lock()
+            defer { self.pttChunkLock.unlock() }
 
             do {
-                try bridge.startSession(sessionId: sessionId)
-
-                var offset = 0
-                var chunkIndex: UInt32 = 0
-                while offset < samples.count {
-                    let end = min(offset + chunkSize, samples.count)
-                    let chunk = Array(samples[offset..<end])
-
-                    let result = try bridge.processChunk(
-                        sessionId: sessionId,
-                        audioSamples: chunk,
-                        sampleRate: self.sttSampleRate,
-                        chunkIndex: chunkIndex,
-                        mode: self.activeMode,
-                        context: context
-                    )
-                    NSLog("[Parakatt] Chunk %d/%d: \"%@\"", chunkIndex + 1, totalChunks, result.text)
-
-                    offset += stride
-                    chunkIndex += 1
-                }
-
-                let result = try bridge.finishSession(
+                let result = try bridge.processChunk(
                     sessionId: sessionId,
-                    mode: self.activeMode,
+                    audioSamples: chunkSamples,
+                    sampleRate: self.sttSampleRate,
+                    chunkIndex: currentIndex,
+                    mode: mode,
                     context: context
                 )
-
                 DispatchQueue.main.async {
-                    self.isProcessing = false
-                    self.lastTranscription = result.text
-                    self.errorMessage = nil
-
-                    if !result.text.isEmpty {
-                        self.textInsertionService?.insertText(result.text)
-                        NSLog("[Parakatt] Chunked result (%@, %.2fs): %@", self.activeMode, result.durationSecs, result.text)
-                    } else {
-                        NSLog("[Parakatt] Empty chunked transcription (mode=%@)", self.activeMode)
+                    if self.isRecording || self.isProcessing {
+                        self.liveTranscription = result.accumulatedText.isEmpty
+                            ? nil : result.accumulatedText
                     }
                 }
+                NSLog("[Parakatt] PTT chunk %d: \"%@\"", currentIndex, result.text)
             } catch {
-                bridge.cancelSession(sessionId: sessionId)
-                DispatchQueue.main.async {
-                    self.isProcessing = false
-                    self.errorMessage = "Transcription failed: \(error.localizedDescription)"
-                    NSLog("[Parakatt] Chunked transcription FAILED: %@", error.localizedDescription)
-                }
+                NSLog("[Parakatt] PTT chunk %d failed: %@", currentIndex, error.localizedDescription)
             }
         }
     }
 
-    // MARK: - Streaming
+    // MARK: - Streaming (throwaway preview for initial seconds)
 
     private var streamingTimer: Timer?
     /// Interval between live transcription updates while recording.
@@ -668,7 +790,7 @@ class AppState: ObservableObject {
     private var isStreamTranscribing = false
 
     private func updateLiveTranscription() {
-        guard isRecording, let bridge, !isStreamTranscribing else { return }
+        guard isRecording, let bridge, !isStreamTranscribing, pttSessionId == nil else { return }
 
         // Snapshot the current buffer
         audioBufferLock.lock()
