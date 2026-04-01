@@ -14,13 +14,46 @@ packages:
     from: "0.2.1"
 
 targets:
-  Parakatt:
-    type: application
+  # Framework containing all application code.
+  # This target changes on every release — that's fine because TCC
+  # permissions are tied to the main executable, not frameworks.
+  ParakattApp:
+    type: framework
     platform: macOS
     sources:
       - path: Parakatt
         excludes:
           - "**/*.entitlements"
+          - "**/Parakatt-Bridging-Header.h"
+    headers:
+      public:
+        - path: Parakatt/Bridge/ParakattApp.h
+        - path: Parakatt/Bridge/ObjCExceptionCatcher.h
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.parakatt.appframework
+        PRODUCT_NAME: ParakattApp
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        SWIFT_VERSION: "5.10"
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_HARDENED_RUNTIME: true
+        DEFINES_MODULE: true
+        APPLICATION_EXTENSION_API_ONLY: false
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/../Frameworks @loader_path/Frameworks"
+    dependencies:
+      - package: ParakattCore
+      - package: HotKey
+
+  # Thin launcher app target.
+  # The compiled executable is replaced with a pre-built stable binary
+  # for release builds so that macOS TCC permissions persist across updates.
+  # During development, Xcode compiles this normally — TCC resets only
+  # matter for distributed builds.
+  Parakatt:
+    type: application
+    platform: macOS
+    sources:
+      - path: Launcher
     info:
       path: Parakatt/Info.plist
       properties:
@@ -39,7 +72,6 @@ targets:
         com.apple.security.cs.disable-library-validation: true
     settings:
       base:
-        SWIFT_OBJC_BRIDGING_HEADER: Parakatt/Bridge/Parakatt-Bridging-Header.h
         PRODUCT_BUNDLE_IDENTIFIER: com.parakatt.app
         PRODUCT_NAME: Parakatt
         MARKETING_VERSION: "0.1.0"
@@ -49,7 +81,9 @@ targets:
         CODE_SIGN_STYLE: Automatic
         ENABLE_HARDENED_RUNTIME: true
         INFOPLIST_FILE: Parakatt/Info.plist
-        LD_RUNPATH_SEARCH_PATHS: "@executable_path/../Frameworks"
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/../Frameworks"
     dependencies:
+      - target: ParakattApp
+        embed: true
       - package: ParakattCore
       - package: HotKey
