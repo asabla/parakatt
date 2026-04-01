@@ -1,0 +1,3 @@
+# Pre-built stable launcher binary — must not be modified by git
+# (line-ending normalization or text diffs would corrupt it)
+bin/parakatt-launcher binary

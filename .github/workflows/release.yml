@@ -43,29 +43,38 @@ jobs:
       - name: Build Release
         run: make release
 
-      - name: Swap in stable launcher
-        run: |
-          BUILD_DIR=$(xcodebuild -project Parakatt.xcodeproj -scheme Parakatt -configuration Release -showBuildSettings 2>/dev/null | grep ' BUILT_PRODUCTS_DIR' | awk '{print $NF}')
-          # Replace the Xcode-compiled launcher with the pre-built stable binary.
-          # The stable launcher's CDHash never changes, so macOS TCC permissions
-          # (Accessibility, Microphone, Screen Recording) persist across updates.
-          cp bin/parakatt-launcher "$BUILD_DIR/Parakatt.app/Contents/MacOS/Parakatt"
-          codesign --force --sign - \
-            --entitlements Parakatt/Parakatt.entitlements \
-            --options runtime \
-            "$BUILD_DIR/Parakatt.app/Contents/MacOS/Parakatt"
-          echo "Stable launcher CDHash:"
-          codesign -dvvv "$BUILD_DIR/Parakatt.app/Contents/MacOS/Parakatt" 2>&1 | grep CDHash
-
-      # TODO: Add Developer ID signing and notarization when an Apple Developer
-      # Program membership is available. This would replace the self-signed
-      # approach and allow Gatekeeper to pass the app without xattr workarounds.
-
       - name: Get build products path
         id: build-path
         run: |
           BUILD_DIR=$(xcodebuild -project Parakatt.xcodeproj -scheme Parakatt -configuration Release -showBuildSettings 2>/dev/null | grep ' BUILT_PRODUCTS_DIR' | awk '{print $NF}')
           echo "dir=$BUILD_DIR" >> "$GITHUB_OUTPUT"
+
+      - name: Swap in stable launcher
+        run: |
+          # Replace the Xcode-compiled launcher with the pre-built stable binary.
+          # The stable launcher's CDHash never changes, so macOS TCC permissions
+          # (Accessibility, Microphone, Screen Recording) persist across updates.
+          cp bin/parakatt-launcher "${{ steps.build-path.outputs.dir }}/Parakatt.app/Contents/MacOS/Parakatt"
+          codesign --force --sign - \
+            --entitlements Parakatt/Parakatt.entitlements \
+            --options runtime \
+            "${{ steps.build-path.outputs.dir }}/Parakatt.app/Contents/MacOS/Parakatt"
+
+      - name: Verify stable launcher CDHash
+        run: |
+          EXPECTED_CDHASH=$(codesign -dvvv bin/parakatt-launcher 2>&1 | grep '^CDHash=' | cut -d= -f2)
+          ACTUAL_CDHASH=$(codesign -dvvv "${{ steps.build-path.outputs.dir }}/Parakatt.app/Contents/MacOS/Parakatt" 2>&1 | grep '^CDHash=' | cut -d= -f2)
+          echo "Expected CDHash: $EXPECTED_CDHASH"
+          echo "Actual CDHash:   $ACTUAL_CDHASH"
+          if [ "$EXPECTED_CDHASH" != "$ACTUAL_CDHASH" ]; then
+            echo "::error::CDHash mismatch! TCC permissions will reset for users."
+            exit 1
+          fi
+          echo "CDHash matches — TCC permissions will persist across updates."
+
+      # TODO: Add Developer ID signing and notarization when an Apple Developer
+      # Program membership is available. This would replace the self-signed
+      # approach and allow Gatekeeper to pass the app without xattr workarounds.
 
       - name: Extract version
         id: version
