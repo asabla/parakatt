@@ -43,55 +43,23 @@ jobs:
       - name: Build Release
         run: make release
 
-      # TODO: Add Developer ID signing and notarization for proper Homebrew distribution.
-      # Without this, the binary is ad-hoc signed and macOS restricts text insertion APIs.
-      #
-      # Prerequisites:
-      #   - Apple Developer Program membership ($99/year)
-      #   - Developer ID Application certificate
-      #   - App-specific password for notarytool (appleid.apple.com)
-      #
-      # Required GitHub Secrets:
-      #   APPLE_CERTIFICATE_BASE64  - .p12 certificate, base64-encoded
-      #   APPLE_CERTIFICATE_PASSWORD - password for the .p12 file
-      #   APPLE_TEAM_ID             - Apple Developer Team ID
-      #   APPLE_ID                  - Apple ID email
-      #   APPLE_APP_SPECIFIC_PASSWORD - app-specific password for notarization
-      #
-      # Steps to add (between Build Release and Create zip):
-      #
-      # - name: Import signing certificate
-      #   env:
-      #     CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
-      #     CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-      #   run: |
-      #     KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
-      #     security create-keychain -p "" $KEYCHAIN_PATH
-      #     security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
-      #     security unlock-keychain -p "" $KEYCHAIN_PATH
-      #     echo "$CERTIFICATE_BASE64" | base64 --decode > $RUNNER_TEMP/certificate.p12
-      #     security import $RUNNER_TEMP/certificate.p12 -k $KEYCHAIN_PATH \
-      #       -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-      #     security set-key-partition-list -S apple-tool:,apple: -s -k "" $KEYCHAIN_PATH
-      #     security list-keychains -d user -s $KEYCHAIN_PATH login.keychain
-      #
-      # - name: Build Release (signed)
-      #   run: |
-      #     xcodebuild -project Parakatt.xcodeproj -scheme Parakatt -configuration Release \
-      #       CODE_SIGN_STYLE=Manual \
-      #       CODE_SIGN_IDENTITY="Developer ID Application" \
-      #       DEVELOPMENT_TEAM=${{ secrets.APPLE_TEAM_ID }} \
-      #       build
-      #
-      # - name: Notarize app
-      #   run: |
-      #     ditto -c -k --keepParent "$BUILD_DIR/Parakatt.app" /tmp/Parakatt-notarize.zip
-      #     xcrun notarytool submit /tmp/Parakatt-notarize.zip \
-      #       --apple-id "${{ secrets.APPLE_ID }}" \
-      #       --password "${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}" \
-      #       --team-id "${{ secrets.APPLE_TEAM_ID }}" \
-      #       --wait
-      #     xcrun stapler staple "$BUILD_DIR/Parakatt.app"
+      - name: Swap in stable launcher
+        run: |
+          BUILD_DIR=$(xcodebuild -project Parakatt.xcodeproj -scheme Parakatt -configuration Release -showBuildSettings 2>/dev/null | grep ' BUILT_PRODUCTS_DIR' | awk '{print $NF}')
+          # Replace the Xcode-compiled launcher with the pre-built stable binary.
+          # The stable launcher's CDHash never changes, so macOS TCC permissions
+          # (Accessibility, Microphone, Screen Recording) persist across updates.
+          cp bin/parakatt-launcher "$BUILD_DIR/Parakatt.app/Contents/MacOS/Parakatt"
+          codesign --force --sign - \
+            --entitlements Parakatt/Parakatt.entitlements \
+            --options runtime \
+            "$BUILD_DIR/Parakatt.app/Contents/MacOS/Parakatt"
+          echo "Stable launcher CDHash:"
+          codesign -dvvv "$BUILD_DIR/Parakatt.app/Contents/MacOS/Parakatt" 2>&1 | grep CDHash
+
+      # TODO: Add Developer ID signing and notarization when an Apple Developer
+      # Program membership is available. This would replace the self-signed
+      # approach and allow Gatekeeper to pass the app without xattr workarounds.
 
       - name: Get build products path
         id: build-path
