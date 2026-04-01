@@ -18,6 +18,7 @@ class SystemAudioCaptureService {
     private var converter: AVAudioConverter?
     private let targetSampleRate: Double = 16_000
     private let callbackQueue = DispatchQueue(label: "com.parakatt.systemaudiotap", qos: .userInteractive)
+    private let stateLock = NSLock()
 
     /// Start capturing system audio.
     /// - Parameter processID: If provided, capture audio from this process only.
@@ -103,7 +104,10 @@ class SystemAudioCaptureService {
     }
 
     func stopCapture() {
-        guard tapID != AudioObjectID.max else { return }
+        stateLock.lock()
+        let hasTap = tapID != AudioObjectID.max
+        stateLock.unlock()
+        guard hasTap else { return }
         teardown()
         NSLog("[Parakatt] System audio capture STOPPED")
     }
@@ -128,8 +132,16 @@ class SystemAudioCaptureService {
     // MARK: - Resampling
 
     private func resampleAndDeliver(samples: [Float]) {
+        // Snapshot state under lock so teardown on another thread doesn't race.
+        stateLock.lock()
+        let deviceID = aggregateDeviceID
+        var conv = converter
+        stateLock.unlock()
+
+        guard deviceID != AudioObjectID.max else { return }
+
         // Detect source sample rate from the aggregate device.
-        let sourceSampleRate = Self.deviceSampleRate(aggregateDeviceID) ?? 48_000
+        let sourceSampleRate = Self.deviceSampleRate(deviceID) ?? 48_000
 
         if abs(sourceSampleRate - targetSampleRate) < 1.0 {
             onAudioSamples?(samples)
@@ -150,10 +162,13 @@ class SystemAudioCaptureService {
             interleaved: false
         )!
 
-        if converter == nil || converter?.inputFormat.sampleRate != sourceSampleRate {
-            converter = AVAudioConverter(from: sourceFormat, to: targetFormat)
+        if conv == nil || conv?.inputFormat.sampleRate != sourceSampleRate {
+            conv = AVAudioConverter(from: sourceFormat, to: targetFormat)
+            stateLock.lock()
+            converter = conv
+            stateLock.unlock()
         }
-        guard let converter else { return }
+        guard let conv else { return }
 
         guard let inputBuffer = AVAudioPCMBuffer(pcmFormat: sourceFormat, frameCapacity: AVAudioFrameCount(samples.count)) else { return }
         inputBuffer.frameLength = AVAudioFrameCount(samples.count)
@@ -166,7 +181,7 @@ class SystemAudioCaptureService {
         guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: outputFrameCount) else { return }
 
         var consumed = false
-        converter.convert(to: outputBuffer, error: nil) { _, status in
+        conv.convert(to: outputBuffer, error: nil) { _, status in
             if consumed { status.pointee = .noDataNow; return nil }
             consumed = true
             status.pointee = .haveData
@@ -182,23 +197,29 @@ class SystemAudioCaptureService {
     // MARK: - Teardown
 
     private func teardown() {
-        if let procID = ioProcID, aggregateDeviceID != AudioObjectID.max {
-            AudioDeviceStop(aggregateDeviceID, procID)
-            AudioDeviceDestroyIOProcID(aggregateDeviceID, procID)
-        }
+        // Snapshot and nil out state under lock so in-flight callbacks exit early.
+        stateLock.lock()
+        let procID = ioProcID
+        let aggID = aggregateDeviceID
+        let tapIDLocal = tapID
         ioProcID = nil
-
-        if aggregateDeviceID != AudioObjectID.max {
-            AudioHardwareDestroyAggregateDevice(aggregateDeviceID)
-            aggregateDeviceID = AudioObjectID.max
-        }
-
-        if tapID != AudioObjectID.max {
-            AudioHardwareDestroyProcessTap(tapID)
-            tapID = AudioObjectID.max
-        }
-
+        aggregateDeviceID = AudioObjectID.max
+        tapID = AudioObjectID.max
         converter = nil
+        stateLock.unlock()
+
+        if let procID, aggID != AudioObjectID.max {
+            AudioDeviceStop(aggID, procID)
+            AudioDeviceDestroyIOProcID(aggID, procID)
+        }
+
+        if aggID != AudioObjectID.max {
+            AudioHardwareDestroyAggregateDevice(aggID)
+        }
+
+        if tapIDLocal != AudioObjectID.max {
+            AudioHardwareDestroyProcessTap(tapIDLocal)
+        }
     }
 
     deinit {
