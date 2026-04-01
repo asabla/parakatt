@@ -1,9 +1,10 @@
-.PHONY: all rust swift-package xcode build release package test clean run
+.PHONY: all rust swift-package xcode build release package test clean run launcher
 
 VERSION := 0.1.0
 APP_NAME := Parakatt
 DMG_NAME := $(APP_NAME)-$(VERSION)-arm64.dmg
 ZIP_NAME := $(APP_NAME)-$(VERSION)-arm64.zip
+LAUNCHER_BIN := bin/parakatt-launcher
 
 # Build everything from scratch
 all: rust swift-package xcode build
@@ -37,8 +38,40 @@ release:
 # Get the Release build products directory
 RELEASE_BUILD_DIR = $(shell xcodebuild -project Parakatt.xcodeproj -scheme Parakatt -configuration Release -showBuildSettings 2>/dev/null | grep ' BUILT_PRODUCTS_DIR' | awk '{print $$NF}')
 
-# Package the Release .app as a zip and DMG
+# Build the stable launcher binary once and store it in bin/.
+# This binary should be committed or stored as a release artifact.
+# It must NOT be rebuilt on every release — only when Launcher/main.swift
+# or entitlements change.
+launcher:
+	@mkdir -p bin
+	swiftc -O -target arm64-apple-macos14.0 \
+		-o "$(LAUNCHER_BIN)" \
+		Launcher/main.swift
+	codesign --force --sign - \
+		--entitlements Parakatt/Parakatt.entitlements \
+		--options runtime \
+		"$(LAUNCHER_BIN)"
+	@echo "Launcher built at $(LAUNCHER_BIN)"
+	@echo "CDHash:"
+	@codesign -dvvv "$(LAUNCHER_BIN)" 2>&1 | grep CDHash
+
+# Package the Release .app, swapping in the stable launcher for distribution.
+# For dev builds, the Xcode-compiled launcher is fine (TCC resets only matter
+# for distributed releases).
 package: release
+	@if [ ! -f "$(LAUNCHER_BIN)" ]; then \
+		echo "Error: pre-built launcher not found at $(LAUNCHER_BIN)"; \
+		echo "Run 'make launcher' first to build the stable launcher binary."; \
+		exit 1; \
+	fi
+	@echo "Swapping in stable launcher binary..."
+	cp "$(LAUNCHER_BIN)" "$(RELEASE_BUILD_DIR)/$(APP_NAME).app/Contents/MacOS/$(APP_NAME)"
+	codesign --force --sign - \
+		--entitlements Parakatt/Parakatt.entitlements \
+		--options runtime \
+		"$(RELEASE_BUILD_DIR)/$(APP_NAME).app/Contents/MacOS/$(APP_NAME)"
+	@echo "Stable launcher CDHash:"
+	@codesign -dvvv "$(RELEASE_BUILD_DIR)/$(APP_NAME).app/Contents/MacOS/$(APP_NAME)" 2>&1 | grep CDHash
 	@mkdir -p dist
 	ditto -c -k --keepParent "$(RELEASE_BUILD_DIR)/$(APP_NAME).app" "dist/$(ZIP_NAME)"
 	@echo "Created dist/$(ZIP_NAME)"
