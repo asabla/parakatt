@@ -219,41 +219,25 @@ class MenuBarManager: NSObject {
     private func setIcon(_ state: IconState) {
         guard let button = statusItem.button else { return }
 
-        let size = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
-        let symbolName = "waveform"
-
+        let name: String
         switch state {
         case .idle, .loading:
-            let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: "Parakatt")!
-                .withSymbolConfiguration(size)!
-            image.isTemplate = true
-            button.contentTintColor = nil
-            button.image = image
-
-        case .recording:
-            let color = NSImage.SymbolConfiguration(paletteColors: [.systemRed])
-            let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: "Recording")!
-                .withSymbolConfiguration(size.applying(color))!
-            image.isTemplate = false
-            button.contentTintColor = nil
-            button.image = image
-
+            name = "MenuBarIdle"
+        case .recording, .meeting:
+            name = "MenuBarRecording"
         case .processing:
-            let color = NSImage.SymbolConfiguration(paletteColors: [.systemOrange])
-            let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: "Processing")!
-                .withSymbolConfiguration(size.applying(color))!
-            image.isTemplate = false
-            button.contentTintColor = nil
-            button.image = image
-
-        case .meeting:
-            let color = NSImage.SymbolConfiguration(paletteColors: [.systemGreen])
-            let image = NSImage(systemSymbolName: "waveform.badge.mic", accessibilityDescription: "Meeting")!
-                .withSymbolConfiguration(size.applying(color))!
-            image.isTemplate = false
-            button.contentTintColor = nil
-            button.image = image
+            name = "MenuBarProcessing"
         }
+
+        let bundle = Bundle(for: MenuBarManager.self)
+        guard let image = bundle.image(forResource: name) else {
+            assertionFailure("Missing menu bar icon: \(name)")
+            return
+        }
+
+        image.isTemplate = (state == .idle || state == .loading)
+        image.size = NSSize(width: 22, height: 22)
+        button.image = image
     }
 
     // MARK: - Actions
