@@ -6,9 +6,13 @@ Local-first voice-to-text transcription for macOS. Lives in your menu bar, trans
 
 - Menu bar app with global hotkey (Option+Space) to start/stop recording
 - On-device speech-to-text via Parakeet TDT 0.6B (ONNX Runtime)
+- Meeting transcription with dual audio capture (microphone + system audio)
+- Sentence-level timestamps with timeline navigation in transcription history
+- Per-chunk LLM processing for responsive long-form transcription
 - Optional LLM post-processing (Ollama, LM Studio, OpenAI, Anthropic)
 - Dictionary rules for domain-specific word corrections
-- Multiple transcription modes (dictation, etc.)
+- Multiple transcription modes (dictation, clean, email, code)
+- Transcription history with full-text search, markdown export with timestamps
 - Auto-paste transcribed text into the active application
 
 ## Requirements
@@ -48,12 +52,13 @@ make run
 
 ## Permissions
 
-Parakatt requires two macOS permissions:
+Parakatt requires the following macOS permissions:
 
 - **Microphone** — for capturing audio to transcribe
 - **Accessibility** — for inserting transcribed text into other applications
+- **Screen & System Audio Recording** (macOS 14.2+, optional) — for capturing system audio during meeting transcription
 
-You'll be prompted to grant these on first launch. They can be managed in **System Settings > Privacy & Security**.
+You'll be prompted to grant these when needed. They can be managed in **System Settings > Privacy & Security**.
 
 ## Configuration
 
