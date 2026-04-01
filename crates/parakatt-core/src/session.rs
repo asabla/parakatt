@@ -274,4 +274,46 @@ mod tests {
         mgr.start("dup").unwrap();
         assert!(mgr.start("dup").is_err());
     }
+
+    #[test]
+    fn test_many_chunks_long_recording() {
+        // Simulates a long recording split into many overlapping chunks,
+        // as done by processAudioChunked in AppState.swift (issue #6 fix).
+        let mut mgr = SessionManager::new();
+        mgr.start("long").unwrap();
+
+        // Chunk 1: full new content
+        let r1 = mgr.add_chunk("long", "the meeting started with introductions", 30.0).unwrap();
+        assert_eq!(r1.chunk_index, 0);
+        assert_eq!(r1.text, "the meeting started with introductions");
+
+        // Chunk 2: overlap on "with introductions"
+        let r2 = mgr.add_chunk("long", "with introductions and then we discussed the budget", 30.0).unwrap();
+        assert_eq!(r2.chunk_index, 1);
+        assert_eq!(r2.text, "and then we discussed the budget");
+
+        // Chunk 3: overlap on "the budget"
+        let r3 = mgr.add_chunk("long", "the budget was reviewed by the finance team", 30.0).unwrap();
+        assert_eq!(r3.chunk_index, 2);
+        assert_eq!(r3.text, "was reviewed by the finance team");
+
+        // Chunk 4: no overlap (clean boundary)
+        let r4 = mgr.add_chunk("long", "next steps were assigned to everyone", 30.0).unwrap();
+        assert_eq!(r4.chunk_index, 3);
+        assert_eq!(r4.text, "next steps were assigned to everyone");
+
+        let (text, duration) = mgr.finish("long").unwrap();
+        assert_eq!(
+            text,
+            "the meeting started with introductions and then we discussed the budget was reviewed by the finance team next steps were assigned to everyone"
+        );
+        assert!((duration - 120.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_chunked_session_error_on_unknown_id() {
+        let mut mgr = SessionManager::new();
+        assert!(mgr.add_chunk("nonexistent", "text", 10.0).is_err());
+        assert!(mgr.finish("nonexistent").is_err());
+    }
 }
