@@ -507,7 +507,19 @@ class AppState: ObservableObject {
 
     // MARK: - Processing
 
+    /// Maximum duration (seconds) for single-shot transcription. Longer recordings are chunked.
+    private let chunkDurationSecs: Double = 30.0
+    /// Overlap between consecutive chunks to avoid cutting words at boundaries.
+    private let overlapDurationSecs: Double = 2.0
+    private let sttSampleRate: UInt32 = 16_000
+
     private func processAudio(_ samples: [Float]) {
+        let durationSecs = Double(samples.count) / Double(sttSampleRate)
+        if durationSecs > chunkDurationSecs {
+            processAudioChunked(samples)
+            return
+        }
+
         isProcessing = true
 
         let maxAmp = samples.map { abs($0) }.max() ?? 0
@@ -547,6 +559,79 @@ class AppState: ObservableObject {
                     self.isProcessing = false
                     self.errorMessage = "Transcription failed: \(error.localizedDescription)"
                     NSLog("[Parakatt] Transcription FAILED: %@", error.localizedDescription)
+                }
+            }
+        }
+    }
+
+    /// Process long recordings by splitting into overlapping chunks and using
+    /// the session-based transcription pipeline (same as meetings).
+    private func processAudioChunked(_ samples: [Float]) {
+        isProcessing = true
+
+        let chunkSize = Int(chunkDurationSecs * Double(sttSampleRate))
+        let overlapSize = Int(overlapDurationSecs * Double(sttSampleRate))
+        let stride = chunkSize - overlapSize
+        let totalChunks = max(1, (samples.count - overlapSize + stride - 1) / stride)
+
+        NSLog("[Parakatt] Chunked processing: %d samples (%.1fs) → %d chunks of %.0fs with %.0fs overlap, mode=%@",
+              samples.count, Double(samples.count) / Double(sttSampleRate),
+              totalChunks, chunkDurationSecs, overlapDurationSecs, activeMode)
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self, let bridge = self.bridge else {
+                DispatchQueue.main.async { self?.isProcessing = false }
+                return
+            }
+
+            let sessionId = UUID().uuidString
+            let context = self.contextService?.currentContext()
+
+            do {
+                try bridge.startSession(sessionId: sessionId)
+
+                var offset = 0
+                var chunkIndex: UInt32 = 0
+                while offset < samples.count {
+                    let end = min(offset + chunkSize, samples.count)
+                    let chunk = Array(samples[offset..<end])
+
+                    let result = try bridge.processChunk(
+                        sessionId: sessionId,
+                        audioSamples: chunk,
+                        sampleRate: self.sttSampleRate,
+                        chunkIndex: chunkIndex
+                    )
+                    NSLog("[Parakatt] Chunk %d/%d: \"%@\"", chunkIndex + 1, totalChunks, result.text)
+
+                    offset += stride
+                    chunkIndex += 1
+                }
+
+                let result = try bridge.finishSession(
+                    sessionId: sessionId,
+                    mode: self.activeMode,
+                    context: context
+                )
+
+                DispatchQueue.main.async {
+                    self.isProcessing = false
+                    self.lastTranscription = result.text
+                    self.errorMessage = nil
+
+                    if !result.text.isEmpty {
+                        self.textInsertionService?.insertText(result.text)
+                        NSLog("[Parakatt] Chunked result (%@, %.2fs): %@", self.activeMode, result.durationSecs, result.text)
+                    } else {
+                        NSLog("[Parakatt] Empty chunked transcription (mode=%@)", self.activeMode)
+                    }
+                }
+            } catch {
+                bridge.cancelSession(sessionId: sessionId)
+                DispatchQueue.main.async {
+                    self.isProcessing = false
+                    self.errorMessage = "Transcription failed: \(error.localizedDescription)"
+                    NSLog("[Parakatt] Chunked transcription FAILED: %@", error.localizedDescription)
                 }
             }
         }
