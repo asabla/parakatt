@@ -49,11 +49,19 @@ jobs:
           BUILD_DIR=$(xcodebuild -project Parakatt.xcodeproj -scheme Parakatt -configuration Release -showBuildSettings 2>/dev/null | grep ' BUILT_PRODUCTS_DIR' | awk '{print $NF}')
           echo "dir=$BUILD_DIR" >> "$GITHUB_OUTPUT"
 
+      - name: Build stable launcher
+        run: |
+          # Build the stable launcher from source on CI so it matches the
+          # runner's toolchain. The launcher binary is tiny (Launcher/main.swift)
+          # and its CDHash must be consistent across releases.
+          make launcher
+
       - name: Swap in stable launcher
         run: |
-          # Replace the Xcode-compiled launcher with the pre-built stable binary.
-          # The stable launcher's CDHash never changes, so macOS TCC permissions
-          # (Accessibility, Microphone, Screen Recording) persist across updates.
+          # Replace the Xcode-compiled launcher with the stable binary.
+          # The stable launcher's CDHash never changes between releases, so
+          # macOS TCC permissions (Accessibility, Microphone, Screen Recording)
+          # persist across updates.
           cp bin/parakatt-launcher "${{ steps.build-path.outputs.dir }}/Parakatt.app/Contents/MacOS/Parakatt"
 
       - name: Verify stable launcher CDHash
