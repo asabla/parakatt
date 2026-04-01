@@ -52,26 +52,40 @@ class AudioCaptureService {
             guard let conv = AVAudioConverter(from: hwFormat, to: targetFormat) else {
                 throw AudioCaptureError.converterCreationFailed
             }
+
+            engineLock.lock()
             self.converter = conv
+            engineLock.unlock()
 
             inputNode.installTap(onBus: 0, bufferSize: 4096, format: hwFormat) { [weak self] buffer, _ in
                 self?.convertAndDeliver(buffer: buffer)
             }
         } else {
             inputNode.installTap(onBus: 0, bufferSize: 4096, format: hwFormat) { [weak self] buffer, _ in
-                self?.deliverSamples(from: buffer)
+                guard let self else { return }
+                self.engineLock.lock()
+                let active = self.audioEngine != nil
+                self.engineLock.unlock()
+                guard active else { return }
+                self.deliverSamples(from: buffer)
             }
         }
 
         engine.prepare()
         try engine.start()
+
+        engineLock.lock()
         self.audioEngine = engine
+        engineLock.unlock()
 
         NSLog("[Parakatt] Audio capture STARTED")
     }
 
     func stopCapture() {
-        guard audioEngine != nil else { return }
+        engineLock.lock()
+        let hasEngine = audioEngine != nil
+        engineLock.unlock()
+        guard hasEngine else { return }
         teardown()
         NSLog("[Parakatt] Audio capture STOPPED")
     }
@@ -155,11 +169,19 @@ class AudioCaptureService {
         converter = nil
         engineLock.unlock()
 
-        if let engine {
+        guard let engine else { return }
+
+        var error: NSError?
+        let ok = catchObjCException({
             if engine.isRunning {
                 engine.inputNode.removeTap(onBus: 0)
                 engine.stop()
             }
+        }, &error)
+
+        if !ok {
+            NSLog("[Parakatt] Audio engine teardown caught ObjC exception: %@",
+                  error?.localizedDescription ?? "unknown")
         }
     }
 
