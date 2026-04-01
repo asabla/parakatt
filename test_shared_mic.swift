@@ -59,11 +59,6 @@ class SafeEngine {
         return converter
     }
 
-    var underlyingEngine: AVAudioEngine? {
-        lock.lock()
-        defer { lock.unlock() }
-        return engine
-    }
 }
 
 func findBuiltInMicID() -> AudioDeviceID? {
@@ -127,62 +122,6 @@ func installTap(on engine: AVAudioEngine, label: String) -> (samples: () -> [Flo
         samples.append(contentsOf: s)
         lock.unlock()
     }
-
-    return (samples: {
-        lock.lock()
-        defer { lock.unlock() }
-        return samples
-    }, lock: lock)
-}
-
-/// Install a tap that resamples through an AVAudioConverter (mirrors the converter path
-/// in AudioCaptureService.convertAndDeliver).
-func installResamplingTap(
-    on engine: AVAudioEngine,
-    safeEngine: SafeEngine,
-    targetRate: Double = 16_000
-) -> (samples: () -> [Float], lock: NSLock) {
-    let lock = NSLock()
-    var samples: [Float] = []
-    let hwFormat = engine.inputNode.outputFormat(forBus: 0)
-
-    let targetFormat = AVAudioFormat(
-        commonFormat: .pcmFormatFloat32,
-        sampleRate: targetRate,
-        channels: 1,
-        interleaved: false
-    )!
-
-    let converter = AVAudioConverter(from: hwFormat, to: targetFormat)!
-
-    engine.inputNode.installTap(onBus: 0, bufferSize: 4096, format: hwFormat) { buffer, _ in
-        // Mirror the lock check in convertAndDeliver
-        guard let conv = safeEngine.safeConverter else { return }
-
-        let ratio = targetRate / buffer.format.sampleRate
-        let frameCount = AVAudioFrameCount(Double(buffer.frameLength) * ratio)
-        guard let outBuf = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: frameCount) else { return }
-
-        var consumed = false
-        conv.convert(to: outBuf, error: nil) { _, status in
-            if consumed { status.pointee = .noDataNow; return nil }
-            consumed = true
-            status.pointee = .haveData
-            return buffer
-        }
-
-        guard let data = outBuf.floatChannelData else { return }
-        let count = Int(outBuf.frameLength)
-        guard count > 0 else { return }
-        let s = Array(UnsafeBufferPointer(start: data[0], count: count))
-        lock.lock()
-        samples.append(contentsOf: s)
-        lock.unlock()
-    }
-
-    // Store converter in SafeEngine so the lock check works
-    // (we access it via safeEngine.safeConverter in the tap)
-    _ = converter  // keep alive
 
     return (samples: {
         lock.lock()
