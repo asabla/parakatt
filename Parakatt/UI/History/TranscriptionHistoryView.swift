@@ -273,7 +273,8 @@ struct TranscriptionHistoryView: View {
     private func refresh() {
         transcriptions = appState.listTranscriptions(
             searchText: searchText.isEmpty ? nil : searchText,
-            sourceFilter: sourceFilter
+            sourceFilter: sourceFilter,
+            limit: 500
         )
     }
 
