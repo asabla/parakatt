@@ -273,7 +273,8 @@ class AppState: ObservableObject {
                     let result = try bridge.finishSession(
                         sessionId: sessionId,
                         mode: mode,
-                        context: context
+                        context: context,
+                        source: "push_to_talk"
                     )
                     DispatchQueue.main.async {
                         self.isProcessing = false
