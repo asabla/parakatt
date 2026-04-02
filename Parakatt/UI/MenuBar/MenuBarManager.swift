@@ -50,6 +50,8 @@ class MenuBarManager: NSObject {
     private var statusMenuItem: NSMenuItem!
     private var lastTranscriptionMenuItem: NSMenuItem!
     private var modeMenuItems: [String: NSMenuItem] = [:]
+    private var deviceMenu: NSMenu?
+    private var selectedDeviceUID: String?  // nil = system default
     private var audioSourceMenu: NSMenu?
     private var currentIconState: IconState = .idle
     private var settingsWindow: NSWindow?
@@ -108,29 +110,14 @@ class MenuBarManager: NSObject {
         modeMenuItem.submenu = modeMenu
         menu.addItem(modeMenuItem)
 
-        // Input device submenu
-        let deviceMenu = NSMenu()
+        // Input device submenu (rebuilt dynamically when opened)
+        let devMenu = NSMenu()
+        devMenu.delegate = self
+        deviceMenu = devMenu
+        rebuildDeviceMenu()
 
-        // System Default option — uses whatever macOS has selected
-        let defaultItem = NSMenuItem(title: "System Default", action: #selector(selectInputDevice(_:)), keyEquivalent: "")
-        defaultItem.target = self
-        defaultItem.representedObject = nil as String?
-        defaultItem.state = .on  // default selection
-        deviceMenu.addItem(defaultItem)
-        deviceMenu.addItem(.separator())
-
-        let devices = AudioCaptureService.listInputDevices()
-        for device in devices {
-            let item = NSMenuItem(title: device.name, action: #selector(selectInputDevice(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = device.uid
-            if device.isDefault {
-                item.title = "\(device.name) (current default)"
-            }
-            deviceMenu.addItem(item)
-        }
         let deviceMenuItem = NSMenuItem(title: "Input Device", action: nil, keyEquivalent: "")
-        deviceMenuItem.submenu = deviceMenu
+        deviceMenuItem.submenu = devMenu
         menu.addItem(deviceMenuItem)
 
         // Audio source submenu (for meeting system audio capture)
@@ -302,11 +289,10 @@ class MenuBarManager: NSObject {
     }
 
     @objc private func selectInputDevice(_ sender: NSMenuItem) {
-        if let menu = sender.menu {
-            for item in menu.items { item.state = (item == sender) ? .on : .off }
-        }
         let uid = sender.representedObject as? String
+        selectedDeviceUID = uid
         appState.setInputDevice(uid: uid)
+        rebuildDeviceMenu()
     }
 
     @objc private func selectAudioSource(_ sender: NSMenuItem) {
@@ -361,6 +347,29 @@ class MenuBarManager: NSObject {
                 }
                 menu.addItem(item)
             }
+        }
+    }
+
+    private func rebuildDeviceMenu() {
+        guard let menu = deviceMenu else { return }
+        menu.removeAllItems()
+
+        // System Default option
+        let defaultItem = NSMenuItem(title: "System Default", action: #selector(selectInputDevice(_:)), keyEquivalent: "")
+        defaultItem.target = self
+        defaultItem.representedObject = nil as String?
+        defaultItem.state = selectedDeviceUID == nil ? .on : .off
+        menu.addItem(defaultItem)
+        menu.addItem(.separator())
+
+        let devices = AudioCaptureService.listInputDevices()
+        for device in devices {
+            let label = device.isDefault ? "\(device.name) (current default)" : device.name
+            let item = NSMenuItem(title: label, action: #selector(selectInputDevice(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = device.uid
+            item.state = selectedDeviceUID == device.uid ? .on : .off
+            menu.addItem(item)
         }
     }
 
@@ -436,7 +445,9 @@ class MenuBarManager: NSObject {
 
 extension MenuBarManager: NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
-        if menu === audioSourceMenu {
+        if menu === deviceMenu {
+            rebuildDeviceMenu()
+        } else if menu === audioSourceMenu {
             rebuildAudioSourceMenu()
         }
     }
