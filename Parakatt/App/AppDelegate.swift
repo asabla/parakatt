@@ -14,9 +14,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         menuBarManager = MenuBarManager(appState: appState)
         overlayController = RecordingOverlayController(appState: appState)
-        hotkeyService = HotkeyService(appState: appState)
 
         appState.initializeEngine()
+
+        // Load hotkey config from engine and create the service
+        let hotkeyConfig = appState.loadHotkeyConfig()
+        hotkeyService = HotkeyService(
+            appState: appState,
+            key: hotkeyConfig.key,
+            modifiers: hotkeyConfig.modifiers,
+            mode: hotkeyConfig.mode
+        )
+        appState.hotkeyService = hotkeyService
 
         // If no model is downloaded, open Settings so user can download one
         if appState.needsModelDownload {

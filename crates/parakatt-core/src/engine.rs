@@ -16,7 +16,7 @@ use crate::stt::SttProvider;
 use crate::stt::parakeet::ParakeetProvider;
 use crate::download::{DownloadProgress, DownloadState};
 use crate::{
-    AppContext, CoreError, EngineConfig, ModelInfo, ModeConfig, ReplacementRule,
+    AppContext, CoreError, EngineConfig, HotkeyConfig, ModelInfo, ModeConfig, ReplacementRule,
     TimestampedSegment, TranscriptionResult,
 };
 
@@ -214,6 +214,37 @@ impl Engine {
             .lock()
             .map(|d| d.rules())
             .unwrap_or_default()
+    }
+
+    /// Get current hotkey configuration.
+    pub fn get_hotkey_config(&self) -> HotkeyConfig {
+        let config = self.config.lock().unwrap();
+        HotkeyConfig {
+            key: config.general.hotkey_key.clone(),
+            modifiers: config.general.hotkey_modifiers.clone(),
+            mode: config.general.hotkey_mode.clone(),
+        }
+    }
+
+    /// Set and persist hotkey configuration.
+    pub fn set_hotkey_config(&self, config: HotkeyConfig) -> Result<(), CoreError> {
+        let mut cfg = self.config.lock().unwrap();
+        cfg.general.hotkey_key = config.key;
+        cfg.general.hotkey_modifiers = config.modifiers;
+        cfg.general.hotkey_mode = config.mode;
+        cfg.save(&self.config_dir)
+    }
+
+    /// Get the preferred audio source bundle ID for meeting capture.
+    pub fn get_preferred_audio_source(&self) -> Option<String> {
+        self.config.lock().unwrap().general.preferred_audio_source_bundle_id.clone()
+    }
+
+    /// Set and persist the preferred audio source bundle ID.
+    pub fn set_preferred_audio_source(&self, bundle_id: Option<String>) -> Result<(), CoreError> {
+        let mut cfg = self.config.lock().unwrap();
+        cfg.general.preferred_audio_source_bundle_id = bundle_id;
+        cfg.save(&self.config_dir)
     }
 
     /// Configure the LLM provider at runtime.

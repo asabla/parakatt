@@ -20,6 +20,11 @@ class SystemAudioCaptureService {
     private let callbackQueue = DispatchQueue(label: "com.parakatt.systemaudiotap", qos: .userInteractive)
     private let stateLock = NSLock()
 
+    // Diagnostic counters (reset on each startCapture)
+    private var emptyBufferCount = 0
+    private var callbackCount = 0
+    private var totalSamplesDelivered = 0
+
     /// Start capturing system audio.
     /// - Parameter processID: If provided, capture audio from this process only.
     ///   If nil, capture all system audio (excluding Parakatt itself).
@@ -99,8 +104,15 @@ class SystemAudioCaptureService {
             throw SystemAudioCaptureError.deviceStartFailed(startErr)
         }
 
-        NSLog("[Parakatt] System audio capture STARTED via Core Audio tap (pid: %@)",
-              processID.map { String($0) } ?? "all")
+        // Reset diagnostic counters.
+        emptyBufferCount = 0
+        callbackCount = 0
+        totalSamplesDelivered = 0
+
+        let osVersion = ProcessInfo.processInfo.operatingSystemVersion
+        NSLog("[Parakatt] System audio capture STARTED via Core Audio tap (pid: %@, macOS %d.%d.%d)",
+              processID.map { String($0) } ?? "all",
+              osVersion.majorVersion, osVersion.minorVersion, osVersion.patchVersion)
     }
 
     func stopCapture() {
@@ -118,7 +130,13 @@ class SystemAudioCaptureService {
         let bufferList = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: inputData))
 
         for buffer in bufferList {
-            guard let data = buffer.mData, buffer.mDataByteSize > 0 else { continue }
+            guard let data = buffer.mData, buffer.mDataByteSize > 0 else {
+                emptyBufferCount += 1
+                if emptyBufferCount == 1 || emptyBufferCount % 100 == 0 {
+                    NSLog("[Parakatt] System audio: empty buffer (count: %d)", emptyBufferCount)
+                }
+                continue
+            }
             let sampleCount = Int(buffer.mDataByteSize) / MemoryLayout<Float>.size
             let floatPtr = data.bindMemory(to: Float.self, capacity: sampleCount)
             let samples = Array(UnsafeBufferPointer(start: floatPtr, count: sampleCount))
@@ -138,10 +156,19 @@ class SystemAudioCaptureService {
         var conv = converter
         stateLock.unlock()
 
-        guard deviceID != AudioObjectID.max else { return }
+        guard deviceID != AudioObjectID.max else {
+            NSLog("[Parakatt] System audio resample: device torn down, skipping")
+            return
+        }
 
         // Detect source sample rate from the aggregate device.
-        let sourceSampleRate = Self.deviceSampleRate(deviceID) ?? 48_000
+        let sourceSampleRate: Double
+        if let detected = Self.deviceSampleRate(deviceID) {
+            sourceSampleRate = detected
+        } else {
+            sourceSampleRate = 48_000
+            NSLog("[Parakatt] System audio: could not read device sample rate, assuming 48kHz")
+        }
 
         if abs(sourceSampleRate - targetSampleRate) < 1.0 {
             onAudioSamples?(samples)
@@ -168,9 +195,15 @@ class SystemAudioCaptureService {
             converter = conv
             stateLock.unlock()
         }
-        guard let conv else { return }
+        guard let conv else {
+            NSLog("[Parakatt] System audio: failed to create AVAudioConverter (source: %.0fHz)", sourceSampleRate)
+            return
+        }
 
-        guard let inputBuffer = AVAudioPCMBuffer(pcmFormat: sourceFormat, frameCapacity: AVAudioFrameCount(samples.count)) else { return }
+        guard let inputBuffer = AVAudioPCMBuffer(pcmFormat: sourceFormat, frameCapacity: AVAudioFrameCount(samples.count)) else {
+            NSLog("[Parakatt] System audio: failed to create input PCM buffer (%d samples)", samples.count)
+            return
+        }
         inputBuffer.frameLength = AVAudioFrameCount(samples.count)
         samples.withUnsafeBufferPointer { ptr in
             inputBuffer.floatChannelData![0].update(from: ptr.baseAddress!, count: samples.count)
@@ -178,7 +211,10 @@ class SystemAudioCaptureService {
 
         let ratio = targetSampleRate / sourceSampleRate
         let outputFrameCount = AVAudioFrameCount(Double(samples.count) * ratio)
-        guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: outputFrameCount) else { return }
+        guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: outputFrameCount) else {
+            NSLog("[Parakatt] System audio: failed to create output PCM buffer (%d frames)", outputFrameCount)
+            return
+        }
 
         var consumed = false
         conv.convert(to: outputBuffer, error: nil) { _, status in
@@ -189,8 +225,19 @@ class SystemAudioCaptureService {
         }
 
         let count = Int(outputBuffer.frameLength)
-        guard count > 0, let data = outputBuffer.floatChannelData else { return }
+        guard count > 0, let data = outputBuffer.floatChannelData else {
+            NSLog("[Parakatt] System audio: converter produced 0 frames")
+            return
+        }
         let resampled = Array(UnsafeBufferPointer(start: data[0], count: count))
+
+        callbackCount += 1
+        totalSamplesDelivered += resampled.count
+        if callbackCount % 50 == 1 {
+            NSLog("[Parakatt] System audio callback #%d, total samples: %d (%.1fs)",
+                  callbackCount, totalSamplesDelivered, Double(totalSamplesDelivered) / 16000.0)
+        }
+
         onAudioSamples?(resampled)
     }
 

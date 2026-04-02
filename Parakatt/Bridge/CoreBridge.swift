@@ -76,6 +76,28 @@ class CoreBridge {
         engine.getDictionaryRules()
     }
 
+    // MARK: - Hotkey config
+
+    /// Get current hotkey configuration.
+    func getHotkeyConfig() -> HotkeyConfig {
+        engine.getHotkeyConfig()
+    }
+
+    /// Set and persist hotkey configuration.
+    func setHotkeyConfig(_ config: HotkeyConfig) throws {
+        try engine.setHotkeyConfig(config: config)
+    }
+
+    /// Get the preferred audio source bundle ID.
+    func getPreferredAudioSource() -> String? {
+        engine.getPreferredAudioSource()
+    }
+
+    /// Set and persist the preferred audio source bundle ID.
+    func setPreferredAudioSource(_ bundleId: String?) throws {
+        try engine.setPreferredAudioSource(bundleId: bundleId)
+    }
+
     /// Configure the LLM provider at runtime.
     func configureLlm(provider: String, baseUrl: String, model: String, apiKey: String?) throws {
         try engine.configureLlm(provider: provider, baseUrl: baseUrl, model: model, apiKey: apiKey)

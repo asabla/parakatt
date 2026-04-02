@@ -31,6 +31,18 @@ pub struct GeneralConfig {
     pub auto_paste: bool,
     #[serde(default = "default_true")]
     pub show_overlay: bool,
+    /// Hotkey key name (e.g. "space", "r", "f1"). Default: "space".
+    #[serde(default = "default_hotkey_key")]
+    pub hotkey_key: String,
+    /// Hotkey modifier names (e.g. ["option"], ["command", "shift"]). Default: ["option"].
+    #[serde(default = "default_hotkey_modifiers")]
+    pub hotkey_modifiers: Vec<String>,
+    /// Hotkey mode: "hold" (release modifier to stop) or "toggle" (press again to stop). Default: "hold".
+    #[serde(default = "default_hotkey_mode")]
+    pub hotkey_mode: String,
+    /// Preferred bundle ID for meeting audio source capture (e.g. "com.microsoft.teams2").
+    #[serde(default)]
+    pub preferred_audio_source_bundle_id: Option<String>,
 }
 
 impl Default for GeneralConfig {
@@ -39,6 +51,10 @@ impl Default for GeneralConfig {
             active_mode: default_mode(),
             auto_paste: true,
             show_overlay: true,
+            hotkey_key: default_hotkey_key(),
+            hotkey_modifiers: default_hotkey_modifiers(),
+            hotkey_mode: default_hotkey_mode(),
+            preferred_audio_source_bundle_id: None,
         }
     }
 }
@@ -134,6 +150,18 @@ fn default_ollama_model() -> String {
 
 fn default_lmstudio_url() -> String {
     "http://localhost:1234".to_string()
+}
+
+fn default_hotkey_key() -> String {
+    "space".to_string()
+}
+
+fn default_hotkey_modifiers() -> Vec<String> {
+    vec!["option".to_string()]
+}
+
+fn default_hotkey_mode() -> String {
+    "hold".to_string()
 }
 
 impl Config {

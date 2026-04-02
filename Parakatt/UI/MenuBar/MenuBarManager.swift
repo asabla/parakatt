@@ -50,6 +50,7 @@ class MenuBarManager: NSObject {
     private var statusMenuItem: NSMenuItem!
     private var lastTranscriptionMenuItem: NSMenuItem!
     private var modeMenuItems: [String: NSMenuItem] = [:]
+    private var audioSourceMenu: NSMenu?
     private var currentIconState: IconState = .idle
     private var settingsWindow: NSWindow?
     private var historyWindow: NSWindow?
@@ -121,6 +122,18 @@ class MenuBarManager: NSObject {
         deviceMenuItem.submenu = deviceMenu
         menu.addItem(deviceMenuItem)
 
+        // Audio source submenu (for meeting system audio capture)
+        if #available(macOS 14.2, *) {
+            let srcMenu = NSMenu()
+            srcMenu.delegate = self
+            audioSourceMenu = srcMenu
+            rebuildAudioSourceMenu()
+
+            let srcMenuItem = NSMenuItem(title: "Meeting Audio Source", action: nil, keyEquivalent: "")
+            srcMenuItem.submenu = srcMenu
+            menu.addItem(srcMenuItem)
+        }
+
         menu.addItem(.separator())
 
         let historyItem = NSMenuItem(title: "Transcription History...", action: #selector(openHistory), keyEquivalent: "h")
@@ -136,6 +149,12 @@ class MenuBarManager: NSObject {
         let diagItem = NSMenuItem(title: "Run Diagnostic", action: #selector(runDiagnostic), keyEquivalent: "d")
         diagItem.target = self
         menu.addItem(diagItem)
+
+        if #available(macOS 14.2, *) {
+            let sysDiagItem = NSMenuItem(title: "Run System Audio Diagnostic", action: #selector(runSystemAudioDiagnostic), keyEquivalent: "")
+            sysDiagItem.target = self
+            menu.addItem(sysDiagItem)
+        }
 
         let quitItem = NSMenuItem(title: "Quit Parakatt", action: #selector(quit), keyEquivalent: "q")
         quitItem.target = self
@@ -170,7 +189,11 @@ class MenuBarManager: NSObject {
 
                 switch newState {
                 case .meeting:
-                    self.statusMenuItem.title = "Meeting in progress..."
+                    if let sourceName = self.appState.selectedAudioSourceName {
+                        self.statusMenuItem.title = "Meeting in progress (\(sourceName))..."
+                    } else {
+                        self.statusMenuItem.title = "Meeting in progress..."
+                    }
                     self.recordMenuItem.isEnabled = false
                     self.meetingMenuItem.title = "Stop Meeting"
                     self.meetingMenuItem.isEnabled = true
@@ -275,6 +298,61 @@ class MenuBarManager: NSObject {
         appState.setInputDevice(uid: uid)
     }
 
+    @objc private func selectAudioSource(_ sender: NSMenuItem) {
+        if sender.tag == 0 {
+            // "All System Audio"
+            appState.selectedAudioSourcePID = nil
+            appState.selectedAudioSourceName = nil
+            appState.setPreferredAudioSource(bundleId: nil)
+        } else {
+            appState.selectedAudioSourcePID = pid_t(sender.tag)
+            appState.selectedAudioSourceName = sender.title
+            // Persist the bundle ID (look it up from running apps)
+            let apps = AudioSourceService.listRunningAudioApps()
+            if let app = apps.first(where: { $0.id == pid_t(sender.tag) }) {
+                appState.setPreferredAudioSource(bundleId: app.bundleIdentifier)
+            }
+        }
+        rebuildAudioSourceMenu()
+    }
+
+    private func rebuildAudioSourceMenu() {
+        guard let menu = audioSourceMenu else { return }
+        menu.removeAllItems()
+
+        // "All System Audio" option
+        let allItem = NSMenuItem(title: "All System Audio", action: #selector(selectAudioSource(_:)), keyEquivalent: "")
+        allItem.target = self
+        allItem.tag = 0
+        allItem.state = appState.selectedAudioSourcePID == nil ? .on : .off
+        menu.addItem(allItem)
+
+        menu.addItem(.separator())
+
+        // Running audio apps
+        let apps = AudioSourceService.listRunningAudioApps()
+        if apps.isEmpty {
+            let emptyItem = NSMenuItem(title: "No audio apps running", action: nil, keyEquivalent: "")
+            emptyItem.isEnabled = false
+            menu.addItem(emptyItem)
+        } else {
+            for app in apps {
+                let item = NSMenuItem(title: app.name, action: #selector(selectAudioSource(_:)), keyEquivalent: "")
+                item.target = self
+                item.tag = Int(app.id)
+                item.state = appState.selectedAudioSourcePID == app.id ? .on : .off
+                if let icon = app.icon {
+                    let resized = NSImage(size: NSSize(width: 16, height: 16))
+                    resized.lockFocus()
+                    icon.draw(in: NSRect(x: 0, y: 0, width: 16, height: 16))
+                    resized.unlockFocus()
+                    item.image = resized
+                }
+                menu.addItem(item)
+            }
+        }
+    }
+
     @objc private func copyLastTranscription() {
         if let text = appState.lastTranscription {
             NSPasteboard.general.clearContents()
@@ -333,7 +411,22 @@ class MenuBarManager: NSObject {
         appState.runDiagnostic()
     }
 
+    @available(macOS 14.2, *)
+    @objc private func runSystemAudioDiagnostic() {
+        appState.runSystemAudioDiagnostic()
+    }
+
     @objc private func quit() {
         NSApp.terminate(nil)
+    }
+}
+
+// MARK: - NSMenuDelegate
+
+extension MenuBarManager: NSMenuDelegate {
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        if menu === audioSourceMenu {
+            rebuildAudioSourceMenu()
+        }
     }
 }

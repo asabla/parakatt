@@ -1,4 +1,5 @@
 import SwiftUI
+import HotKey
 import ParakattCore
 
 struct SettingsView: View {
@@ -159,6 +160,12 @@ struct ModelRowView: View {
 
 struct GeneralSettingsView: View {
     @EnvironmentObject var appState: AppState
+    @State private var isRecordingHotkey = false
+    @State private var pendingKey: Key?
+    @State private var pendingModifiers: NSEvent.ModifierFlags = []
+    @State private var currentKey: Key = .space
+    @State private var currentModifiers: NSEvent.ModifierFlags = [.option]
+    @State private var currentMode: String = "hold"
 
     fileprivate struct ModeOption: Identifiable {
         let id: String
@@ -189,30 +196,100 @@ struct GeneralSettingsView: View {
                             .font(.headline)
                     }
 
-                    HStack(spacing: 8) {
-                        HStack(spacing: 4) {
-                            Text("⌥ Option")
+                    if isRecordingHotkey {
+                        // Recording mode: capture the next key combination
+                        VStack(spacing: 8) {
+                            Text("Press your new shortcut...")
                                 .font(.system(.body, design: .rounded, weight: .medium))
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(.quaternary, in: RoundedRectangle(cornerRadius: 5))
-                            Text("+")
-                                .foregroundStyle(.tertiary)
-                            Text("Space")
-                                .font(.system(.body, design: .rounded, weight: .medium))
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(.quaternary, in: RoundedRectangle(cornerRadius: 5))
+                                .foregroundStyle(.blue)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                                .background(.blue.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+
+                            if let key = pendingKey, !pendingModifiers.isEmpty {
+                                HStack(spacing: 4) {
+                                    hotkeyDisplay(key: key, modifiers: pendingModifiers)
+                                    Spacer()
+                                    Button("Apply") {
+                                        currentKey = key
+                                        currentModifiers = pendingModifiers
+                                        appState.setHotkey(key: currentKey, modifiers: currentModifiers, mode: currentMode)
+                                        isRecordingHotkey = false
+                                        pendingKey = nil
+                                        pendingModifiers = []
+                                    }
+                                    Button("Cancel") {
+                                        isRecordingHotkey = false
+                                        pendingKey = nil
+                                        pendingModifiers = []
+                                    }
+                                }
+                            } else {
+                                Text("Requires at least one modifier (Option, Command, Control, or Shift)")
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
+
+                                Button("Cancel") {
+                                    isRecordingHotkey = false
+                                    pendingKey = nil
+                                    pendingModifiers = []
+                                }
+                            }
+                        }
+                    } else {
+                        // Display current hotkey
+                        HStack(spacing: 8) {
+                            hotkeyDisplay(key: currentKey, modifiers: currentModifiers)
+                            Spacer()
+                            Button("Change") {
+                                isRecordingHotkey = true
+                            }
+                            .buttonStyle(.bordered)
                         }
                     }
 
-                    Text("Hold to record, release to transcribe")
+                    // Mode picker: Hold vs Toggle
+                    HStack(spacing: 12) {
+                        Picker("", selection: $currentMode) {
+                            Text("Hold to record").tag("hold")
+                            Text("Toggle (tap to start/stop)").tag("toggle")
+                        }
+                        .pickerStyle(.segmented)
+                        .onChange(of: currentMode) { _, newMode in
+                            appState.setHotkey(key: currentKey, modifiers: currentModifiers, mode: newMode)
+                        }
+                    }
+
+                    Text(currentMode == "hold"
+                         ? "Hold modifier to record, release to transcribe"
+                         : "Press hotkey to start recording, press again to stop")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+
+                    // Reset to default
+                    if currentKey != .space || currentModifiers != [.option] || currentMode != "hold" {
+                        Button("Reset to Default (Option+Space, Hold)") {
+                            currentKey = .space
+                            currentModifiers = [.option]
+                            currentMode = "hold"
+                            appState.setHotkey(key: .space, modifiers: [.option], mode: "hold")
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
                 }
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+                .background {
+                    HotkeyRecorderOverlay(
+                        capturedKey: $pendingKey,
+                        capturedModifiers: $pendingModifiers,
+                        isActive: isRecordingHotkey
+                    )
+                    .frame(width: 0, height: 0)
+                }
+                .onAppear { loadCurrentHotkey() }
 
                 Divider()
 
@@ -237,6 +314,105 @@ struct GeneralSettingsView: View {
                 }
             }
             .padding()
+        }
+    }
+
+    @ViewBuilder
+    private func hotkeyDisplay(key: Key, modifiers: NSEvent.ModifierFlags) -> some View {
+        HStack(spacing: 4) {
+            ForEach(HotkeyService.modifierDisplayNames(modifiers), id: \.self) { name in
+                Text(name)
+                    .font(.system(.body, design: .rounded, weight: .medium))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 5))
+            }
+            Text("+")
+                .foregroundStyle(.tertiary)
+            Text(HotkeyService.displayName(for: key))
+                .font(.system(.body, design: .rounded, weight: .medium))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: 5))
+        }
+    }
+
+    private func loadCurrentHotkey() {
+        let config = appState.loadHotkeyConfig()
+        currentKey = config.key
+        currentModifiers = config.modifiers
+        currentMode = config.mode
+    }
+}
+
+/// NSView wrapper that captures key events for hotkey recording.
+struct HotkeyRecorderOverlay: NSViewRepresentable {
+    @Binding var capturedKey: Key?
+    @Binding var capturedModifiers: NSEvent.ModifierFlags
+    var isActive: Bool
+
+    func makeNSView(context: Context) -> HotkeyRecorderNSView {
+        let view = HotkeyRecorderNSView()
+        view.onKeyCaptured = { key, modifiers in
+            capturedKey = key
+            capturedModifiers = modifiers
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: HotkeyRecorderNSView, context: Context) {
+        nsView.isCapturing = isActive
+        if isActive {
+            DispatchQueue.main.async {
+                nsView.window?.makeFirstResponder(nsView)
+            }
+        }
+    }
+}
+
+class HotkeyRecorderNSView: NSView {
+    var onKeyCaptured: ((Key, NSEvent.ModifierFlags) -> Void)?
+    var isCapturing = false
+
+    override var acceptsFirstResponder: Bool { true }
+
+    override func keyDown(with event: NSEvent) {
+        guard isCapturing else {
+            super.keyDown(with: event)
+            return
+        }
+
+        let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
+        guard !modifiers.isEmpty else { return } // Require at least one modifier
+
+        // Map Carbon keyCode to HotKey.Key
+        if let key = HotkeyService.keyFromString(keyCodeToString(event.keyCode)) {
+            onKeyCaptured?(key, modifiers)
+        }
+    }
+
+    private func keyCodeToString(_ keyCode: UInt16) -> String {
+        // Carbon virtual key codes to string names
+        switch keyCode {
+        case 49: return "space"
+        case 48: return "tab"
+        case 36: return "return"
+        case 53: return "escape"
+        case 51: return "delete"
+        case 0: return "a"; case 11: return "b"; case 8: return "c"; case 2: return "d"
+        case 14: return "e"; case 3: return "f"; case 5: return "g"; case 4: return "h"
+        case 34: return "i"; case 38: return "j"; case 40: return "k"; case 37: return "l"
+        case 46: return "m"; case 45: return "n"; case 31: return "o"; case 35: return "p"
+        case 12: return "q"; case 15: return "r"; case 1: return "s"; case 17: return "t"
+        case 32: return "u"; case 9: return "v"; case 13: return "w"; case 7: return "x"
+        case 16: return "y"; case 6: return "z"
+        case 29: return "0"; case 18: return "1"; case 19: return "2"; case 20: return "3"
+        case 21: return "4"; case 23: return "5"; case 22: return "6"; case 26: return "7"
+        case 28: return "8"; case 25: return "9"
+        case 122: return "f1"; case 120: return "f2"; case 99: return "f3"; case 118: return "f4"
+        case 96: return "f5"; case 97: return "f6"; case 98: return "f7"; case 100: return "f8"
+        case 101: return "f9"; case 109: return "f10"; case 103: return "f11"; case 111: return "f12"
+        default: return ""
         }
     }
 }
