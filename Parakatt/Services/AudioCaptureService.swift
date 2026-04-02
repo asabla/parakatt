@@ -21,6 +21,7 @@ class AudioCaptureService {
     func startCapture() throws {
         teardown()
         tapCallbackCount = 0
+        lastConverterSourceRate = 0
 
         let engine = AVAudioEngine()
 
@@ -46,34 +47,21 @@ class AudioCaptureService {
               hwFormat.sampleRate, hwFormat.channelCount, actualDevice,
               selectedDeviceUID ?? "default")
 
-        // Install tap in native format (nil = use hardware format)
-        // Resample to 16kHz mono in the delivery callback
-        if hwFormat.sampleRate != targetSampleRate || hwFormat.channelCount != 1 {
-            let targetFormat = AVAudioFormat(
-                commonFormat: .pcmFormatFloat32,
-                sampleRate: targetSampleRate,
-                channels: 1,
-                interleaved: false
-            )!
+        // Install tap with nil format — lets the system choose the actual
+        // hardware format. This avoids -10868 (FormatNotSupported) errors
+        // when the device's real format differs from what outputFormat reports
+        // (common with Bluetooth devices like AirPods).
+        inputNode.installTap(onBus: 0, bufferSize: 4096, format: nil) { [weak self] buffer, _ in
+            guard let self else { return }
+            self.engineLock.lock()
+            let active = self.audioEngine != nil
+            self.engineLock.unlock()
+            guard active else { return }
 
-            guard let conv = AVAudioConverter(from: hwFormat, to: targetFormat) else {
-                throw AudioCaptureError.converterCreationFailed
-            }
-
-            engineLock.lock()
-            self.converter = conv
-            engineLock.unlock()
-
-            inputNode.installTap(onBus: 0, bufferSize: 4096, format: hwFormat) { [weak self] buffer, _ in
-                self?.convertAndDeliver(buffer: buffer)
-            }
-        } else {
-            inputNode.installTap(onBus: 0, bufferSize: 4096, format: hwFormat) { [weak self] buffer, _ in
-                guard let self else { return }
-                self.engineLock.lock()
-                let active = self.audioEngine != nil
-                self.engineLock.unlock()
-                guard active else { return }
+            let bufferFormat = buffer.format
+            if bufferFormat.sampleRate != self.targetSampleRate || bufferFormat.channelCount != 1 {
+                self.convertAndDeliver(buffer: buffer)
+            } else {
                 self.deliverSamples(from: buffer)
             }
         }
@@ -192,11 +180,11 @@ class AudioCaptureService {
         }
     }
 
+    /// Track the source format to detect when we need a new converter.
+    private var lastConverterSourceRate: Double = 0
+
     private func convertAndDeliver(buffer: AVAudioPCMBuffer) {
-        engineLock.lock()
-        let converter = self.converter
-        engineLock.unlock()
-        guard let converter else { return }
+        let bufferFormat = buffer.format
 
         let targetFormat = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
@@ -205,12 +193,30 @@ class AudioCaptureService {
             interleaved: false
         )!
 
-        let ratio = targetSampleRate / buffer.format.sampleRate
+        // Create or recreate converter if the source format changed.
+        engineLock.lock()
+        if converter == nil || lastConverterSourceRate != bufferFormat.sampleRate {
+            converter = AVAudioConverter(from: bufferFormat, to: targetFormat)
+            lastConverterSourceRate = bufferFormat.sampleRate
+            if converter == nil {
+                NSLog("[Parakatt] ERROR: Failed to create converter from %.0fHz %dch to 16kHz mono",
+                      bufferFormat.sampleRate, bufferFormat.channelCount)
+            } else {
+                NSLog("[Parakatt] Created audio converter: %.0fHz %dch → 16kHz mono",
+                      bufferFormat.sampleRate, bufferFormat.channelCount)
+            }
+        }
+        let conv = converter
+        engineLock.unlock()
+
+        guard let conv else { return }
+
+        let ratio = targetSampleRate / bufferFormat.sampleRate
         let frameCount = AVAudioFrameCount(Double(buffer.frameLength) * ratio)
         guard let outBuf = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: frameCount) else { return }
 
         var consumed = false
-        converter.convert(to: outBuf, error: nil) { _, status in
+        conv.convert(to: outBuf, error: nil) { _, status in
             if consumed { status.pointee = .noDataNow; return nil }
             consumed = true
             status.pointee = .haveData
