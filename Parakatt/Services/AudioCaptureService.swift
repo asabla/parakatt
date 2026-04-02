@@ -160,7 +160,31 @@ class AudioCaptureService {
             AudioObjectGetPropertyData(deviceID, &uidAddress, 0, nil, &uidSize, &uid)
 
             let uidStr = uid as String
-            results.append((uid: uidStr, name: name as String, isDefault: uidStr == defaultUID))
+            let nameStr = name as String
+
+            // Filter out internal/virtual aggregate devices that aren't real hardware.
+            // CADefaultDeviceAggregate is created internally by Core Audio.
+            // Also skip devices whose UID or name suggests they are virtual aggregates.
+            if uidStr.hasPrefix("CADefaultDeviceAggregate") { continue }
+            if nameStr.hasPrefix("CADefaultDeviceAggregate") { continue }
+
+            // Check transport type — skip aggregate (kAudioDeviceTransportTypeAggregate = 'grup')
+            var transportAddress = AudioObjectPropertyAddress(
+                mSelector: kAudioDevicePropertyTransportType,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            var transportType: UInt32 = 0
+            var transportSize = UInt32(MemoryLayout<UInt32>.size)
+            if AudioObjectGetPropertyData(deviceID, &transportAddress, 0, nil, &transportSize, &transportType) == noErr {
+                // 'grup' = aggregate, 'virt' = virtual
+                if transportType == kAudioDeviceTransportTypeAggregate
+                    || transportType == kAudioDeviceTransportTypeVirtual {
+                    continue
+                }
+            }
+
+            results.append((uid: uidStr, name: nameStr, isDefault: uidStr == defaultUID))
         }
 
         return results
