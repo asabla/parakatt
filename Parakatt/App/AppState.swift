@@ -645,11 +645,23 @@ class AppState: ObservableObject {
     }
 
     func deleteTranscription(id: String) {
-        try? bridge?.deleteTranscription(id: id)
+        do {
+            try bridge?.deleteTranscription(id: id)
+            NSLog("[Parakatt] Deleted transcription: %@", id)
+        } catch {
+            NSLog("[Parakatt] Failed to delete transcription %@: %@", id, error.localizedDescription)
+        }
     }
 
     func deleteTranscriptions(ids: [String]) -> Int {
-        Int((try? bridge?.deleteTranscriptions(ids: ids)) ?? 0)
+        do {
+            let count = try bridge?.deleteTranscriptions(ids: ids) ?? 0
+            NSLog("[Parakatt] Bulk deleted %d transcriptions", count)
+            return Int(count)
+        } catch {
+            NSLog("[Parakatt] Failed to bulk delete: %@", error.localizedDescription)
+            return 0
+        }
     }
 
     func getTranscriptionSegments(id: String) -> [TimestampedSegment] {
