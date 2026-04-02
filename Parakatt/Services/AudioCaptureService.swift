@@ -20,24 +20,31 @@ class AudioCaptureService {
     /// Start a recording session.
     func startCapture() throws {
         teardown()
+        tapCallbackCount = 0
 
         let engine = AVAudioEngine()
 
         // Select input device
         if let uid = selectedDeviceUID ?? Self.findWorkingInputDeviceUID() {
+            NSLog("[Parakatt] Requesting input device: %@", uid)
             try Self.setInputDevice(engine: engine, uid: uid)
+        } else {
+            NSLog("[Parakatt] Using system default input device")
         }
 
         let inputNode = engine.inputNode
         let hwFormat = inputNode.outputFormat(forBus: 0)
 
         guard hwFormat.sampleRate > 0 else {
+            NSLog("[Parakatt] ERROR: Input node format has sampleRate=0 — no working input device")
             throw AudioCaptureError.noInputDevice
         }
 
-        let deviceUsed = selectedDeviceUID ?? Self.findWorkingInputDeviceUID() ?? "system default"
-        NSLog("[Parakatt] Audio input: %.0fHz %dch (device: %@)",
-              hwFormat.sampleRate, hwFormat.channelCount, deviceUsed)
+        // Log the actual device the engine ended up using
+        let actualDevice = Self.currentInputDeviceName(engine: engine) ?? "unknown"
+        NSLog("[Parakatt] Audio input: %.0fHz %dch (device: %@, requested: %@)",
+              hwFormat.sampleRate, hwFormat.channelCount, actualDevice,
+              selectedDeviceUID ?? "default")
 
         // Install tap in native format (nil = use hardware format)
         // Resample to 16kHz mono in the delivery callback
@@ -213,11 +220,22 @@ class AudioCaptureService {
         deliverSamples(from: outBuf)
     }
 
+    private var tapCallbackCount = 0
+
     private func deliverSamples(from buffer: AVAudioPCMBuffer) {
         guard let data = buffer.floatChannelData else { return }
         let count = Int(buffer.frameLength)
         guard count > 0 else { return }
         let samples = Array(UnsafeBufferPointer(start: data[0], count: count))
+
+        tapCallbackCount += 1
+        if tapCallbackCount == 1 || tapCallbackCount % 100 == 0 {
+            let maxAmp = samples.map { abs($0) }.max() ?? 0
+            NSLog("[Parakatt] Mic tap callback #%d: %d samples, maxAmp=%.6f%@",
+                  tapCallbackCount, count, maxAmp,
+                  maxAmp < 0.0001 ? " (SILENT)" : "")
+        }
+
         onAudioSamples?(samples)
     }
 
@@ -273,9 +291,13 @@ class AudioCaptureService {
 
     private static func setInputDevice(engine: AVAudioEngine, uid: String) throws {
         let devices = listInputDevices()
-        guard devices.contains(where: { $0.uid == uid }) else {
+        guard let device = devices.first(where: { $0.uid == uid }) else {
+            NSLog("[Parakatt] ERROR: Device not found for uid: %@", uid)
+            NSLog("[Parakatt] Available devices: %@", devices.map { "\($0.name) (\($0.uid))" }.joined(separator: ", "))
             throw AudioCaptureError.noInputDevice
         }
+
+        NSLog("[Parakatt] Setting input device: %@ (uid: %@)", device.name, uid)
 
         // Find the AudioDeviceID for this UID
         var address = AudioObjectPropertyAddress(
@@ -303,10 +325,12 @@ class AudioCaptureService {
             if (devUID as String) == uid {
                 // Set this device as the engine's input
                 guard let audioUnit = engine.inputNode.audioUnit else {
+                    NSLog("[Parakatt] ERROR: Could not get audioUnit from inputNode")
                     throw AudioCaptureError.noInputDevice
                 }
+
                 var inputDeviceID = deviceID
-                AudioUnitSetProperty(
+                let status = AudioUnitSetProperty(
                     audioUnit,
                     kAudioOutputUnitProperty_CurrentDevice,
                     kAudioUnitScope_Global,
@@ -314,9 +338,69 @@ class AudioCaptureService {
                     &inputDeviceID,
                     UInt32(MemoryLayout<AudioDeviceID>.size)
                 )
+
+                if status != noErr {
+                    NSLog("[Parakatt] ERROR: AudioUnitSetProperty failed with status %d for device %@ (id %d)",
+                          status, device.name, deviceID)
+                    throw AudioCaptureError.deviceSelectionFailed(status)
+                }
+
+                // Verify the device actually changed
+                var currentDeviceID: AudioDeviceID = 0
+                var propSize = UInt32(MemoryLayout<AudioDeviceID>.size)
+                let verifyStatus = AudioUnitGetProperty(
+                    audioUnit,
+                    kAudioOutputUnitProperty_CurrentDevice,
+                    kAudioUnitScope_Global,
+                    0,
+                    &currentDeviceID,
+                    &propSize
+                )
+
+                if verifyStatus == noErr {
+                    if currentDeviceID == deviceID {
+                        NSLog("[Parakatt] Input device set successfully: %@ (CoreAudio id %d)",
+                              device.name, deviceID)
+                    } else {
+                        NSLog("[Parakatt] WARNING: Device set returned noErr but current device is %d, expected %d",
+                              currentDeviceID, deviceID)
+                    }
+                }
+
                 return
             }
         }
+
+        NSLog("[Parakatt] ERROR: Could not find CoreAudio device ID for uid: %@", uid)
+        throw AudioCaptureError.noInputDevice
+    }
+
+    /// Get the name of the device currently used by the engine's input node.
+    private static func currentInputDeviceName(engine: AVAudioEngine) -> String? {
+        guard let audioUnit = engine.inputNode.audioUnit else { return nil }
+
+        var deviceID: AudioDeviceID = 0
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        let status = AudioUnitGetProperty(
+            audioUnit,
+            kAudioOutputUnitProperty_CurrentDevice,
+            kAudioUnitScope_Global,
+            0,
+            &deviceID,
+            &size
+        )
+        guard status == noErr else { return nil }
+
+        var nameAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyDeviceNameCFString,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var name: CFString = "" as CFString
+        var nameSize = UInt32(MemoryLayout<CFString>.size)
+        let nameStatus = AudioObjectGetPropertyData(deviceID, &nameAddress, 0, nil, &nameSize, &name)
+        guard nameStatus == noErr else { return nil }
+        return name as String
     }
 }
 
@@ -324,12 +408,14 @@ enum AudioCaptureError: Error, LocalizedError {
     case noInputDevice
     case formatCreationFailed
     case converterCreationFailed
+    case deviceSelectionFailed(OSStatus)
 
     var errorDescription: String? {
         switch self {
         case .noInputDevice: return "No audio input device available"
         case .formatCreationFailed: return "Failed to create target audio format"
         case .converterCreationFailed: return "Failed to create audio format converter"
+        case .deviceSelectionFailed(let status): return "Failed to select audio device (error \(status))"
         }
     }
 }
