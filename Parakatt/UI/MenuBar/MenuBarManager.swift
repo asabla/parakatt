@@ -110,12 +110,23 @@ class MenuBarManager: NSObject {
 
         // Input device submenu
         let deviceMenu = NSMenu()
+
+        // System Default option — uses whatever macOS has selected
+        let defaultItem = NSMenuItem(title: "System Default", action: #selector(selectInputDevice(_:)), keyEquivalent: "")
+        defaultItem.target = self
+        defaultItem.representedObject = nil as String?
+        defaultItem.state = .on  // default selection
+        deviceMenu.addItem(defaultItem)
+        deviceMenu.addItem(.separator())
+
         let devices = AudioCaptureService.listInputDevices()
         for device in devices {
             let item = NSMenuItem(title: device.name, action: #selector(selectInputDevice(_:)), keyEquivalent: "")
             item.target = self
             item.representedObject = device.uid
-            if device.uid.contains("BuiltIn") { item.state = .on } // default to built-in
+            if device.isDefault {
+                item.title = "\(device.name) (current default)"
+            }
             deviceMenu.addItem(item)
         }
         let deviceMenuItem = NSMenuItem(title: "Input Device", action: nil, keyEquivalent: "")
@@ -291,10 +302,10 @@ class MenuBarManager: NSObject {
     }
 
     @objc private func selectInputDevice(_ sender: NSMenuItem) {
-        guard let uid = sender.representedObject as? String else { return }
         if let menu = sender.menu {
             for item in menu.items { item.state = (item == sender) ? .on : .off }
         }
+        let uid = sender.representedObject as? String
         appState.setInputDevice(uid: uid)
     }
 
