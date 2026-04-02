@@ -2,7 +2,6 @@
 ///
 /// Connects to a locally running Ollama instance via its HTTP API
 /// at localhost:11434 (default).
-
 use crate::CoreError;
 
 use super::{LlmProvider, LlmRequest};
@@ -28,28 +27,16 @@ impl OllamaProvider {
 
 impl LlmProvider for OllamaProvider {
     fn process(&self, request: &LlmRequest) -> Result<String, CoreError> {
-        let mut messages = vec![
-            serde_json::json!({
-                "role": "system",
-                "content": &request.system_prompt
-            }),
-        ];
+        let mut messages = vec![serde_json::json!({
+            "role": "system",
+            "content": &request.system_prompt
+        })];
 
-        // Add context if available
-        if let Some(ctx) = &request.context {
-            let mut context_parts = Vec::new();
-            if let Some(app) = &ctx.app_name {
-                context_parts.push(format!("Active application: {app}"));
-            }
-            if let Some(selected) = &ctx.selected_text {
-                context_parts.push(format!("Selected text: {selected}"));
-            }
-            if !context_parts.is_empty() {
-                messages.push(serde_json::json!({
-                    "role": "system",
-                    "content": format!("Context:\n{}", context_parts.join("\n"))
-                }));
-            }
+        if let Some(ctx_text) = request.format_context() {
+            messages.push(serde_json::json!({
+                "role": "system",
+                "content": ctx_text
+            }));
         }
 
         messages.push(serde_json::json!({

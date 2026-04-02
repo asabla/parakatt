@@ -605,6 +605,7 @@ struct LlmSettingsView: View {
         ProviderOption(id: "ollama", label: "Ollama", description: "Local inference server", icon: "desktopcomputer", color: .blue),
         ProviderOption(id: "lmstudio", label: "LM Studio", description: "Local model runtime", icon: "cpu.fill", color: .purple),
         ProviderOption(id: "openai", label: "OpenAI", description: "Remote API — requires key", icon: "globe", color: .green),
+        ProviderOption(id: "anthropic", label: "Claude", description: "Anthropic API — key or OAuth token", icon: "brain.fill", color: .orange),
     ]
 
     var body: some View {
@@ -649,22 +650,32 @@ struct LlmSettingsView: View {
                         }
 
                         VStack(alignment: .leading, spacing: 10) {
-                            if appState.llmProvider == "openai" {
+                            if appState.llmProvider == "openai" || appState.llmProvider == "anthropic" {
                                 VStack(alignment: .leading, spacing: 4) {
-                                    Text("API Key")
+                                    Text(appState.llmProvider == "anthropic" ? "OAuth Token" : "API Key")
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
-                                    SecureField("sk-...", text: $appState.llmApiKey)
-                                        .textFieldStyle(.roundedBorder)
+                                    SecureField(
+                                        appState.llmProvider == "anthropic" ? "sk-ant-..." : "sk-...",
+                                        text: $appState.llmApiKey
+                                    )
+                                    .textFieldStyle(.roundedBorder)
+                                    if appState.llmProvider == "anthropic" {
+                                        Text("Run `claude setup-token` in Terminal to get a token")
+                                            .font(.caption2)
+                                            .foregroundStyle(.tertiary)
+                                    }
                                 }
                             }
 
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Server URL")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                TextField("http://localhost:11434", text: $appState.llmBaseUrl)
-                                    .textFieldStyle(.roundedBorder)
+                            if appState.llmProvider != "anthropic" {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Server URL")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    TextField("http://localhost:11434", text: $appState.llmBaseUrl)
+                                        .textFieldStyle(.roundedBorder)
+                                }
                             }
 
                             HStack {
@@ -683,7 +694,7 @@ struct LlmSettingsView: View {
                                             Text(isFetching ? "Fetching..." : "Fetch Models")
                                         }
                                     }
-                                    .disabled(isFetching)
+                                    .disabled(isFetching || (appState.llmProvider == "anthropic" && appState.llmApiKey.isEmpty))
                                 } else {
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text("Model")

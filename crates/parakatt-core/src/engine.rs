@@ -248,10 +248,10 @@ impl Engine {
     }
 
     /// Configure the LLM provider at runtime.
-    /// provider: "ollama", "lmstudio", "openai", or "" to disable.
+    /// provider: "ollama", "lmstudio", "openai", "anthropic", or "" to disable.
     /// base_url: server URL (e.g. "http://localhost:11434").
     /// model: model name (e.g. "llama3.2", "gpt-4o-mini").
-    /// api_key: API key (only for openai).
+    /// api_key: API key or OAuth token.
     pub fn configure_llm(
         &self,
         provider: String,
@@ -272,6 +272,16 @@ impl Engine {
                 })?;
                 Some(Box::new(
                     crate::llm::openai::OpenAiCompatibleProvider::openai(&key, &model),
+                ))
+            }
+            "anthropic" => {
+                let key = api_key.clone().ok_or_else(|| {
+                    CoreError::ConfigError(
+                        "Anthropic requires an API key or OAuth token".into(),
+                    )
+                })?;
+                Some(Box::new(
+                    crate::llm::anthropic::AnthropicProvider::new(&key, &model),
                 ))
             }
             "" | "none" => None,
@@ -309,6 +319,10 @@ impl Engine {
             "openai" => {
                 config_guard.llm.openai.api_key = api_key;
                 config_guard.llm.openai.model = Some(model);
+            }
+            "anthropic" => {
+                config_guard.llm.anthropic.api_key = api_key;
+                config_guard.llm.anthropic.model = Some(model);
             }
             _ => {}
         }
@@ -379,6 +393,10 @@ impl Engine {
                     .unwrap_or_default();
 
                 Ok(models)
+            }
+            "anthropic" => {
+                // Anthropic doesn't have a models list endpoint — return hardcoded list
+                Ok(crate::llm::anthropic::available_models())
             }
             _ => Err(CoreError::LlmError(format!("Unknown provider: {provider}"))),
         }
@@ -841,6 +859,22 @@ impl Engine {
                     ))
                 } else {
                     log::warn!("OpenAI provider selected but no API key configured");
+                    None
+                }
+            }
+            Some("anthropic") => {
+                if let Some(key) = &config_guard.llm.anthropic.api_key {
+                    let model = config_guard
+                        .llm
+                        .anthropic
+                        .model
+                        .as_deref()
+                        .unwrap_or("claude-haiku-4-5-20251001");
+                    Some(Box::new(
+                        crate::llm::anthropic::AnthropicProvider::new(key, model),
+                    ))
+                } else {
+                    log::warn!("Anthropic provider selected but no API key/token configured");
                     None
                 }
             }
