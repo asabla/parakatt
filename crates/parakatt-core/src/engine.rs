@@ -620,6 +620,14 @@ impl Engine {
         storage.delete(&id)
     }
 
+    /// Delete multiple transcriptions by IDs. Returns the number deleted.
+    pub fn delete_transcriptions(&self, ids: Vec<String>) -> Result<u32, CoreError> {
+        let storage = self.storage.lock().map_err(|e| {
+            CoreError::IoError(format!("Storage lock poisoned: {e}"))
+        })?;
+        storage.delete_many(&ids)
+    }
+
     /// Get timestamp segments for a transcription (for timeline display).
     pub fn get_transcription_segments(&self, id: String) -> Result<Vec<TimestampedSegment>, CoreError> {
         let storage = self.storage.lock().map_err(|e| {
