@@ -170,7 +170,8 @@ class CoreBridge {
     func finishSession(
         sessionId: String,
         mode: String,
-        context: AppContextInfo?
+        context: AppContextInfo?,
+        source: String? = nil
     ) throws -> TranscriptionResult {
         let ctx = context.map {
             AppContext(
@@ -183,7 +184,8 @@ class CoreBridge {
         return try engine.finishSession(
             sessionId: sessionId,
             mode: mode,
-            context: ctx
+            context: ctx,
+            source: source
         )
     }
 

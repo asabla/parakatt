@@ -526,6 +526,7 @@ impl Engine {
         session_id: String,
         mode: String,
         context: Option<AppContext>,
+        source: Option<String>,
     ) -> Result<TranscriptionResult, CoreError> {
         // Extract accumulated text, duration, and segments from the session.
         let mut mgr = self.sessions.lock().map_err(|e| {
@@ -542,8 +543,9 @@ impl Engine {
         };
 
         let ctx = context.unwrap_or_default();
-        // Auto-save to history.
-        self.auto_save_transcription(&result, "meeting", &mode, "mixed", &ctx);
+        let src = source.as_deref().unwrap_or("meeting");
+        let input = if src == "push_to_talk" { "mic" } else { "mixed" };
+        self.auto_save_transcription(&result, src, &mode, input, &ctx);
 
         Ok(result)
     }
