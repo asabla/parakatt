@@ -184,76 +184,103 @@ struct GeneralSettingsView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 16) {
 
-                // MARK: - Shortcut section
-                VStack(alignment: .leading, spacing: 14) {
-                    Label("Shortcut", systemImage: "keyboard")
-                        .font(.system(.subheadline, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .textCase(.uppercase)
-                        .tracking(0.5)
+                // MARK: Hotkey card
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "keyboard.fill")
+                            .foregroundStyle(.secondary)
+                            .font(.caption)
+                        Text("Hotkey")
+                            .font(.headline)
+                    }
 
-                    // Keycap display / recorder
-                    VStack(spacing: 12) {
-                        if isRecordingHotkey {
-                            hotkeyRecorderContent
-                        } else {
-                            hotkeyDisplayContent
-                        }
+                    if isRecordingHotkey {
+                        // Recording mode: capture the next key combination
+                        VStack(spacing: 8) {
+                            Text("Press your new shortcut...")
+                                .font(.system(.body, design: .rounded, weight: .medium))
+                                .foregroundStyle(.blue)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                                .background(.blue.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
 
-                        // Trigger behavior
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack(spacing: 0) {
-                                triggerButton(
-                                    title: "Hold",
-                                    subtitle: "Release to finish",
-                                    icon: "hand.tap",
-                                    isSelected: currentMode == "hold"
-                                ) { currentMode = "hold" }
-
-                                triggerButton(
-                                    title: "Toggle",
-                                    subtitle: "Tap to start & stop",
-                                    icon: "arrow.triangle.2.circlepath",
-                                    isSelected: currentMode == "toggle"
-                                ) { currentMode = "toggle" }
-                            }
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                            .onChange(of: currentMode) { _, newMode in
-                                appState.setHotkey(key: currentKey, modifiers: currentModifiers, mode: newMode)
-                            }
-                        }
-
-                        // Reset link
-                        if currentKey != .space || currentModifiers != [.option] || currentMode != "hold" {
-                            HStack {
-                                Spacer()
-                                Button {
-                                    currentKey = .space
-                                    currentModifiers = [.option]
-                                    currentMode = "hold"
-                                    appState.setHotkey(key: .space, modifiers: [.option], mode: "hold")
-                                } label: {
-                                    Label("Reset to default", systemImage: "arrow.counterclockwise")
-                                        .font(.caption)
+                            if let key = pendingKey, !pendingModifiers.isEmpty {
+                                HStack(spacing: 4) {
+                                    hotkeyDisplay(key: key, modifiers: pendingModifiers)
+                                    Spacer()
+                                    Button("Apply") {
+                                        currentKey = key
+                                        currentModifiers = pendingModifiers
+                                        appState.setHotkey(key: currentKey, modifiers: currentModifiers, mode: currentMode)
+                                        isRecordingHotkey = false
+                                        pendingKey = nil
+                                        pendingModifiers = []
+                                    }
+                                    Button("Cancel") {
+                                        isRecordingHotkey = false
+                                        pendingKey = nil
+                                        pendingModifiers = []
+                                    }
                                 }
-                                .buttonStyle(.plain)
-                                .foregroundStyle(.tertiary)
+                            } else {
+                                Text("Requires at least one modifier (Option, Command, Control, or Shift)")
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
+
+                                Button("Cancel") {
+                                    isRecordingHotkey = false
+                                    pendingKey = nil
+                                    pendingModifiers = []
+                                }
                             }
                         }
+                    } else {
+                        // Display current hotkey
+                        HStack(spacing: 8) {
+                            hotkeyDisplay(key: currentKey, modifiers: currentModifiers)
+                            Spacer()
+                            Button("Change") {
+                                isRecordingHotkey = true
+                            }
+                            .buttonStyle(.bordered)
+                        }
                     }
-                    .padding(14)
-                    .background {
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(.background)
-                            .shadow(color: .black.opacity(0.06), radius: 2, y: 1)
+
+                    // Mode picker: Hold vs Toggle
+                    HStack(spacing: 12) {
+                        Picker("", selection: $currentMode) {
+                            Text("Hold to record").tag("hold")
+                            Text("Toggle (tap to start/stop)").tag("toggle")
+                        }
+                        .pickerStyle(.segmented)
+                        .onChange(of: currentMode) { _, newMode in
+                            appState.setHotkey(key: currentKey, modifiers: currentModifiers, mode: newMode)
+                        }
                     }
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 10)
-                            .strokeBorder(.quaternary, lineWidth: 0.5)
+
+                    Text(currentMode == "hold"
+                         ? "Hold modifier to record, release to transcribe"
+                         : "Press hotkey to start recording, press again to stop")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    // Reset to default
+                    if currentKey != .space || currentModifiers != [.option] || currentMode != "hold" {
+                        Button("Reset to Default (Option+Space, Hold)") {
+                            currentKey = .space
+                            currentModifiers = [.option]
+                            currentMode = "hold"
+                            appState.setHotkey(key: .space, modifiers: [.option], mode: "hold")
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                     }
                 }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
                 .background {
                     HotkeyRecorderOverlay(
                         capturedKey: $pendingKey,
@@ -264,201 +291,50 @@ struct GeneralSettingsView: View {
                 }
                 .onAppear { loadCurrentHotkey() }
 
-                // MARK: - Processing mode section
-                VStack(alignment: .leading, spacing: 10) {
-                    Label("Processing Mode", systemImage: "wand.and.stars")
-                        .font(.system(.subheadline, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .textCase(.uppercase)
-                        .tracking(0.5)
+                Divider()
 
-                    VStack(spacing: 0) {
-                        ForEach(Array(modes.enumerated()), id: \.element.id) { index, mode in
+                // MARK: Active Mode
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Active Mode")
+                        .font(.headline)
+                    Text("Choose how transcriptions are processed after recording.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    VStack(spacing: 6) {
+                        ForEach(modes) { mode in
                             GeneralModeRow(
                                 mode: mode,
                                 isSelected: appState.activeMode == mode.id
                             ) {
                                 appState.activeMode = mode.id
                             }
-
-                            if index < modes.count - 1 {
-                                Divider().padding(.leading, 44)
-                            }
                         }
                     }
-                    .background {
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(.background)
-                            .shadow(color: .black.opacity(0.06), radius: 2, y: 1)
-                    }
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 10)
-                            .strokeBorder(.quaternary, lineWidth: 0.5)
-                    }
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
                 }
             }
-            .padding(20)
-        }
-        .background(.quaternary.opacity(0.5))
-    }
-
-    // MARK: - Hotkey display (idle state)
-
-    @ViewBuilder
-    private var hotkeyDisplayContent: some View {
-        HStack {
-            keycapRow(key: currentKey, modifiers: currentModifiers)
-            Spacer()
-            Button {
-                isRecordingHotkey = true
-            } label: {
-                Text("Record New Shortcut")
-                    .font(.system(.caption, weight: .medium))
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-        }
-    }
-
-    // MARK: - Hotkey recorder (active state)
-
-    @ViewBuilder
-    private var hotkeyRecorderContent: some View {
-        VStack(spacing: 10) {
-            HStack(spacing: 8) {
-                Image(systemName: "record.circle")
-                    .foregroundStyle(.red)
-                    .symbolEffect(.pulse.wholeSymbol, isActive: true)
-                Text("Press your new shortcut")
-                    .font(.system(.callout, weight: .medium))
-                    .foregroundStyle(.primary)
-                Spacer()
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(.red.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
-            .overlay {
-                RoundedRectangle(cornerRadius: 8)
-                    .strokeBorder(.red.opacity(0.2), lineWidth: 1)
-            }
-
-            if let key = pendingKey, !pendingModifiers.isEmpty {
-                HStack {
-                    keycapRow(key: key, modifiers: pendingModifiers)
-                    Spacer(minLength: 12)
-                    Button("Apply") {
-                        currentKey = key
-                        currentModifiers = pendingModifiers
-                        appState.setHotkey(key: currentKey, modifiers: currentModifiers, mode: currentMode)
-                        dismissRecorder()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-                    Button("Cancel") { dismissRecorder() }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                }
-            } else {
-                HStack {
-                    Text("Include at least one modifier key")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                    Spacer()
-                    Button("Cancel") { dismissRecorder() }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                }
-            }
-        }
-    }
-
-    // MARK: - Keycap row
-
-    @ViewBuilder
-    private func keycapRow(key: Key, modifiers: NSEvent.ModifierFlags) -> some View {
-        HStack(spacing: 5) {
-            ForEach(modifierSymbols(modifiers), id: \.self) { symbol in
-                keycap(symbol)
-            }
-            keycap(HotkeyService.displayName(for: key))
+            .padding()
         }
     }
 
     @ViewBuilder
-    private func keycap(_ label: String) -> some View {
-        Text(label)
-            .font(.system(.body, design: .rounded, weight: .semibold))
-            .frame(minWidth: 32, minHeight: 28)
-            .padding(.horizontal, 6)
-            .background {
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(.quaternary)
+    private func hotkeyDisplay(key: Key, modifiers: NSEvent.ModifierFlags) -> some View {
+        HStack(spacing: 4) {
+            ForEach(HotkeyService.modifierDisplayNames(modifiers), id: \.self) { name in
+                Text(name)
+                    .font(.system(.body, design: .rounded, weight: .medium))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 5))
             }
-            .overlay {
-                RoundedRectangle(cornerRadius: 6)
-                    .strokeBorder(.primary.opacity(0.08), lineWidth: 0.5)
-            }
-            .shadow(color: .black.opacity(0.1), radius: 0.5, y: 0.5)
-    }
-
-    // MARK: - Trigger mode button
-
-    @ViewBuilder
-    private func triggerButton(
-        title: String,
-        subtitle: String,
-        icon: String,
-        isSelected: Bool,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            HStack(spacing: 8) {
-                Image(systemName: icon)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(isSelected ? .blue : .secondary)
-                    .frame(width: 18)
-
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(title)
-                        .font(.system(.callout, weight: .medium))
-                        .foregroundStyle(.primary)
-                    Text(subtitle)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
-
-                Spacer()
-
-                if isSelected {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(.blue)
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(isSelected ? Color.blue.opacity(0.06) : Color.clear)
+            Text("+")
+                .foregroundStyle(.tertiary)
+            Text(HotkeyService.displayName(for: key))
+                .font(.system(.body, design: .rounded, weight: .medium))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: 5))
         }
-        .buttonStyle(.plain)
-    }
-
-    // MARK: - Helpers
-
-    private func dismissRecorder() {
-        isRecordingHotkey = false
-        pendingKey = nil
-        pendingModifiers = []
-    }
-
-    private func modifierSymbols(_ flags: NSEvent.ModifierFlags) -> [String] {
-        var result: [String] = []
-        if flags.contains(.control) { result.append("\u{2303}") }
-        if flags.contains(.option)  { result.append("\u{2325}") }
-        if flags.contains(.shift)   { result.append("\u{21E7}") }
-        if flags.contains(.command) { result.append("\u{2318}") }
-        return result
     }
 
     private func loadCurrentHotkey() {
@@ -550,35 +426,46 @@ private struct GeneralModeRow: View {
         Button(action: onSelect) {
             HStack(spacing: 10) {
                 Image(systemName: mode.icon)
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(isSelected ? .white : .secondary)
-                    .frame(width: 28, height: 28)
-                    .background(
-                        isSelected ? AnyShapeStyle(mode.color) : AnyShapeStyle(.quaternary),
-                        in: RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    )
+                    .font(.system(size: 14))
+                    .foregroundStyle(isSelected ? mode.color : .secondary)
+                    .frame(width: 22)
 
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(mode.label)
-                        .font(.system(.body, weight: .medium))
-                        .foregroundStyle(.primary)
+                    HStack(spacing: 6) {
+                        Text(mode.label)
+                            .font(.system(.body, weight: .medium))
+                            .foregroundStyle(.primary)
+                        if isSelected {
+                            Text("Active")
+                                .font(.caption2)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(mode.color.opacity(0.15), in: Capsule())
+                                .foregroundStyle(mode.color)
+                        }
+                    }
                     Text(mode.description)
                         .font(.caption)
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(.secondary)
                 }
 
                 Spacer()
 
                 if isSelected {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 12, weight: .bold))
+                    Image(systemName: "checkmark.circle.fill")
                         .foregroundStyle(mode.color)
+                        .font(.system(size: 14))
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(isSelected ? mode.color.opacity(0.04) : Color.clear)
-            .contentShape(Rectangle())
+            .padding(10)
+            .background(
+                isSelected ? AnyShapeStyle(mode.color.opacity(0.06)) : AnyShapeStyle(.quaternary),
+                in: RoundedRectangle(cornerRadius: 8)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(isSelected ? mode.color.opacity(0.3) : .clear, lineWidth: 1)
+            )
         }
         .buttonStyle(.plain)
     }
