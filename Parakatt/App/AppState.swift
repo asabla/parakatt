@@ -464,9 +464,9 @@ class AppState: ObservableObject {
 
     // MARK: - Input device
 
-    func setInputDevice(uid: String) {
+    func setInputDevice(uid: String?) {
         audioCaptureService?.setInputDevice(uid: uid)
-        NSLog("[Parakatt] Input device set to: %@", uid)
+        NSLog("[Parakatt] Input device set to: %@", uid ?? "system default")
     }
 
     // MARK: - Hotkey configuration

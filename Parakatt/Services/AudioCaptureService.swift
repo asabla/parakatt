@@ -18,6 +18,11 @@ class AudioCaptureService {
     private var selectedDeviceUID: String?
 
     /// Start a recording session.
+    ///
+    /// Uses the macOS system default input device unless the user has
+    /// explicitly selected a specific device via the Input Device menu.
+    /// This means connecting AirPods (which changes the system default)
+    /// will automatically use AirPods — no manual selection needed.
     func startCapture() throws {
         teardown()
         tapCallbackCount = 0
@@ -25,12 +30,20 @@ class AudioCaptureService {
 
         let engine = AVAudioEngine()
 
-        // Select input device
-        if let uid = selectedDeviceUID ?? Self.findWorkingInputDeviceUID() {
-            NSLog("[Parakatt] Requesting input device: %@", uid)
-            try Self.setInputDevice(engine: engine, uid: uid)
-        } else {
-            NSLog("[Parakatt] Using system default input device")
+        // Only override the device if the user explicitly selected one.
+        // When selectedDeviceUID is nil, AVAudioEngine uses the system
+        // default — which is what the user expects after connecting
+        // AirPods or any other audio device.
+        if let uid = selectedDeviceUID {
+            NSLog("[Parakatt] Requesting explicit input device: %@", uid)
+            do {
+                try Self.setInputDevice(engine: engine, uid: uid)
+            } catch {
+                // If the explicit device fails (common with Bluetooth),
+                // fall back to system default rather than failing entirely.
+                NSLog("[Parakatt] WARNING: Failed to set device %@: %@ — using system default",
+                      uid, error.localizedDescription)
+            }
         }
 
         let inputNode = engine.inputNode
@@ -43,9 +56,8 @@ class AudioCaptureService {
 
         // Log the actual device the engine ended up using
         let actualDevice = Self.currentInputDeviceName(engine: engine) ?? "unknown"
-        NSLog("[Parakatt] Audio input: %.0fHz %dch (device: %@, requested: %@)",
-              hwFormat.sampleRate, hwFormat.channelCount, actualDevice,
-              selectedDeviceUID ?? "default")
+        NSLog("[Parakatt] Audio input: %.0fHz %dch (device: %@)",
+              hwFormat.sampleRate, hwFormat.channelCount, actualDevice)
 
         // Install tap with nil format — lets the system choose the actual
         // hardware format. This avoids -10868 (FormatNotSupported) errors
@@ -246,29 +258,6 @@ class AudioCaptureService {
     }
 
     // MARK: - Device selection helpers
-
-    /// Find a suitable input device.
-    /// Always prefers the built-in microphone since external devices
-    /// (USB headsets, etc.) may be physically disconnected and produce silence.
-    /// The user can override this via the Input Device menu.
-    private static func findWorkingInputDeviceUID() -> String? {
-        let devices = listInputDevices()
-
-        // Check if system default IS the built-in mic already
-        if let defaultDev = devices.first(where: { $0.isDefault }),
-           defaultDev.uid.contains("BuiltIn") {
-            return nil // system default is the built-in mic, no override needed
-        }
-
-        // System default is NOT built-in — override to built-in if available
-        if let builtIn = devices.first(where: { $0.uid.contains("BuiltIn") }) {
-            NSLog("[Parakatt] Default device is not built-in mic, overriding → %@", builtIn.name)
-            return builtIn.uid
-        }
-
-        // No built-in mic (e.g. Mac Mini) — use system default
-        return nil
-    }
 
     private static func getDefaultInputDeviceUID() -> String? {
         var address = AudioObjectPropertyAddress(
