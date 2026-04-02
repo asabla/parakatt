@@ -219,6 +219,11 @@ class CoreBridge {
         try engine.deleteTranscription(id: id)
     }
 
+    /// Delete multiple transcriptions. Returns the number deleted.
+    func deleteTranscriptions(ids: [String]) throws -> UInt32 {
+        try engine.deleteTranscriptions(ids: ids)
+    }
+
     /// Get timestamp segments for a transcription (for timeline display).
     func getTranscriptionSegments(id: String) throws -> [TimestampedSegment] {
         try engine.getTranscriptionSegments(id: id)

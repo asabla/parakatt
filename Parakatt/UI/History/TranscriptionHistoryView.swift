@@ -9,6 +9,9 @@ struct TranscriptionHistoryView: View {
     @State private var sourceFilter: String? = nil
     @State private var transcriptions: [StoredTranscription] = []
     @State private var selectedId: String?
+    @State private var selectedIds: Set<String> = []
+    @State private var isSelectionMode = false
+    @State private var showDeleteConfirmation = false
 
     private enum FilterOption: String, CaseIterable {
         case all = "All"
@@ -56,30 +59,108 @@ struct TranscriptionHistoryView: View {
     @ViewBuilder
     private var sidebarContent: some View {
         VStack(spacing: 0) {
-            // Filter as a proper segmented picker
-            Picker("Filter", selection: Binding(
-                get: { activeFilter },
-                set: { option in
-                    sourceFilter = option.sourceValue
-                    refresh()
-                }
-            )) {
-                ForEach(FilterOption.allCases, id: \.self) { option in
-                    Label(option.rawValue, systemImage: option.icon)
-                        .tag(option)
+            // Filter + selection mode toolbar
+            HStack(spacing: 8) {
+                if isSelectionMode {
+                    // Selection mode toolbar
+                    Text("\(selectedIds.count) selected")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+
+                    Spacer()
+
+                    Button {
+                        if selectedIds.count == transcriptions.count {
+                            selectedIds.removeAll()
+                        } else {
+                            selectedIds = Set(transcriptions.map(\.id))
+                        }
+                    } label: {
+                        Text(selectedIds.count == transcriptions.count ? "Deselect All" : "Select All")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+
+                    Button(role: .destructive) {
+                        showDeleteConfirmation = true
+                    } label: {
+                        Label("Delete", systemImage: "trash")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(selectedIds.isEmpty)
+
+                    Button("Done") {
+                        isSelectionMode = false
+                        selectedIds.removeAll()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                } else {
+                    Picker("Filter", selection: Binding(
+                        get: { activeFilter },
+                        set: { option in
+                            sourceFilter = option.sourceValue
+                            refresh()
+                        }
+                    )) {
+                        ForEach(FilterOption.allCases, id: \.self) { option in
+                            Label(option.rawValue, systemImage: option.icon)
+                                .tag(option)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    if !transcriptions.isEmpty {
+                        Button {
+                            isSelectionMode = true
+                            selectedIds.removeAll()
+                        } label: {
+                            Image(systemName: "checkmark.circle")
+                                .font(.system(size: 14))
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                        .help("Select multiple items")
+                    }
                 }
             }
-            .pickerStyle(.segmented)
             .padding(.horizontal, 12)
             .padding(.top, 8)
             .padding(.bottom, 6)
+            .animation(.easeInOut(duration: 0.15), value: isSelectionMode)
 
             Divider()
 
             // Transcription list
             if transcriptions.isEmpty {
                 emptyListView
+            } else if isSelectionMode {
+                // Multi-select list
+                List(transcriptions, id: \.id) { item in
+                    HStack(spacing: 10) {
+                        Image(systemName: selectedIds.contains(item.id) ? "checkmark.circle.fill" : "circle")
+                            .font(.system(size: 18))
+                            .foregroundStyle(selectedIds.contains(item.id) ? Color.blue : Color.secondary.opacity(0.4))
+
+                        TranscriptionRow(item: item)
+                    }
+                    .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+                    .listRowSeparator(.visible)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        if selectedIds.contains(item.id) {
+                            selectedIds.remove(item.id)
+                        } else {
+                            selectedIds.insert(item.id)
+                        }
+                    }
+                }
+                .listStyle(.inset(alternatesRowBackgrounds: true))
             } else {
+                // Normal single-select list
                 List(transcriptions, id: \.id, selection: $selectedId) { item in
                     TranscriptionRow(item: item)
                         .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
@@ -106,6 +187,20 @@ struct TranscriptionHistoryView: View {
         .searchable(text: $searchText, prompt: "Search transcriptions")
         .onChange(of: searchText) { refresh() }
         .onSubmit(of: .search) { refresh() }
+        .alert("Delete \(selectedIds.count) transcription\(selectedIds.count == 1 ? "" : "s")?",
+               isPresented: $showDeleteConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Delete", role: .destructive) {
+                let count = appState.deleteTranscriptions(ids: Array(selectedIds))
+                NSLog("[Parakatt] Bulk deleted %d transcriptions", count)
+                selectedIds.removeAll()
+                isSelectionMode = false
+                selectedId = nil
+                refresh()
+            }
+        } message: {
+            Text("This action cannot be undone.")
+        }
     }
 
     // MARK: - Detail

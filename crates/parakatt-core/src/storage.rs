@@ -360,6 +360,22 @@ impl Storage {
 
         Ok(())
     }
+
+    /// Delete multiple transcriptions by IDs.
+    pub fn delete_many(&self, ids: &[String]) -> Result<u32, CoreError> {
+        if ids.is_empty() {
+            return Ok(0);
+        }
+        let placeholders: Vec<String> = ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
+        let sql = format!("DELETE FROM transcriptions WHERE id IN ({})", placeholders.join(", "));
+
+        let params: Vec<&dyn rusqlite::types::ToSql> = ids.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
+        let deleted = self.conn
+            .execute(&sql, params.as_slice())
+            .map_err(|e| CoreError::IoError(format!("Failed to delete transcriptions: {e}")))?;
+
+        Ok(deleted as u32)
+    }
 }
 
 #[cfg(test)]

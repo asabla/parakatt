@@ -42,6 +42,20 @@ class AppState: ObservableObject {
     private var audioCaptureService: AudioCaptureService?
     private var textInsertionService: TextInsertionService?
     private var contextService: ContextService?
+
+    /// System audio capture for PTT (mixes background audio with mic).
+    @available(macOS 14.2, *)
+    private var pttSystemCapture: SystemAudioCaptureService? {
+        get { _pttSystemCapture as? SystemAudioCaptureService }
+        set { _pttSystemCapture = newValue }
+    }
+    private var _pttSystemCapture: AnyObject?
+
+    // Dual-buffer mixing for PTT mic + system audio
+    private var pttMicPending: [Float] = []
+    private var pttSystemPending: [Float] = []
+    private let pttMicLock = NSLock()
+    private let pttSystemLock = NSLock()
     @available(macOS 14.2, *)
     private var meetingSession: MeetingSessionService? {
         get { _meetingSession as? MeetingSessionService }
@@ -85,7 +99,7 @@ class AppState: ObservableObject {
         // Create audio capture once — reused across all recording sessions
         let capture = AudioCaptureService()
         capture.onAudioSamples = { [weak self] samples in
-            self?.appendAudioSamples(samples)
+            self?.appendAudioSamplesWithMixing(samples)
         }
         audioCaptureService = capture
 
@@ -184,9 +198,21 @@ class AppState: ObservableObject {
         audioBufferLock.lock()
         audioBuffer.removeAll()
         audioBufferLock.unlock()
+        pttMicLock.lock()
+        pttMicPending.removeAll()
+        pttMicLock.unlock()
+        pttSystemLock.lock()
+        pttSystemPending.removeAll()
+        pttSystemLock.unlock()
 
         do {
             try audioCaptureService?.startCapture()
+
+            // Also capture system audio (background music, app audio) if available.
+            if #available(macOS 14.2, *) {
+                startPttSystemCapture()
+            }
+
             isRecording = true
             currentAudioLevel = 0
             liveTranscription = nil
@@ -203,7 +229,9 @@ class AppState: ObservableObject {
                 self?.startIncrementalSession()
             }
 
-            NSLog("[Parakatt] Recording STARTED (modelLoaded=%d, incremental after %.0fs)", isModelLoaded ? 1 : 0, firstChunkDelaySecs)
+            NSLog("[Parakatt] Recording STARTED (modelLoaded=%d, incremental after %.0fs, systemAudio=%d)",
+                  isModelLoaded ? 1 : 0, firstChunkDelaySecs,
+                  _pttSystemCapture != nil ? 1 : 0)
         } catch {
             errorMessage = "Failed to start recording: \(error.localizedDescription)"
             NSLog("[Parakatt] Recording FAILED: %@", error.localizedDescription)
@@ -217,6 +245,10 @@ class AppState: ObservableObject {
         pttChunkTimer = nil
         stopStreamingUpdates()
         audioCaptureService?.stopCapture()
+        if #available(macOS 14.2, *) {
+            pttSystemCapture?.stopCapture()
+            pttSystemCapture = nil
+        }
         isRecording = false
         currentAudioLevel = 0
 
@@ -645,6 +677,10 @@ class AppState: ObservableObject {
         try? bridge?.deleteTranscription(id: id)
     }
 
+    func deleteTranscriptions(ids: [String]) -> Int {
+        Int((try? bridge?.deleteTranscriptions(ids: ids)) ?? 0)
+    }
+
     func getTranscriptionSegments(id: String) -> [TimestampedSegment] {
         (try? bridge?.getTranscriptionSegments(id: id)) ?? []
     }
@@ -1011,6 +1047,77 @@ class AppState: ObservableObject {
         if sampleCount % 50 == 1 {
             NSLog("[Parakatt] Audio callback #%d, buffer: %d samples (%.1fs)", sampleCount, total, Double(total) / 16000.0)
         }
+    }
+
+    // MARK: - PTT system audio capture + mixing
+
+    /// Start capturing system audio alongside the mic for PTT recording.
+    /// Fails silently if permission is not granted — mic-only still works.
+    @available(macOS 14.2, *)
+    private func startPttSystemCapture() {
+        let capture = SystemAudioCaptureService()
+        capture.onAudioSamples = { [weak self] samples in
+            self?.appendPttSystemSamples(samples)
+        }
+        do {
+            try capture.startCapture()
+            pttSystemCapture = capture
+            NSLog("[Parakatt] PTT system audio capture started")
+        } catch {
+            // Non-fatal — user may not have granted system audio permission.
+            NSLog("[Parakatt] PTT system audio not available: %@ (mic-only mode)",
+                  error.localizedDescription)
+        }
+    }
+
+    /// Append system audio samples and mix with any pending mic samples.
+    private func appendPttSystemSamples(_ samples: [Float]) {
+        pttSystemLock.lock()
+        pttSystemPending.append(contentsOf: samples)
+        pttSystemLock.unlock()
+        mixPttPendingSamples()
+    }
+
+    /// Override: when system capture is active, route mic samples through mixing.
+    /// Called from the AudioCaptureService callback.
+    private func appendAudioSamplesWithMixing(_ samples: [Float]) {
+        if _pttSystemCapture != nil {
+            // System capture active — buffer mic samples for mixing
+            pttMicLock.lock()
+            pttMicPending.append(contentsOf: samples)
+            pttMicLock.unlock()
+            mixPttPendingSamples()
+        } else {
+            // No system capture — pass mic directly (original path)
+            appendAudioSamples(samples)
+        }
+    }
+
+    /// Mix pending mic + system samples and deliver to the main audio buffer.
+    private func mixPttPendingSamples() {
+        pttMicLock.lock()
+        pttSystemLock.lock()
+
+        let mixCount = min(pttMicPending.count, pttSystemPending.count)
+        guard mixCount > 0 else {
+            pttSystemLock.unlock()
+            pttMicLock.unlock()
+            return
+        }
+
+        var mixed = [Float](repeating: 0, count: mixCount)
+        for i in 0..<mixCount {
+            let sum = pttMicPending[i] + pttSystemPending[i]
+            mixed[i] = max(-1.0, min(1.0, sum))
+        }
+
+        pttMicPending.removeFirst(mixCount)
+        pttSystemPending.removeFirst(mixCount)
+
+        pttSystemLock.unlock()
+        pttMicLock.unlock()
+
+        appendAudioSamples(mixed)
     }
 
     // MARK: - Permission helpers
