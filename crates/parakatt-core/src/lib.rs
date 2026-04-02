@@ -94,6 +94,17 @@ pub struct ModelInfo {
     pub downloaded: bool,
 }
 
+/// Hotkey configuration exposed via FFI.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct HotkeyConfig {
+    /// Key name (e.g. "space", "r", "f1").
+    pub key: String,
+    /// Modifier names (e.g. ["option"], ["command", "shift"]).
+    pub modifiers: Vec<String>,
+    /// Mode: "hold" or "toggle".
+    pub mode: String,
+}
+
 /// Top-level engine configuration passed from Swift on init.
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct EngineConfig {

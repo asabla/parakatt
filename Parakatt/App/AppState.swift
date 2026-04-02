@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import HotKey
 import os.log
 import ParakattCore
 
@@ -30,8 +31,14 @@ class AppState: ObservableObject {
     @Published var meetingTranscription: String?
     @Published var meetingLatestChunk: String?
 
+    // Audio source selection (meeting mode)
+    @Published var selectedAudioSourcePID: pid_t?
+    @Published var selectedAudioSourceName: String?
+
     // MARK: - Services
 
+    /// Set by AppDelegate after init; used for hotkey reconfiguration.
+    var hotkeyService: HotkeyService?
     private var audioCaptureService: AudioCaptureService?
     private var textInsertionService: TextInsertionService?
     private var contextService: ContextService?
@@ -55,6 +62,8 @@ class AppState: ObservableObject {
     private var pttChunkIndex: UInt32 = 0
     private var pttChunkTimer: Timer?
     private let pttChunkLock = NSLock()  // serializes chunk processing
+    /// Accumulated text from processed chunks (used to compose live display).
+    private var pttAccumulatedText: String?
 
     /// Seconds before transitioning from single-shot preview to incremental chunking.
     private let firstChunkDelaySecs: TimeInterval = 5.0
@@ -91,6 +100,19 @@ class AppState: ObservableObject {
             )
             engineReady = true
             NSLog("[Parakatt] Engine created")
+
+            // Load preferred audio source from config
+            if let bundleId = bridge?.getPreferredAudioSource() {
+                if let pid = AudioSourceService.pidForBundleId(bundleId) {
+                    selectedAudioSourcePID = pid
+                    let name = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId)
+                        .first?.localizedName ?? bundleId
+                    selectedAudioSourceName = name
+                    NSLog("[Parakatt] Restored preferred audio source: %@ (pid %d)", name, pid)
+                } else {
+                    NSLog("[Parakatt] Preferred audio source %@ not running", bundleId)
+                }
+            }
         } catch {
             errorMessage = "Failed to initialize engine: \(error.localizedDescription)"
             NSLog("[Parakatt] Engine init failed: \(error)")
@@ -157,6 +179,7 @@ class AppState: ObservableObject {
         pttChunkIndex = 0
         pttChunkTimer?.invalidate()
         pttChunkTimer = nil
+        pttAccumulatedText = nil
 
         audioBufferLock.lock()
         audioBuffer.removeAll()
@@ -253,6 +276,7 @@ class AppState: ObservableObject {
                     DispatchQueue.main.async {
                         self.isProcessing = false
                         self.liveTranscription = nil
+                        self.pttAccumulatedText = nil
                         self.lastTranscription = result.text
                         self.pttSessionId = nil
                         self.errorMessage = nil
@@ -268,6 +292,7 @@ class AppState: ObservableObject {
                     DispatchQueue.main.async {
                         self.isProcessing = false
                         self.liveTranscription = nil
+                        self.pttAccumulatedText = nil
                         self.pttSessionId = nil
                         self.errorMessage = "Transcription failed: \(error.localizedDescription)"
                         NSLog("[Parakatt] PTT session finish FAILED: %@", error.localizedDescription)
@@ -333,6 +358,58 @@ class AppState: ObservableObject {
         }
     }
 
+    /// Test system audio capture for 3 seconds and log results.
+    @available(macOS 14.2, *)
+    func runSystemAudioDiagnostic() {
+        let osVersion = ProcessInfo.processInfo.operatingSystemVersion
+        NSLog("[Parakatt] === SYSTEM AUDIO DIAGNOSTIC START (macOS %d.%d.%d) ===",
+              osVersion.majorVersion, osVersion.minorVersion, osVersion.patchVersion)
+
+        let testCapture = SystemAudioCaptureService()
+        var collectedSamples: [Float] = []
+        let sampleLock = NSLock()
+
+        testCapture.onAudioSamples = { samples in
+            sampleLock.lock()
+            collectedSamples.append(contentsOf: samples)
+            sampleLock.unlock()
+        }
+
+        do {
+            try testCapture.startCapture()
+            NSLog("[Parakatt] SYSDIAG: Capturing all system audio for 3 seconds...")
+        } catch {
+            NSLog("[Parakatt] SYSDIAG: ❌ Failed to start capture: %@", error.localizedDescription)
+            NSLog("[Parakatt] === SYSTEM AUDIO DIAGNOSTIC END ===")
+            return
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+            testCapture.stopCapture()
+
+            sampleLock.lock()
+            let samples = collectedSamples
+            sampleLock.unlock()
+
+            let maxAmp = samples.map { abs($0) }.max() ?? 0
+            let rms = samples.isEmpty ? 0 : sqrt(samples.map { $0 * $0 }.reduce(0, +) / Float(samples.count))
+
+            NSLog("[Parakatt] SYSDIAG: %d samples (%.1fs), max=%.6f, rms=%.6f",
+                  samples.count, Double(samples.count) / 16000.0, maxAmp, rms)
+
+            if samples.isEmpty {
+                NSLog("[Parakatt] SYSDIAG: ❌ NO SAMPLES — system audio callback never fired")
+                NSLog("[Parakatt] SYSDIAG: Check System Settings > Privacy & Security > Screen & System Audio Recording")
+            } else if maxAmp > 0.001 {
+                NSLog("[Parakatt] SYSDIAG: ✅ System audio has signal")
+            } else {
+                NSLog("[Parakatt] SYSDIAG: ⚠️ Samples received but SILENT (max=%.6f) — is audio playing from another app?", maxAmp)
+            }
+
+            NSLog("[Parakatt] === SYSTEM AUDIO DIAGNOSTIC END ===")
+        }
+    }
+
     // MARK: - LLM
 
     @Published var llmProvider: String = ""
@@ -392,6 +469,47 @@ class AppState: ObservableObject {
         NSLog("[Parakatt] Input device set to: %@", uid)
     }
 
+    // MARK: - Hotkey configuration
+
+    /// Load hotkey config from the Rust engine. Returns parsed key/modifiers/mode.
+    func loadHotkeyConfig() -> (key: Key, modifiers: NSEvent.ModifierFlags, mode: String) {
+        guard let bridge else {
+            return (.space, [.option], "hold")
+        }
+        let config = bridge.getHotkeyConfig()
+        let key = HotkeyService.keyFromString(config.key) ?? .space
+        let modifiers = HotkeyService.modifiersFromStrings(config.modifiers)
+        let mode = config.mode
+        return (key, modifiers.isEmpty ? [.option] : modifiers, mode)
+    }
+
+    /// Save hotkey config and reconfigure the service.
+    func setHotkey(key: Key, modifiers: NSEvent.ModifierFlags, mode: String) {
+        let keyStr = HotkeyService.stringFromKey(key)
+        let modStrs = HotkeyService.stringsFromModifiers(modifiers)
+        let config = HotkeyConfig(key: keyStr, modifiers: modStrs, mode: mode)
+
+        do {
+            try bridge?.setHotkeyConfig(config)
+        } catch {
+            NSLog("[Parakatt] Failed to save hotkey config: %@", error.localizedDescription)
+        }
+
+        hotkeyService?.reconfigure(key: key, modifiers: modifiers, mode: mode)
+        NSLog("[Parakatt] Hotkey updated: %@ + %@ (%@)", modStrs.joined(separator: "+"), keyStr, mode)
+    }
+
+    // MARK: - Audio source preference
+
+    /// Persist the preferred audio source bundle ID.
+    func setPreferredAudioSource(bundleId: String?) {
+        do {
+            try bridge?.setPreferredAudioSource(bundleId)
+        } catch {
+            NSLog("[Parakatt] Failed to save audio source preference: %@", error.localizedDescription)
+        }
+    }
+
     // MARK: - Meeting transcription
 
     /// Start a meeting transcription session.
@@ -442,8 +560,26 @@ class AppState: ObservableObject {
 
         do {
             let context = contextService?.currentContext()
-            try session.start(mode: activeMode, context: context)
+            try session.start(processID: selectedAudioSourcePID, mode: activeMode, context: context)
+            if let name = selectedAudioSourceName {
+                NSLog("[Parakatt] Meeting capturing audio from: %@", name)
+            }
         } catch {
+            // If a specific app was selected but its process is gone, fall back to all system audio.
+            if selectedAudioSourcePID != nil,
+               let audioErr = error as? SystemAudioCaptureError,
+               case .processNotFound = audioErr {
+                NSLog("[Parakatt] Selected app not found (pid %d), falling back to all system audio",
+                      selectedAudioSourcePID ?? 0)
+                do {
+                    let context = contextService?.currentContext()
+                    try session.start(processID: nil, mode: activeMode, context: context)
+                    return
+                } catch {
+                    // Fall through to error handling below
+                }
+            }
+
             isMeetingActive = false
             meetingElapsedTimer?.invalidate()
             meetingElapsedTimer = nil
@@ -696,8 +832,9 @@ class AppState: ObservableObject {
 
         pttSessionId = sessionId
 
-        // Stop the throwaway streaming preview — chunk results become the live text.
-        stopStreamingUpdates()
+        // Keep streaming preview running — it will compose accumulated chunk text
+        // with a live preview of the unprocessed buffer tail, keeping the overlay
+        // updated between chunk dispatches.
 
         // Dispatch the first chunk immediately (~5s of audio).
         dispatchPttChunk()
@@ -756,7 +893,8 @@ class AppState: ObservableObject {
                 )
                 DispatchQueue.main.async {
                     if self.isRecording || self.isProcessing {
-                        self.liveTranscription = result.accumulatedText.isEmpty
+                        // Store accumulated text; streaming preview composes the display.
+                        self.pttAccumulatedText = result.accumulatedText.isEmpty
                             ? nil : result.accumulatedText
                     }
                 }
@@ -790,9 +928,9 @@ class AppState: ObservableObject {
     private var isStreamTranscribing = false
 
     private func updateLiveTranscription() {
-        guard isRecording, let bridge, !isStreamTranscribing, pttSessionId == nil else { return }
+        guard isRecording, let bridge, !isStreamTranscribing else { return }
 
-        // Snapshot the current buffer
+        // Snapshot the current buffer (unprocessed tail during incremental mode)
         audioBufferLock.lock()
         let snapshot = audioBuffer
         audioBufferLock.unlock()
@@ -804,6 +942,9 @@ class AppState: ObservableObject {
         let trimmed = snapshot.count > maxSamples
             ? Array(snapshot.suffix(maxSamples))
             : snapshot
+
+        // Capture accumulated text from chunks already processed
+        let accumulatedPrefix = pttAccumulatedText
 
         isStreamTranscribing = true
 
@@ -820,7 +961,13 @@ class AppState: ObservableObject {
                 )
                 DispatchQueue.main.async {
                     if self.isRecording {
-                        self.liveTranscription = result.text.isEmpty ? nil : result.text
+                        if let prefix = accumulatedPrefix, !prefix.isEmpty {
+                            // Compose: accumulated chunk text + streaming tail preview
+                            let tail = result.text.isEmpty ? "" : " " + result.text
+                            self.liveTranscription = prefix + tail
+                        } else {
+                            self.liveTranscription = result.text.isEmpty ? nil : result.text
+                        }
                     }
                 }
             } catch {
