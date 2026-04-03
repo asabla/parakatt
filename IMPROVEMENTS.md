@@ -35,7 +35,7 @@ Tracked improvements and feature ideas for Parakatt.
 - [x] **Device hot-plug handling** — if user unplugs explicitly-selected headphones mid-recording, no recovery; add AudioObjectPropertyListener
 - [x] **Cache system audio converter** — SystemAudioCaptureService recreates AVAudioConverter every callback; cache and reuse (already implemented)
 - [x] **Audio preprocessing enhancements** — no noise reduction, echo cancellation, or pre-emphasis filtering; could improve STT quality
-- [ ] **Filler word removal** — strip "uh", "um", "mmm", "ah" and similar filler sounds from transcription output
+- [x] **Filler word removal** — strip "uh", "um", "mmm", "ah" and similar filler sounds from transcription output
 - [x] **Unnecessary audio copy in STT** — `parakeet.rs` calls `audio.to_vec()` creating ~115MB copy for 30min recordings; investigate zero-copy API (not actionable — parakeet-rs API requires Vec by value)
 
 ## Customization
@@ -63,7 +63,7 @@ Tracked improvements and feature ideas for Parakatt.
 
 ## Robustness
 
-- [ ] **Swift test coverage** — Rust has ~43 unit tests, Swift has essentially none
+- [x] **Swift test coverage** — Rust has ~53 unit tests, Swift now has 8 XCTests
 - [x] **Better error surfacing** — some failures only log to console; users see generic "No audio captured"
 - [x] **LLM timeout handling** — no explicit timeout UI; requests can hang silently
 - [x] **LLM error messages lack detail** — 4xx/5xx responses only show status code, not response body
