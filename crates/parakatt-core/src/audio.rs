@@ -18,9 +18,10 @@ const FRAME_SIZE: usize = 320;
 /// Standard value for speech processing (0.95-0.97).
 const PRE_EMPHASIS_COEFF: f32 = 0.97;
 
-/// Noise gate threshold — samples below this RMS are zeroed.
-/// Slightly below the silence threshold to catch faint background noise.
-const NOISE_GATE_THRESHOLD: f32 = 0.005;
+/// Noise gate threshold — frames below this RMS are zeroed.
+/// Set conservatively low to avoid cutting trailing speech consonants
+/// which naturally decay to ~0.003-0.008 RMS.
+const NOISE_GATE_THRESHOLD: f32 = 0.002;
 
 /// Validate that audio is in the expected format and return it ready for processing.
 pub fn preprocess(samples: &[f32], sample_rate: u32) -> Result<Vec<f32>, CoreError> {
@@ -35,13 +36,16 @@ pub fn preprocess(samples: &[f32], sample_rate: u32) -> Result<Vec<f32>, CoreErr
         return Err(CoreError::AudioError("Empty audio buffer".into()));
     }
 
-    let trimmed = trim_silence(samples);
+    // Noise gate first to zero background noise, then trim silence.
+    // This order prevents the gate from eating trailing speech that
+    // silence trimming would have preserved.
+    let gated = noise_gate(samples);
+    let trimmed = trim_silence(&gated);
     if trimmed.is_empty() {
         return Err(CoreError::AudioError("Audio contains only silence".into()));
     }
 
-    let gated = noise_gate(trimmed);
-    let emphasized = pre_emphasis(&gated);
+    let emphasized = pre_emphasis(trimmed);
     let normalized = normalize(&emphasized);
     Ok(normalized)
 }
@@ -199,9 +203,17 @@ mod tests {
 
     #[test]
     fn test_noise_gate_silences_noise() {
-        // Very quiet noise below threshold
-        let noise: Vec<f32> = vec![0.001f32; FRAME_SIZE];
+        // Very quiet noise below threshold (0.002)
+        let noise: Vec<f32> = vec![0.0005f32; FRAME_SIZE];
         let result = noise_gate(&noise);
         assert!(result.iter().all(|&s| s == 0.0));
+    }
+
+    #[test]
+    fn test_noise_gate_preserves_trailing_speech() {
+        // Trailing speech at 0.005 RMS should NOT be gated (above 0.002 threshold)
+        let trailing: Vec<f32> = vec![0.005f32; FRAME_SIZE];
+        let result = noise_gate(&trailing);
+        assert_eq!(result, trailing);
     }
 }
