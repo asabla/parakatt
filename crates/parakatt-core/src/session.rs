@@ -120,8 +120,11 @@ impl SessionManager {
             .collect();
 
         // Accumulate segments with absolute timestamps and build text
-        // with paragraph breaks every SENTENCES_PER_PARAGRAPH sentences.
+        // with paragraph breaks: new paragraph at each chunk boundary,
+        // and every SENTENCES_PER_PARAGRAPH sentences within a chunk.
         if !segments.is_empty() {
+            let mut chunk_sentence_count: usize = 0;
+
             for seg in &segments {
                 state.accumulated_segments.push(TimestampedSegment {
                     text: seg.text.clone(),
@@ -135,9 +138,10 @@ impl SessionManager {
                 }
 
                 if !state.accumulated_text.is_empty() {
-                    // Insert paragraph break every N sentences
-                    if state.sentence_count > 0
-                        && state.sentence_count % SENTENCES_PER_PARAGRAPH == 0
+                    // Paragraph break at chunk boundary (first sentence of new chunk)
+                    // or every N sentences within a chunk
+                    if chunk_sentence_count == 0
+                        || chunk_sentence_count % SENTENCES_PER_PARAGRAPH == 0
                     {
                         state.accumulated_text.push_str("\n\n");
                     } else {
@@ -145,8 +149,9 @@ impl SessionManager {
                     }
                 }
                 state.accumulated_text.push_str(trimmed);
-                state.sentence_count += 1;
+                chunk_sentence_count += 1;
             }
+            state.sentence_count += chunk_sentence_count;
         } else if !new_text.is_empty() {
             // Fallback: no segments available, use raw text with chunk breaks
             if !state.accumulated_text.is_empty() {
