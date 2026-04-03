@@ -7,6 +7,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var hotkeyService: HotkeyService?
     private var permissionService: PermissionService?
     private var overlayController: RecordingOverlayController?
+    private var onboardingWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         permissionService = PermissionService()
@@ -27,12 +28,43 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
         appState.hotkeyService = hotkeyService
 
-        // If no model is downloaded, open Settings so user can download one
-        if appState.needsModelDownload {
+        // Show onboarding on first launch, or Settings if model needed
+        let hasOnboarded = UserDefaults.standard.bool(forKey: "hasCompletedOnboarding")
+        if !hasOnboarded {
+            showOnboarding()
+        } else if appState.needsModelDownload {
             DispatchQueue.main.async {
                 NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
             }
         }
+    }
+
+    private func showOnboarding() {
+        let view = OnboardingView {
+            self.onboardingWindow?.close()
+            self.onboardingWindow = nil
+            // After onboarding, open Settings if model still needed
+            if self.appState.needsModelDownload {
+                DispatchQueue.main.async {
+                    NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+                }
+            }
+        }
+        .environmentObject(appState)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 480),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Welcome to Parakatt"
+        window.contentView = NSHostingView(rootView: view)
+        window.center()
+        window.isReleasedWhenClosed = false
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        onboardingWindow = window
     }
 
     func applicationWillTerminate(_ notification: Notification) {
