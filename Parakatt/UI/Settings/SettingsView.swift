@@ -297,6 +297,59 @@ struct GeneralSettingsView: View {
                     }
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                 }
+
+                // MARK: - Behavior section
+                VStack(alignment: .leading, spacing: 10) {
+                    Label("Behavior", systemImage: "slider.horizontal.3")
+                        .font(.system(.subheadline, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .textCase(.uppercase)
+                        .tracking(0.5)
+
+                    VStack(spacing: 0) {
+                        Toggle(isOn: Binding(
+                            get: { appState.autoPaste },
+                            set: { appState.setAutoPaste($0) }
+                        )) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Auto-paste transcription")
+                                    .font(.system(.body))
+                                Text("Automatically insert text at cursor after recording")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+
+                        Divider().padding(.leading, 14)
+
+                        Toggle(isOn: Binding(
+                            get: { appState.showRecordingOverlay },
+                            set: { appState.setShowOverlay($0) }
+                        )) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Show recording overlay")
+                                    .font(.system(.body))
+                                Text("Display a floating window with live transcription while recording")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                    }
+                    .background {
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(.background)
+                            .shadow(color: .black.opacity(0.06), radius: 2, y: 1)
+                    }
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 10)
+                            .strokeBorder(.quaternary, lineWidth: 0.5)
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
             }
             .padding(20)
         }

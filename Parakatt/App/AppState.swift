@@ -31,6 +31,10 @@ class AppState: ObservableObject {
     @Published var meetingTranscription: String?
     @Published var meetingLatestChunk: String?
 
+    // Behavior settings
+    @Published var autoPaste = true
+    @Published var showRecordingOverlay = true
+
     // Audio source selection (meeting mode)
     @Published var selectedAudioSourcePID: pid_t?
     @Published var selectedAudioSourceName: String?
@@ -103,6 +107,10 @@ class AppState: ObservableObject {
             )
             engineReady = true
             NSLog("[Parakatt] Engine created")
+
+            // Load behavior settings from config
+            if let ap = try? bridge?.getAutoPaste() { autoPaste = ap }
+            if let so = try? bridge?.getShowOverlay() { showRecordingOverlay = so }
 
             // Load preferred audio source from config
             if let bundleId = try? bridge?.getPreferredAudioSource() {
@@ -523,6 +531,26 @@ class AppState: ObservableObject {
 
         hotkeyService?.reconfigure(key: key, modifiers: modifiers, mode: mode)
         NSLog("[Parakatt] Hotkey updated: %@ + %@ (%@)", modStrs.joined(separator: "+"), keyStr, mode)
+    }
+
+    // MARK: - Behavior settings
+
+    func setAutoPaste(_ enabled: Bool) {
+        autoPaste = enabled
+        do {
+            try bridge?.setAutoPaste(enabled)
+        } catch {
+            NSLog("[Parakatt] Failed to save auto_paste setting: %@", error.localizedDescription)
+        }
+    }
+
+    func setShowOverlay(_ enabled: Bool) {
+        showRecordingOverlay = enabled
+        do {
+            try bridge?.setShowOverlay(enabled)
+        } catch {
+            NSLog("[Parakatt] Failed to save show_overlay setting: %@", error.localizedDescription)
+        }
     }
 
     // MARK: - Audio source preference

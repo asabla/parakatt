@@ -76,6 +76,24 @@ class CoreBridge {
         engine.getDictionaryRules()
     }
 
+    // MARK: - Behavior settings
+
+    func getAutoPaste() throws -> Bool {
+        try engine.getAutoPaste()
+    }
+
+    func setAutoPaste(_ enabled: Bool) throws {
+        try engine.setAutoPaste(enabled: enabled)
+    }
+
+    func getShowOverlay() throws -> Bool {
+        try engine.getShowOverlay()
+    }
+
+    func setShowOverlay(_ enabled: Bool) throws {
+        try engine.setShowOverlay(enabled: enabled)
+    }
+
     // MARK: - Hotkey config
 
     /// Get current hotkey configuration.

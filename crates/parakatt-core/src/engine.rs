@@ -239,6 +239,40 @@ impl Engine {
         cfg.save(&self.config_dir)
     }
 
+    /// Get whether auto-paste is enabled.
+    pub fn get_auto_paste(&self) -> Result<bool, CoreError> {
+        let config = self.config.lock().map_err(|e| {
+            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
+        })?;
+        Ok(config.general.auto_paste)
+    }
+
+    /// Set and persist auto-paste setting.
+    pub fn set_auto_paste(&self, enabled: bool) -> Result<(), CoreError> {
+        let mut cfg = self.config.lock().map_err(|e| {
+            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
+        })?;
+        cfg.general.auto_paste = enabled;
+        cfg.save(&self.config_dir)
+    }
+
+    /// Get whether the recording overlay is shown.
+    pub fn get_show_overlay(&self) -> Result<bool, CoreError> {
+        let config = self.config.lock().map_err(|e| {
+            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
+        })?;
+        Ok(config.general.show_overlay)
+    }
+
+    /// Set and persist the recording overlay setting.
+    pub fn set_show_overlay(&self, enabled: bool) -> Result<(), CoreError> {
+        let mut cfg = self.config.lock().map_err(|e| {
+            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
+        })?;
+        cfg.general.show_overlay = enabled;
+        cfg.save(&self.config_dir)
+    }
+
     /// Get the preferred audio source bundle ID for meeting capture.
     pub fn get_preferred_audio_source(&self) -> Result<Option<String>, CoreError> {
         let config = self.config.lock().map_err(|e| {
