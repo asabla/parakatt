@@ -283,14 +283,29 @@ class RecordingOverlayController {
     private func showOverlay() {
         guard !isVisible else { return }
         if panel == nil { createPanel() }
+        panel?.alphaValue = 1.0
         panel?.orderFrontRegardless()
         isVisible = true
     }
 
     private func hideOverlay() {
         guard isVisible else { return }
-        panel?.orderOut(nil)
         isVisible = false
+
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            panel?.orderOut(nil)
+            return
+        }
+
+        // Fade + scale out
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.25
+            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            panel?.animator().alphaValue = 0.0
+        }, completionHandler: { [weak self] in
+            self?.panel?.orderOut(nil)
+            self?.panel?.alphaValue = 1.0
+        })
     }
 
     private func createPanel() {
