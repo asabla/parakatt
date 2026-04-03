@@ -6,6 +6,7 @@ import ParakattCore
 import UserNotifications
 
 private let logger = Logger(subsystem: "com.parakatt.app", category: "engine")
+private let signpostLog = OSLog(subsystem: "com.parakatt.app", category: .pointsOfInterest)
 
 /// Observable application state shared across the UI.
 ///
@@ -766,6 +767,10 @@ class AppState: ObservableObject {
 
     func loadModel(_ modelId: String) {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let signpostID = OSSignpostID(log: signpostLog)
+            os_signpost(.begin, log: signpostLog, name: "LoadModel", signpostID: signpostID, "%{public}s", modelId)
+            defer { os_signpost(.end, log: signpostLog, name: "LoadModel", signpostID: signpostID) }
+
             guard let self else { return }
             do {
                 try self.bridge?.loadModel(modelId)
@@ -889,6 +894,10 @@ class AppState: ObservableObject {
               samples.count, Double(samples.count) / 16000.0, maxAmp, activeMode, llmProvider.isEmpty ? "none" : llmProvider)
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let signpostID = OSSignpostID(log: signpostLog)
+            os_signpost(.begin, log: signpostLog, name: "Transcribe", signpostID: signpostID, "samples: %d", samples.count)
+            defer { os_signpost(.end, log: signpostLog, name: "Transcribe", signpostID: signpostID) }
+
             guard let self, let bridge = self.bridge else {
                 DispatchQueue.main.async { self?.isProcessing = false }
                 return
