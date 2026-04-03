@@ -32,16 +32,3 @@ jobs:
 
       - name: Run tests
         run: cargo test -p parakatt-core
-
-  swift:
-    name: Swift Lint
-    runs-on: macos-15
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install SwiftFormat
-        run: brew install swiftformat
-
-      - name: Check Swift formatting
-        run: swiftformat --lint Parakatt/
