@@ -99,8 +99,8 @@ Tracked improvements and feature ideas for Parakatt.
 
 ## Logging & Observability
 
-- [ ] **Dual logging systems** — NSLog (Swift) and env_logger (Rust) without coordination; consolidate
-- [ ] **No file-based logging** — all logs go to console only; add persistent log files with rotation
+- [x] **Dual logging systems** — NSLog (Swift) and env_logger (Rust) without coordination; consolidate
+- [x] **No file-based logging** — all logs go to console only; add persistent log files with rotation
 - [ ] **No crash reporting** — no Sentry/Bugsnag or lightweight error tracking
 - [x] **No performance metrics** — no os.signpost markers; can't profile STT latency, LLM response time, or text insertion delay in Instruments
 - [x] **No debug mode toggle** — users can't enable verbose logging from Settings
