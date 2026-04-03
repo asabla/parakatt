@@ -4,6 +4,9 @@ import Foundation
 ///
 /// Writes log lines to `~/Library/Application Support/Parakatt/logs/parakatt.log`.
 /// Rotates when the file exceeds `maxFileSize` bytes, keeping up to `maxFiles` rotated copies.
+///
+/// This supplements (not replaces) NSLog — NSLog continues to write to Console.app/stderr
+/// as normal, while this service maintains a persistent log file for troubleshooting.
 class FileLogService {
     static let shared = FileLogService()
 
@@ -27,7 +30,12 @@ class FileLogService {
     }
 
     /// Write a log line with timestamp and category.
+    /// Also writes via NSLog so it appears in Console.app.
     func log(_ message: String, category: String = "App") {
+        // NSLog for Console.app + stderr (visible in `make run`)
+        NSLog("[Parakatt] [%@] %@", category, message)
+
+        // File log with more precise timestamp
         queue.async { [weak self] in
             guard let self else { return }
             let timestamp = self.dateFormatter.string(from: Date())
@@ -44,27 +52,23 @@ class FileLogService {
         }
     }
 
-    /// Redirect NSLog output to the file logger by installing a custom handler.
-    func startCapturingNSLog() {
-        // Capture stderr (where NSLog writes) and tee it to the log file.
-        // This is a lightweight approach — NSLog still goes to Console.app.
-        let pipe = Pipe()
-        let originalStderr = dup(STDERR_FILENO)
-
-        pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            guard !data.isEmpty else { return }
-
-            // Write to original stderr so Console.app still gets it
-            write(originalStderr, (data as NSData).bytes, data.count)
-
-            // Also write to our log file
-            self?.queue.async {
-                self?.fileHandle?.write(data)
-            }
+    /// Mirror an existing NSLog message to the file log.
+    /// Call this after NSLog to also persist the message to disk.
+    func mirror(_ message: String) {
+        queue.async { [weak self] in
+            guard let self else { return }
+            let timestamp = self.dateFormatter.string(from: Date())
+            let line = "[\(timestamp)] \(message)\n"
+            guard let data = line.data(using: .utf8) else { return }
+            self.fileHandle?.write(data)
         }
+    }
 
-        dup2(pipe.fileHandleForWriting.fileDescriptor, STDERR_FILENO)
+    /// Write a startup marker to the log file.
+    func logStartup() {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
+        log("=== Parakatt \(version) (\(build)) started ===", category: "App")
     }
 
     // MARK: - Private
@@ -78,14 +82,6 @@ class FileLogService {
 
         fileHandle = try? FileHandle(forWritingTo: logFile)
         fileHandle?.seekToEndOfFile()
-
-        // Write startup marker
-        let timestamp = dateFormatter.string(from: Date())
-        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
-        let marker = "\n[\(timestamp)] [App] === Parakatt \(version) started ===\n"
-        if let data = marker.data(using: .utf8) {
-            fileHandle?.write(data)
-        }
     }
 
     private func rotate() {
