@@ -246,6 +246,43 @@ impl Engine {
         cfg.save(&self.config_dir)
     }
 
+    /// Get per-app mode defaults as a list of [bundle_id, mode_name] pairs.
+    pub fn get_app_mode_defaults(&self) -> Result<Vec<Vec<String>>, CoreError> {
+        let config = self.config.lock().map_err(|e| {
+            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
+        })?;
+        Ok(config.general.app_mode_defaults.iter()
+            .map(|(k, v)| vec![k.clone(), v.clone()])
+            .collect())
+    }
+
+    /// Set a per-app mode default. Pass empty mode to remove.
+    pub fn set_app_mode_default(&self, bundle_id: String, mode: String) -> Result<(), CoreError> {
+        let mut cfg = self.config.lock().map_err(|e| {
+            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
+        })?;
+        if mode.is_empty() {
+            cfg.general.app_mode_defaults.remove(&bundle_id);
+        } else {
+            cfg.general.app_mode_defaults.insert(bundle_id, mode);
+        }
+        cfg.save(&self.config_dir)
+    }
+
+    /// Resolve which mode to use given an app context.
+    /// Returns the per-app default if one exists, otherwise the active mode.
+    pub fn resolve_mode_for_app(&self, bundle_id: Option<String>) -> Result<String, CoreError> {
+        let config = self.config.lock().map_err(|e| {
+            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
+        })?;
+        if let Some(bid) = &bundle_id {
+            if let Some(mode) = config.general.app_mode_defaults.get(bid) {
+                return Ok(mode.clone());
+            }
+        }
+        Ok(config.general.active_mode.clone())
+    }
+
     /// Update the dictionary rules.
     pub fn set_dictionary_rules(&self, rules: Vec<ReplacementRule>) -> Result<(), CoreError> {
         let mut dict_guard = self.dictionary.lock().map_err(|e| {

@@ -55,6 +55,10 @@ pub struct GeneralConfig {
     /// Enable verbose debug logging.
     #[serde(default)]
     pub debug_mode: bool,
+    /// Per-app mode defaults: maps bundle ID to mode name.
+    /// e.g., {"com.microsoft.VSCode": "code", "com.apple.mail": "email"}
+    #[serde(default)]
+    pub app_mode_defaults: std::collections::HashMap<String, String>,
 }
 
 fn default_chunk_duration() -> u32 {
@@ -79,6 +83,7 @@ impl Default for GeneralConfig {
             chunk_duration_secs: default_chunk_duration(),
             llm_max_words: default_llm_max_words(),
             debug_mode: false,
+            app_mode_defaults: std::collections::HashMap::new(),
         }
     }
 }
