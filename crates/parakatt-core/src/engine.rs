@@ -303,6 +303,42 @@ impl Engine {
         cfg.save(&self.config_dir)
     }
 
+    /// Get the chunk duration in seconds for meeting transcription.
+    pub fn get_chunk_duration(&self) -> Result<u32, CoreError> {
+        let config = self.config.lock().map_err(|e| {
+            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
+        })?;
+        Ok(config.general.chunk_duration_secs)
+    }
+
+    /// Set and persist the chunk duration in seconds (10-120).
+    pub fn set_chunk_duration(&self, secs: u32) -> Result<(), CoreError> {
+        let clamped = secs.clamp(10, 120);
+        let mut cfg = self.config.lock().map_err(|e| {
+            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
+        })?;
+        cfg.general.chunk_duration_secs = clamped;
+        cfg.save(&self.config_dir)
+    }
+
+    /// Get the maximum word count for LLM processing.
+    pub fn get_llm_max_words(&self) -> Result<u32, CoreError> {
+        let config = self.config.lock().map_err(|e| {
+            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
+        })?;
+        Ok(config.general.llm_max_words)
+    }
+
+    /// Set and persist the maximum word count for LLM processing (500-10000).
+    pub fn set_llm_max_words(&self, words: u32) -> Result<(), CoreError> {
+        let clamped = words.clamp(500, 10000);
+        let mut cfg = self.config.lock().map_err(|e| {
+            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
+        })?;
+        cfg.general.llm_max_words = clamped;
+        cfg.save(&self.config_dir)
+    }
+
     /// Get the retention period in days (0 = disabled).
     pub fn get_retention_days(&self) -> Result<u32, CoreError> {
         let config = self.config.lock().map_err(|e| {
@@ -814,10 +850,6 @@ impl Engine {
     }
 }
 
-/// Maximum word count to send to LLM. Beyond this, the text is truncated
-/// with a warning to prevent timeouts or crashes on large transcripts.
-const LLM_MAX_WORD_COUNT: usize = 4000;
-
 impl Engine {
     /// Apply LLM post-processing to text if the mode has a system prompt and
     /// an LLM provider is configured. Includes a token guard to prevent
@@ -840,6 +872,7 @@ impl Engine {
         } else {
             config_guard.modes.clone()
         };
+        let max_words = config_guard.general.llm_max_words as usize;
         drop(config_guard);
 
         let mode_config = match modes::find_mode(&all_modes, mode) {
@@ -872,15 +905,15 @@ impl Engine {
         // Truncates at the last sentence boundary within the word limit
         // to avoid cutting mid-sentence.
         let word_count = text.split_whitespace().count();
-        let llm_text = if word_count > LLM_MAX_WORD_COUNT {
+        let llm_text = if word_count > max_words {
             log::warn!(
                 "Text has {} words, truncating to ~{} for LLM processing",
                 word_count,
-                LLM_MAX_WORD_COUNT
+                max_words
             );
             let rough_cut: String = text
                 .split_whitespace()
-                .take(LLM_MAX_WORD_COUNT)
+                .take(max_words)
                 .collect::<Vec<_>>()
                 .join(" ");
             // Find the last sentence-ending punctuation to avoid mid-sentence cuts.

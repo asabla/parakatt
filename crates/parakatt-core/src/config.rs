@@ -46,6 +46,20 @@ pub struct GeneralConfig {
     /// Auto-delete transcriptions older than this many days (0 = disabled).
     #[serde(default)]
     pub retention_days: u32,
+    /// Chunk duration in seconds for meeting transcription (default: 30).
+    #[serde(default = "default_chunk_duration")]
+    pub chunk_duration_secs: u32,
+    /// Maximum word count to send to LLM per chunk (default: 4000).
+    #[serde(default = "default_llm_max_words")]
+    pub llm_max_words: u32,
+}
+
+fn default_chunk_duration() -> u32 {
+    30
+}
+
+fn default_llm_max_words() -> u32 {
+    4000
 }
 
 impl Default for GeneralConfig {
@@ -59,6 +73,8 @@ impl Default for GeneralConfig {
             hotkey_mode: default_hotkey_mode(),
             preferred_audio_source_bundle_id: None,
             retention_days: 0,
+            chunk_duration_secs: default_chunk_duration(),
+            llm_max_words: default_llm_max_words(),
         }
     }
 }
