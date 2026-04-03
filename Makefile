@@ -25,16 +25,16 @@ swift-package:
 		[ crates/parakatt-core/Cargo.toml -ot .swift-package-stamp ]; then \
 		echo "ParakattCore is up to date (no Rust changes since last build)"; \
 	else \
-		rm -rf ParakattCore; \
-		cd crates/parakatt-core && echo "y" | cargo swift package --platforms macos --name ParakattCore --target aarch64-apple-darwin; \
-		mv crates/parakatt-core/ParakattCore .; \
+		rm -rf ParakattCore .swift-package-stamp; \
+		(cd crates/parakatt-core && echo "y" | cargo swift package --platforms macos --name ParakattCore --target aarch64-apple-darwin) && \
+		mv crates/parakatt-core/ParakattCore . && \
 		touch .swift-package-stamp; \
 	fi
 
 # Force regenerate Swift bindings (bypasses incremental check)
 swift-package-force:
 	rm -rf ParakattCore .swift-package-stamp
-	cd crates/parakatt-core && echo "y" | cargo swift package --platforms macos --name ParakattCore --target aarch64-apple-darwin
+	(cd crates/parakatt-core && echo "y" | cargo swift package --platforms macos --name ParakattCore --target aarch64-apple-darwin)
 	mv crates/parakatt-core/ParakattCore .
 	touch .swift-package-stamp
 
