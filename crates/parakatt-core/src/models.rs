@@ -2,7 +2,6 @@
 ///
 /// Tracks available models, their download status, and provides
 /// metadata for the settings UI.
-
 use std::path::{Path, PathBuf};
 
 use crate::ModelInfo;
@@ -71,9 +70,7 @@ pub fn list_models_with_status(models_dir: &Path) -> Vec<ModelInfo> {
     let mut models = available_models();
     for model in &mut models {
         let dir = model_path(models_dir, &model.id);
-        model.downloaded = dir.exists()
-            && has_onnx_file(&dir)
-            && dir.join("vocab.txt").exists();
+        model.downloaded = dir.exists() && has_onnx_file(&dir) && dir.join("vocab.txt").exists();
     }
     models
 }
@@ -87,12 +84,7 @@ pub fn model_path(models_dir: &Path, model_id: &str) -> PathBuf {
 fn has_onnx_file(dir: &Path) -> bool {
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
-            if entry
-                .path()
-                .extension()
-                .and_then(|s| s.to_str())
-                == Some("onnx")
-            {
+            if entry.path().extension().and_then(|s| s.to_str()) == Some("onnx") {
                 return true;
             }
         }

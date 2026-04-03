@@ -2,7 +2,6 @@
 ///
 /// Works with OpenAI API, LM Studio, and any other service
 /// implementing the OpenAI chat completions endpoint.
-
 use crate::CoreError;
 
 use super::{LlmProvider, LlmRequest};
@@ -34,7 +33,11 @@ impl OpenAiCompatibleProvider {
     pub fn lmstudio(base_url: &str, model: &str) -> Self {
         let base = base_url.trim_end_matches('/');
         // LM Studio serves at /v1 — ensure it's in the URL
-        let base = if base.ends_with("/v1") { base.to_string() } else { format!("{}/v1", base) };
+        let base = if base.ends_with("/v1") {
+            base.to_string()
+        } else {
+            format!("{}/v1", base)
+        };
         Self {
             base_url: base,
             api_key: None,
@@ -50,12 +53,10 @@ impl OpenAiCompatibleProvider {
 
 impl LlmProvider for OpenAiCompatibleProvider {
     fn process(&self, request: &LlmRequest) -> Result<String, CoreError> {
-        let mut messages = vec![
-            serde_json::json!({
-                "role": "system",
-                "content": &request.system_prompt
-            }),
-        ];
+        let mut messages = vec![serde_json::json!({
+            "role": "system",
+            "content": &request.system_prompt
+        })];
 
         if let Some(ctx) = &request.context {
             let mut context_parts = Vec::new();

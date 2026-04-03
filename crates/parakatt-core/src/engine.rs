@@ -1,22 +1,21 @@
 /// Core engine that orchestrates the full pipeline:
 /// audio → preprocessing → STT → dictionary → LLM → result.
-
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use crate::config::Config;
 use crate::dictionary::Dictionary;
+use crate::download::{DownloadProgress, DownloadState};
 use crate::llm::{LlmProvider, LlmRequest};
-use crate::modes;
 use crate::models;
+use crate::modes;
 use crate::session::{ChunkResult, SessionManager};
 use crate::storage::{Storage, StoredTranscription, TranscriptionQuery};
-use crate::stt::SttProvider;
 use crate::stt::parakeet::ParakeetProvider;
-use crate::download::{DownloadProgress, DownloadState};
+use crate::stt::SttProvider;
 use crate::{
-    AppContext, CoreError, EngineConfig, HotkeyConfig, ModelInfo, ModeConfig, ReplacementRule,
+    AppContext, CoreError, EngineConfig, HotkeyConfig, ModeConfig, ModelInfo, ReplacementRule,
     TimestampedSegment, TranscriptionResult,
 };
 
@@ -158,15 +157,17 @@ impl Engine {
             )));
         };
 
-        let mut stt_guard = self.stt.lock().map_err(|e| {
-            CoreError::ModelLoadFailed(format!("STT lock poisoned: {e}"))
-        })?;
+        let mut stt_guard = self
+            .stt
+            .lock()
+            .map_err(|e| CoreError::ModelLoadFailed(format!("STT lock poisoned: {e}")))?;
         *stt_guard = Some(provider);
 
         // Update config
-        let mut config_guard = self.config.lock().map_err(|e| {
-            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
-        })?;
+        let mut config_guard = self
+            .config
+            .lock()
+            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
         config_guard.stt.active_model = Some(model_id.to_string());
         let _ = config_guard.save(&self.config_dir);
 
@@ -209,9 +210,10 @@ impl Engine {
 
     /// Save a custom mode (add or update by name). Built-in modes are preserved.
     pub fn save_mode(&self, mode: ModeConfig) -> Result<(), CoreError> {
-        let mut cfg = self.config.lock().map_err(|e| {
-            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
-        })?;
+        let mut cfg = self
+            .config
+            .lock()
+            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
 
         // Initialize from defaults if modes list is empty
         if cfg.modes.is_empty() {
@@ -237,9 +239,10 @@ impl Engine {
             )));
         }
 
-        let mut cfg = self.config.lock().map_err(|e| {
-            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
-        })?;
+        let mut cfg = self
+            .config
+            .lock()
+            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
 
         if cfg.modes.is_empty() {
             cfg.modes = modes::default_modes();
@@ -251,19 +254,24 @@ impl Engine {
 
     /// Get per-app mode defaults as a list of [bundle_id, mode_name] pairs.
     pub fn get_app_mode_defaults(&self) -> Result<Vec<Vec<String>>, CoreError> {
-        let config = self.config.lock().map_err(|e| {
-            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
-        })?;
-        Ok(config.general.app_mode_defaults.iter()
+        let config = self
+            .config
+            .lock()
+            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
+        Ok(config
+            .general
+            .app_mode_defaults
+            .iter()
             .map(|(k, v)| vec![k.clone(), v.clone()])
             .collect())
     }
 
     /// Set a per-app mode default. Pass empty mode to remove.
     pub fn set_app_mode_default(&self, bundle_id: String, mode: String) -> Result<(), CoreError> {
-        let mut cfg = self.config.lock().map_err(|e| {
-            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
-        })?;
+        let mut cfg = self
+            .config
+            .lock()
+            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
         if mode.is_empty() {
             cfg.general.app_mode_defaults.remove(&bundle_id);
         } else {
@@ -275,9 +283,10 @@ impl Engine {
     /// Resolve which mode to use given an app context.
     /// Returns the per-app default if one exists, otherwise the active mode.
     pub fn resolve_mode_for_app(&self, bundle_id: Option<String>) -> Result<String, CoreError> {
-        let config = self.config.lock().map_err(|e| {
-            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
-        })?;
+        let config = self
+            .config
+            .lock()
+            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
         if let Some(bid) = &bundle_id {
             if let Some(mode) = config.general.app_mode_defaults.get(bid) {
                 return Ok(mode.clone());
@@ -288,15 +297,17 @@ impl Engine {
 
     /// Update the dictionary rules.
     pub fn set_dictionary_rules(&self, rules: Vec<ReplacementRule>) -> Result<(), CoreError> {
-        let mut dict_guard = self.dictionary.lock().map_err(|e| {
-            CoreError::ConfigError(format!("Dictionary lock poisoned: {e}"))
-        })?;
+        let mut dict_guard = self
+            .dictionary
+            .lock()
+            .map_err(|e| CoreError::ConfigError(format!("Dictionary lock poisoned: {e}")))?;
         dict_guard.set_rules(rules.clone());
 
         // Persist to config
-        let mut config_guard = self.config.lock().map_err(|e| {
-            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
-        })?;
+        let mut config_guard = self
+            .config
+            .lock()
+            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
         config_guard.dictionary = rules;
         let _ = config_guard.save(&self.config_dir);
 
@@ -320,9 +331,10 @@ impl Engine {
 
     /// Save the current config as a named profile.
     pub fn save_profile(&self, name: String) -> Result<(), CoreError> {
-        let config = self.config.lock().map_err(|e| {
-            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
-        })?;
+        let config = self
+            .config
+            .lock()
+            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
         config.save_profile(&self.config_dir, &name)
     }
 
@@ -332,17 +344,19 @@ impl Engine {
 
         // Update dictionary
         {
-            let mut dict_guard = self.dictionary.lock().map_err(|e| {
-                CoreError::ConfigError(format!("Dictionary lock poisoned: {e}"))
-            })?;
+            let mut dict_guard = self
+                .dictionary
+                .lock()
+                .map_err(|e| CoreError::ConfigError(format!("Dictionary lock poisoned: {e}")))?;
             dict_guard.set_rules(new_config.dictionary.clone());
         }
 
         // Save as active config and update state
         new_config.save(&self.config_dir)?;
-        let mut cfg = self.config.lock().map_err(|e| {
-            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
-        })?;
+        let mut cfg = self
+            .config
+            .lock()
+            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
         *cfg = new_config;
 
         log::info!("Loaded profile: {name}");
@@ -373,9 +387,10 @@ impl Engine {
 
     /// Get current hotkey configuration.
     pub fn get_hotkey_config(&self) -> Result<HotkeyConfig, CoreError> {
-        let config = self.config.lock().map_err(|e| {
-            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
-        })?;
+        let config = self
+            .config
+            .lock()
+            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
         Ok(HotkeyConfig {
             key: config.general.hotkey_key.clone(),
             modifiers: config.general.hotkey_modifiers.clone(),
@@ -385,9 +400,10 @@ impl Engine {
 
     /// Set and persist hotkey configuration.
     pub fn set_hotkey_config(&self, config: HotkeyConfig) -> Result<(), CoreError> {
-        let mut cfg = self.config.lock().map_err(|e| {
-            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
-        })?;
+        let mut cfg = self
+            .config
+            .lock()
+            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
         cfg.general.hotkey_key = config.key;
         cfg.general.hotkey_modifiers = config.modifiers;
         cfg.general.hotkey_mode = config.mode;
@@ -396,121 +412,135 @@ impl Engine {
 
     /// Get whether auto-paste is enabled.
     pub fn get_auto_paste(&self) -> Result<bool, CoreError> {
-        let config = self.config.lock().map_err(|e| {
-            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
-        })?;
+        let config = self
+            .config
+            .lock()
+            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
         Ok(config.general.auto_paste)
     }
 
     /// Set and persist auto-paste setting.
     pub fn set_auto_paste(&self, enabled: bool) -> Result<(), CoreError> {
-        let mut cfg = self.config.lock().map_err(|e| {
-            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
-        })?;
+        let mut cfg = self
+            .config
+            .lock()
+            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
         cfg.general.auto_paste = enabled;
         cfg.save(&self.config_dir)
     }
 
     /// Get whether the recording overlay is shown.
     pub fn get_show_overlay(&self) -> Result<bool, CoreError> {
-        let config = self.config.lock().map_err(|e| {
-            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
-        })?;
+        let config = self
+            .config
+            .lock()
+            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
         Ok(config.general.show_overlay)
     }
 
     /// Set and persist the recording overlay setting.
     pub fn set_show_overlay(&self, enabled: bool) -> Result<(), CoreError> {
-        let mut cfg = self.config.lock().map_err(|e| {
-            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
-        })?;
+        let mut cfg = self
+            .config
+            .lock()
+            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
         cfg.general.show_overlay = enabled;
         cfg.save(&self.config_dir)
     }
 
     /// Get the preferred audio source bundle ID for meeting capture.
     pub fn get_preferred_audio_source(&self) -> Result<Option<String>, CoreError> {
-        let config = self.config.lock().map_err(|e| {
-            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
-        })?;
+        let config = self
+            .config
+            .lock()
+            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
         Ok(config.general.preferred_audio_source_bundle_id.clone())
     }
 
     /// Set and persist the preferred audio source bundle ID.
     pub fn set_preferred_audio_source(&self, bundle_id: Option<String>) -> Result<(), CoreError> {
-        let mut cfg = self.config.lock().map_err(|e| {
-            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
-        })?;
+        let mut cfg = self
+            .config
+            .lock()
+            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
         cfg.general.preferred_audio_source_bundle_id = bundle_id;
         cfg.save(&self.config_dir)
     }
 
     /// Get the chunk duration in seconds for meeting transcription.
     pub fn get_chunk_duration(&self) -> Result<u32, CoreError> {
-        let config = self.config.lock().map_err(|e| {
-            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
-        })?;
+        let config = self
+            .config
+            .lock()
+            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
         Ok(config.general.chunk_duration_secs)
     }
 
     /// Set and persist the chunk duration in seconds (10-120).
     pub fn set_chunk_duration(&self, secs: u32) -> Result<(), CoreError> {
         let clamped = secs.clamp(10, 120);
-        let mut cfg = self.config.lock().map_err(|e| {
-            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
-        })?;
+        let mut cfg = self
+            .config
+            .lock()
+            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
         cfg.general.chunk_duration_secs = clamped;
         cfg.save(&self.config_dir)
     }
 
     /// Get the maximum word count for LLM processing.
     pub fn get_llm_max_words(&self) -> Result<u32, CoreError> {
-        let config = self.config.lock().map_err(|e| {
-            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
-        })?;
+        let config = self
+            .config
+            .lock()
+            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
         Ok(config.general.llm_max_words)
     }
 
     /// Set and persist the maximum word count for LLM processing (500-10000).
     pub fn set_llm_max_words(&self, words: u32) -> Result<(), CoreError> {
         let clamped = words.clamp(500, 10000);
-        let mut cfg = self.config.lock().map_err(|e| {
-            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
-        })?;
+        let mut cfg = self
+            .config
+            .lock()
+            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
         cfg.general.llm_max_words = clamped;
         cfg.save(&self.config_dir)
     }
 
     /// Get whether debug mode is enabled.
     pub fn get_debug_mode(&self) -> Result<bool, CoreError> {
-        let config = self.config.lock().map_err(|e| {
-            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
-        })?;
+        let config = self
+            .config
+            .lock()
+            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
         Ok(config.general.debug_mode)
     }
 
     /// Set and persist debug mode.
     pub fn set_debug_mode(&self, enabled: bool) -> Result<(), CoreError> {
-        let mut cfg = self.config.lock().map_err(|e| {
-            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
-        })?;
+        let mut cfg = self
+            .config
+            .lock()
+            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
         cfg.general.debug_mode = enabled;
         cfg.save(&self.config_dir)
     }
 
     /// Get the retention period in days (0 = disabled).
     pub fn get_retention_days(&self) -> Result<u32, CoreError> {
-        let config = self.config.lock().map_err(|e| {
-            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
-        })?;
+        let config = self
+            .config
+            .lock()
+            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
         Ok(config.general.retention_days)
     }
 
     /// Set and persist the retention period in days (0 = disabled).
     pub fn set_retention_days(&self, days: u32) -> Result<(), CoreError> {
-        let mut cfg = self.config.lock().map_err(|e| {
-            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
-        })?;
+        let mut cfg = self
+            .config
+            .lock()
+            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
         cfg.general.retention_days = days;
         cfg.save(&self.config_dir)
     }
@@ -519,9 +549,10 @@ impl Engine {
     /// Returns the number of deleted transcriptions, or 0 if retention is disabled.
     pub fn run_retention_cleanup(&self) -> Result<u32, CoreError> {
         let days = {
-            let config = self.config.lock().map_err(|e| {
-                CoreError::ConfigError(format!("Config lock poisoned: {e}"))
-            })?;
+            let config = self
+                .config
+                .lock()
+                .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
             config.general.retention_days
         };
 
@@ -529,12 +560,17 @@ impl Engine {
             return Ok(0);
         }
 
-        let storage = self.storage.lock().map_err(|e| {
-            CoreError::IoError(format!("Storage lock poisoned: {e}"))
-        })?;
+        let storage = self
+            .storage
+            .lock()
+            .map_err(|e| CoreError::IoError(format!("Storage lock poisoned: {e}")))?;
         let count = storage.delete_older_than(days)?;
         if count > 0 {
-            log::info!("Retention cleanup: deleted {} transcriptions older than {} days", count, days);
+            log::info!(
+                "Retention cleanup: deleted {} transcriptions older than {} days",
+                count,
+                days
+            );
         }
         Ok(count)
     }
@@ -559,9 +595,9 @@ impl Engine {
                 crate::llm::openai::OpenAiCompatibleProvider::lmstudio(&base_url, &model),
             )),
             "openai" => {
-                let key = api_key.clone().ok_or_else(|| {
-                    CoreError::ConfigError("OpenAI requires an API key".into())
-                })?;
+                let key = api_key
+                    .clone()
+                    .ok_or_else(|| CoreError::ConfigError("OpenAI requires an API key".into()))?;
                 Some(Arc::new(
                     crate::llm::openai::OpenAiCompatibleProvider::openai(&key, &model),
                 ))
@@ -575,15 +611,17 @@ impl Engine {
         };
 
         // Update runtime state
-        let mut llm_guard = self.llm.lock().map_err(|e| {
-            CoreError::ConfigError(format!("LLM lock poisoned: {e}"))
-        })?;
+        let mut llm_guard = self
+            .llm
+            .lock()
+            .map_err(|e| CoreError::ConfigError(format!("LLM lock poisoned: {e}")))?;
         *llm_guard = llm;
 
         // Persist to config
-        let mut config_guard = self.config.lock().map_err(|e| {
-            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
-        })?;
+        let mut config_guard = self
+            .config
+            .lock()
+            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
         config_guard.llm.active_provider = if provider.is_empty() || provider == "none" {
             None
         } else {
@@ -626,10 +664,9 @@ impl Engine {
 
         match provider.as_str() {
             "ollama" => {
-                let resp = client
-                    .get(format!("{url}/api/tags"))
-                    .send()
-                    .map_err(|e| CoreError::LlmError(format!("Cannot reach Ollama at {url}: {e}")))?;
+                let resp = client.get(format!("{url}/api/tags")).send().map_err(|e| {
+                    CoreError::LlmError(format!("Cannot reach Ollama at {url}: {e}"))
+                })?;
 
                 let json: serde_json::Value = resp
                     .json()
@@ -653,9 +690,9 @@ impl Engine {
                     req = req.header("Authorization", format!("Bearer {key}"));
                 }
 
-                let resp = req
-                    .send()
-                    .map_err(|e| CoreError::LlmError(format!("Cannot reach {provider} at {url}: {e}")))?;
+                let resp = req.send().map_err(|e| {
+                    CoreError::LlmError(format!("Cannot reach {provider} at {url}: {e}"))
+                })?;
 
                 let json: serde_json::Value = resp
                     .json()
@@ -679,12 +716,13 @@ impl Engine {
     /// Test the currently configured LLM connection. Returns the provider name
     /// on success or an error message on failure.
     pub fn test_llm_connection(&self) -> Result<String, CoreError> {
-        let llm_guard = self.llm.lock().map_err(|e| {
-            CoreError::LlmError(format!("LLM lock poisoned: {e}"))
-        })?;
-        let llm = llm_guard.as_ref().ok_or_else(|| {
-            CoreError::LlmError("No LLM provider configured".into())
-        })?;
+        let llm_guard = self
+            .llm
+            .lock()
+            .map_err(|e| CoreError::LlmError(format!("LLM lock poisoned: {e}")))?;
+        let llm = llm_guard
+            .as_ref()
+            .ok_or_else(|| CoreError::LlmError("No LLM provider configured".into()))?;
 
         if llm.is_available() {
             Ok(format!("{} is reachable", llm.name()))
@@ -708,9 +746,10 @@ impl Engine {
 
         // Check not already downloading
         {
-            let p = self.download_progress.lock().map_err(|e| {
-                CoreError::IoError(format!("Download progress lock poisoned: {e}"))
-            })?;
+            let p = self
+                .download_progress
+                .lock()
+                .map_err(|e| CoreError::IoError(format!("Download progress lock poisoned: {e}")))?;
             if p.state == DownloadState::Downloading {
                 return Err(CoreError::IoError(
                     "A download is already in progress".into(),
@@ -726,7 +765,9 @@ impl Engine {
         let cancel = Arc::clone(&self.download_cancel);
 
         std::thread::spawn(move || {
-            if let Err(e) = crate::download::download_model(&models_dir, &model_id, progress.clone(), cancel) {
+            if let Err(e) =
+                crate::download::download_model(&models_dir, &model_id, progress.clone(), cancel)
+            {
                 log::error!("Download failed: {e}");
                 // Progress state is already set to Failed by download_model
             }
@@ -742,9 +783,10 @@ impl Engine {
 
     /// Get current download progress. Poll this from Swift on a timer.
     pub fn get_download_progress(&self) -> Result<DownloadProgress, CoreError> {
-        let p = self.download_progress.lock().map_err(|e| {
-            CoreError::IoError(format!("Download progress lock poisoned: {e}"))
-        })?;
+        let p = self
+            .download_progress
+            .lock()
+            .map_err(|e| CoreError::IoError(format!("Download progress lock poisoned: {e}")))?;
         Ok(p.clone())
     }
 
@@ -758,18 +800,18 @@ impl Engine {
 
         // Unload if this model is currently active
         {
-            let config_guard = self.config.lock().map_err(|e| {
-                CoreError::ConfigError(format!("Config lock poisoned: {e}"))
-            })?;
+            let config_guard = self
+                .config
+                .lock()
+                .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
             if config_guard.stt.active_model.as_deref() == Some(&model_id) {
                 drop(config_guard);
                 self.unload_model();
             }
         }
 
-        std::fs::remove_dir_all(&model_path).map_err(|e| {
-            CoreError::IoError(format!("Failed to delete model {model_id}: {e}"))
-        })?;
+        std::fs::remove_dir_all(&model_path)
+            .map_err(|e| CoreError::IoError(format!("Failed to delete model {model_id}: {e}")))?;
 
         Ok(())
     }
@@ -778,9 +820,10 @@ impl Engine {
 
     /// Start a new chunked transcription session.
     pub fn start_session(&self, session_id: String) -> Result<(), CoreError> {
-        let mut mgr = self.sessions.lock().map_err(|e| {
-            CoreError::TranscriptionFailed(format!("Session lock poisoned: {e}"))
-        })?;
+        let mut mgr = self
+            .sessions
+            .lock()
+            .map_err(|e| CoreError::TranscriptionFailed(format!("Session lock poisoned: {e}")))?;
         mgr.start(&session_id)
     }
 
@@ -804,12 +847,13 @@ impl Engine {
         let chunk_duration_secs = audio_samples.len() as f64 / sample_rate as f64;
 
         // Run STT on this chunk.
-        let stt_guard = self.stt.lock().map_err(|e| {
-            CoreError::TranscriptionFailed(format!("STT lock poisoned: {e}"))
-        })?;
-        let stt = stt_guard.as_ref().ok_or_else(|| {
-            CoreError::TranscriptionFailed("No STT model loaded".into())
-        })?;
+        let stt_guard = self
+            .stt
+            .lock()
+            .map_err(|e| CoreError::TranscriptionFailed(format!("STT lock poisoned: {e}")))?;
+        let stt = stt_guard
+            .as_ref()
+            .ok_or_else(|| CoreError::TranscriptionFailed("No STT model loaded".into()))?;
         let stt_result = stt.transcribe(&processed, sample_rate)?;
         drop(stt_guard);
 
@@ -827,10 +871,16 @@ impl Engine {
         self.apply_llm(&mut chunk_text, &mode, &ctx)?;
 
         // Stitch into session with overlap dedup.
-        let mut mgr = self.sessions.lock().map_err(|e| {
-            CoreError::TranscriptionFailed(format!("Session lock poisoned: {e}"))
-        })?;
-        mgr.add_chunk(&session_id, &chunk_text, chunk_duration_secs, stt_result.segments)
+        let mut mgr = self
+            .sessions
+            .lock()
+            .map_err(|e| CoreError::TranscriptionFailed(format!("Session lock poisoned: {e}")))?;
+        mgr.add_chunk(
+            &session_id,
+            &chunk_text,
+            chunk_duration_secs,
+            stt_result.segments,
+        )
     }
 
     /// Finish a session and return the final result.
@@ -846,9 +896,10 @@ impl Engine {
         source: Option<String>,
     ) -> Result<TranscriptionResult, CoreError> {
         // Extract accumulated text, duration, and segments from the session.
-        let mut mgr = self.sessions.lock().map_err(|e| {
-            CoreError::TranscriptionFailed(format!("Session lock poisoned: {e}"))
-        })?;
+        let mut mgr = self
+            .sessions
+            .lock()
+            .map_err(|e| CoreError::TranscriptionFailed(format!("Session lock poisoned: {e}")))?;
         let (text, duration_secs, segments) = mgr.finish(&session_id)?;
         drop(mgr);
 
@@ -861,7 +912,11 @@ impl Engine {
 
         let ctx = context.unwrap_or_default();
         let src = source.as_deref().unwrap_or("meeting");
-        let input = if src == "push_to_talk" { "mic" } else { "mixed" };
+        let input = if src == "push_to_talk" {
+            "mic"
+        } else {
+            "mixed"
+        };
         self.auto_save_transcription(&result, src, &mode, input, &ctx);
 
         Ok(result)
@@ -870,9 +925,10 @@ impl Engine {
     /// Get the accumulated text for a session on demand, without the per-chunk
     /// cloning overhead of `ChunkResult.accumulated_text`.
     pub fn get_session_text(&self, session_id: String) -> Result<String, CoreError> {
-        let mgr = self.sessions.lock().map_err(|e| {
-            CoreError::TranscriptionFailed(format!("Session lock poisoned: {e}"))
-        })?;
+        let mgr = self
+            .sessions
+            .lock()
+            .map_err(|e| CoreError::TranscriptionFailed(format!("Session lock poisoned: {e}")))?;
         mgr.get_session_text(&session_id)
     }
 
@@ -886,81 +942,102 @@ impl Engine {
     // --- Transcription history CRUD ---
 
     /// Save a transcription to history (for external callers).
-    pub fn save_transcription(&self, transcription: StoredTranscription) -> Result<String, CoreError> {
-        let storage = self.storage.lock().map_err(|e| {
-            CoreError::IoError(format!("Storage lock poisoned: {e}"))
-        })?;
+    pub fn save_transcription(
+        &self,
+        transcription: StoredTranscription,
+    ) -> Result<String, CoreError> {
+        let storage = self
+            .storage
+            .lock()
+            .map_err(|e| CoreError::IoError(format!("Storage lock poisoned: {e}")))?;
         storage.save(&transcription)
     }
 
     /// Get usage statistics as key-value pairs.
     pub fn get_statistics(&self) -> Result<Vec<Vec<String>>, CoreError> {
-        let storage = self.storage.lock().map_err(|e| {
-            CoreError::IoError(format!("Storage lock poisoned: {e}"))
-        })?;
+        let storage = self
+            .storage
+            .lock()
+            .map_err(|e| CoreError::IoError(format!("Storage lock poisoned: {e}")))?;
         let stats = storage.get_statistics()?;
         Ok(stats.into_iter().map(|(k, v)| vec![k, v]).collect())
     }
 
     /// List transcriptions with optional filtering and search.
-    pub fn list_transcriptions(&self, query: TranscriptionQuery) -> Result<Vec<StoredTranscription>, CoreError> {
-        let storage = self.storage.lock().map_err(|e| {
-            CoreError::IoError(format!("Storage lock poisoned: {e}"))
-        })?;
+    pub fn list_transcriptions(
+        &self,
+        query: TranscriptionQuery,
+    ) -> Result<Vec<StoredTranscription>, CoreError> {
+        let storage = self
+            .storage
+            .lock()
+            .map_err(|e| CoreError::IoError(format!("Storage lock poisoned: {e}")))?;
         storage.list(&query)
     }
 
     /// Search transcriptions using full-text search.
-    pub fn search_transcriptions(&self, search_text: String) -> Result<Vec<StoredTranscription>, CoreError> {
+    pub fn search_transcriptions(
+        &self,
+        search_text: String,
+    ) -> Result<Vec<StoredTranscription>, CoreError> {
         let query = TranscriptionQuery {
             search_text: Some(search_text),
             source_filter: None,
             limit: 50,
             offset: 0,
         };
-        let storage = self.storage.lock().map_err(|e| {
-            CoreError::IoError(format!("Storage lock poisoned: {e}"))
-        })?;
+        let storage = self
+            .storage
+            .lock()
+            .map_err(|e| CoreError::IoError(format!("Storage lock poisoned: {e}")))?;
         storage.list(&query)
     }
 
     /// Get a single transcription by ID.
     pub fn get_transcription(&self, id: String) -> Result<StoredTranscription, CoreError> {
-        let storage = self.storage.lock().map_err(|e| {
-            CoreError::IoError(format!("Storage lock poisoned: {e}"))
-        })?;
+        let storage = self
+            .storage
+            .lock()
+            .map_err(|e| CoreError::IoError(format!("Storage lock poisoned: {e}")))?;
         storage.get(&id)
     }
 
     /// Update the title of a transcription.
     pub fn update_transcription_title(&self, id: String, title: String) -> Result<(), CoreError> {
-        let storage = self.storage.lock().map_err(|e| {
-            CoreError::IoError(format!("Storage lock poisoned: {e}"))
-        })?;
+        let storage = self
+            .storage
+            .lock()
+            .map_err(|e| CoreError::IoError(format!("Storage lock poisoned: {e}")))?;
         storage.update_title(&id, &title)
     }
 
     /// Delete a transcription from history.
     pub fn delete_transcription(&self, id: String) -> Result<(), CoreError> {
-        let storage = self.storage.lock().map_err(|e| {
-            CoreError::IoError(format!("Storage lock poisoned: {e}"))
-        })?;
+        let storage = self
+            .storage
+            .lock()
+            .map_err(|e| CoreError::IoError(format!("Storage lock poisoned: {e}")))?;
         storage.delete(&id)
     }
 
     /// Delete multiple transcriptions by IDs. Returns the number deleted.
     pub fn delete_transcriptions(&self, ids: Vec<String>) -> Result<u32, CoreError> {
-        let storage = self.storage.lock().map_err(|e| {
-            CoreError::IoError(format!("Storage lock poisoned: {e}"))
-        })?;
+        let storage = self
+            .storage
+            .lock()
+            .map_err(|e| CoreError::IoError(format!("Storage lock poisoned: {e}")))?;
         storage.delete_many(&ids)
     }
 
     /// Get timestamp segments for a transcription (for timeline display).
-    pub fn get_transcription_segments(&self, id: String) -> Result<Vec<TimestampedSegment>, CoreError> {
-        let storage = self.storage.lock().map_err(|e| {
-            CoreError::IoError(format!("Storage lock poisoned: {e}"))
-        })?;
+    pub fn get_transcription_segments(
+        &self,
+        id: String,
+    ) -> Result<Vec<TimestampedSegment>, CoreError> {
+        let storage = self
+            .storage
+            .lock()
+            .map_err(|e| CoreError::IoError(format!("Storage lock poisoned: {e}")))?;
         storage.get_segments(&id)
     }
 
@@ -972,14 +1049,14 @@ impl Engine {
         }
         // Checkpoint WAL to ensure all data is in the main file before copying.
         {
-            let storage = self.storage.lock().map_err(|e| {
-                CoreError::IoError(format!("Storage lock poisoned: {e}"))
-            })?;
+            let storage = self
+                .storage
+                .lock()
+                .map_err(|e| CoreError::IoError(format!("Storage lock poisoned: {e}")))?;
             let _ = storage.checkpoint();
         }
-        std::fs::copy(&db_path, &dest_path).map_err(|e| {
-            CoreError::IoError(format!("Failed to export database: {e}"))
-        })?;
+        std::fs::copy(&db_path, &dest_path)
+            .map_err(|e| CoreError::IoError(format!("Failed to export database: {e}")))?;
         log::info!("Database exported to {}", dest_path);
         Ok(())
     }
@@ -989,18 +1066,20 @@ impl Engine {
     pub fn import_database(&self, source_path: String) -> Result<(), CoreError> {
         let source = std::path::Path::new(&source_path);
         if !source.exists() {
-            return Err(CoreError::IoError(format!("Import file not found: {source_path}")));
+            return Err(CoreError::IoError(format!(
+                "Import file not found: {source_path}"
+            )));
         }
         let db_path = self.config_dir.join("transcriptions.db");
         // Close current storage connection by replacing it.
         {
-            let mut storage = self.storage.lock().map_err(|e| {
-                CoreError::IoError(format!("Storage lock poisoned: {e}"))
-            })?;
+            let mut storage = self
+                .storage
+                .lock()
+                .map_err(|e| CoreError::IoError(format!("Storage lock poisoned: {e}")))?;
             // Copy import file over the database
-            std::fs::copy(source, &db_path).map_err(|e| {
-                CoreError::IoError(format!("Failed to import database: {e}"))
-            })?;
+            std::fs::copy(source, &db_path)
+                .map_err(|e| CoreError::IoError(format!("Failed to import database: {e}")))?;
             // Reopen the storage with the new database
             *storage = Storage::open(&self.config_dir)?;
         }
@@ -1013,19 +1092,15 @@ impl Engine {
     /// Apply LLM post-processing to text if the mode has a system prompt and
     /// an LLM provider is configured. Includes a token guard to prevent
     /// sending excessively long text to the LLM.
-    fn apply_llm(
-        &self,
-        text: &mut String,
-        mode: &str,
-        ctx: &AppContext,
-    ) -> Result<(), CoreError> {
+    fn apply_llm(&self, text: &mut String, mode: &str, ctx: &AppContext) -> Result<(), CoreError> {
         if text.trim().is_empty() {
             return Ok(());
         }
 
-        let config_guard = self.config.lock().map_err(|e| {
-            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
-        })?;
+        let config_guard = self
+            .config
+            .lock()
+            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
         let all_modes = if config_guard.modes.is_empty() {
             modes::default_modes()
         } else {
@@ -1045,9 +1120,10 @@ impl Engine {
         };
 
         let llm = {
-            let llm_guard = self.llm.lock().map_err(|e| {
-                CoreError::LlmError(format!("LLM lock poisoned: {e}"))
-            })?;
+            let llm_guard = self
+                .llm
+                .lock()
+                .map_err(|e| CoreError::LlmError(format!("LLM lock poisoned: {e}")))?;
             match llm_guard.as_ref() {
                 Some(l) => Arc::clone(l),
                 None => {
@@ -1086,9 +1162,10 @@ impl Engine {
         };
 
         // Inject domain words into the system prompt.
-        let dict_guard = self.dictionary.lock().map_err(|e| {
-            CoreError::LlmError(format!("Dictionary lock poisoned: {e}"))
-        })?;
+        let dict_guard = self
+            .dictionary
+            .lock()
+            .map_err(|e| CoreError::LlmError(format!("Dictionary lock poisoned: {e}")))?;
         let domain_words: Vec<String> = dict_guard
             .rules()
             .iter()
@@ -1170,7 +1247,11 @@ impl Engine {
         let now = chrono::Utc::now().to_rfc3339();
         let title = format!(
             "{} {}",
-            if source == "meeting" { "Meeting" } else { "Note" },
+            if source == "meeting" {
+                "Meeting"
+            } else {
+                "Note"
+            },
             chrono::Utc::now().format("%Y-%m-%d %H:%M")
         );
 
@@ -1198,7 +1279,8 @@ impl Engine {
                     result.segments.len()
                 );
                 if !result.segments.is_empty() {
-                    if let Err(e) = storage.save_segments(&transcription.id, &result.segments, None) {
+                    if let Err(e) = storage.save_segments(&transcription.id, &result.segments, None)
+                    {
                         log::warn!("Failed to save segments: {e}");
                     }
                 }
@@ -1208,61 +1290,60 @@ impl Engine {
 
     /// Set up the LLM provider based on current config.
     fn setup_llm_provider(&self) -> Result<(), CoreError> {
-        let config_guard = self.config.lock().map_err(|e| {
-            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
-        })?;
+        let config_guard = self
+            .config
+            .lock()
+            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
 
-        let provider: Option<Arc<dyn LlmProvider>> = match config_guard
-            .llm
-            .active_provider
-            .as_deref()
-        {
-            Some("ollama") => Some(Arc::new(crate::llm::ollama::OllamaProvider::new(
-                &config_guard.llm.ollama.base_url,
-                &config_guard.llm.ollama.model,
-            ))),
-            Some("lmstudio") => {
-                let model = config_guard
-                    .llm
-                    .lmstudio
-                    .model
-                    .as_deref()
-                    .unwrap_or("default");
-                Some(Arc::new(
-                    crate::llm::openai::OpenAiCompatibleProvider::lmstudio(
-                        &config_guard.llm.lmstudio.base_url,
-                        model,
-                    ),
-                ))
-            }
-            Some("openai") => {
-                if let Some(key) = &config_guard.llm.openai.api_key {
+        let provider: Option<Arc<dyn LlmProvider>> =
+            match config_guard.llm.active_provider.as_deref() {
+                Some("ollama") => Some(Arc::new(crate::llm::ollama::OllamaProvider::new(
+                    &config_guard.llm.ollama.base_url,
+                    &config_guard.llm.ollama.model,
+                ))),
+                Some("lmstudio") => {
                     let model = config_guard
                         .llm
-                        .openai
+                        .lmstudio
                         .model
                         .as_deref()
-                        .unwrap_or("gpt-4o-mini");
+                        .unwrap_or("default");
                     Some(Arc::new(
-                        crate::llm::openai::OpenAiCompatibleProvider::openai(key, model),
+                        crate::llm::openai::OpenAiCompatibleProvider::lmstudio(
+                            &config_guard.llm.lmstudio.base_url,
+                            model,
+                        ),
                     ))
-                } else {
-                    log::warn!("OpenAI provider selected but no API key configured");
+                }
+                Some("openai") => {
+                    if let Some(key) = &config_guard.llm.openai.api_key {
+                        let model = config_guard
+                            .llm
+                            .openai
+                            .model
+                            .as_deref()
+                            .unwrap_or("gpt-4o-mini");
+                        Some(Arc::new(
+                            crate::llm::openai::OpenAiCompatibleProvider::openai(key, model),
+                        ))
+                    } else {
+                        log::warn!("OpenAI provider selected but no API key configured");
+                        None
+                    }
+                }
+                Some(other) => {
+                    log::warn!("Unknown LLM provider: {other}");
                     None
                 }
-            }
-            Some(other) => {
-                log::warn!("Unknown LLM provider: {other}");
-                None
-            }
-            None => None,
-        };
+                None => None,
+            };
 
         drop(config_guard);
 
-        let mut llm_guard = self.llm.lock().map_err(|e| {
-            CoreError::ConfigError(format!("LLM lock poisoned: {e}"))
-        })?;
+        let mut llm_guard = self
+            .llm
+            .lock()
+            .map_err(|e| CoreError::ConfigError(format!("LLM lock poisoned: {e}")))?;
         *llm_guard = provider;
 
         Ok(())

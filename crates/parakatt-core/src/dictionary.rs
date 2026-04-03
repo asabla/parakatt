@@ -3,7 +3,6 @@
 /// Operates as a post-processing step after STT, before LLM processing.
 /// Rules are applied in order; patterns are matched case-insensitively
 /// as whole words by default, or as regex if the pattern starts with "re:".
-
 use crate::{AppContext, ReplacementRule};
 use regex::Regex;
 
@@ -223,10 +222,7 @@ mod tests {
     #[test]
     fn test_multiple_rules_applied_in_order() {
         let mut dict = Dictionary::new();
-        dict.set_rules(vec![
-            make_rule("eks", "EKS"),
-            make_rule("aks", "AKS"),
-        ]);
+        dict.set_rules(vec![make_rule("eks", "EKS"), make_rule("aks", "AKS")]);
 
         let result = dict.apply("deploy to eks and aks", &default_ctx(), "dictation");
         assert_eq!(result, "deploy to EKS and AKS");

@@ -3,7 +3,6 @@
 /// Strips common speech fillers ("uh", "um", "mmm", "ah", etc.)
 /// that STT engines faithfully transcribe but users don't want
 /// in their final text.
-
 use regex::Regex;
 use std::sync::LazyLock;
 
@@ -15,9 +14,7 @@ static FILLER_RE: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 /// Regex for collapsing multiple spaces into one.
-static MULTI_SPACE_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"  +").unwrap()
-});
+static MULTI_SPACE_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"  +").unwrap());
 
 /// Remove filler words from transcribed text.
 /// Preserves sentence structure and punctuation.
@@ -33,12 +30,18 @@ mod tests {
 
     #[test]
     fn test_remove_basic_fillers() {
-        assert_eq!(remove_fillers("I uh think this is um good"), "I think this is good");
+        assert_eq!(
+            remove_fillers("I uh think this is um good"),
+            "I think this is good"
+        );
     }
 
     #[test]
     fn test_remove_mmm_hmm() {
-        assert_eq!(remove_fillers("mmm let me think hmm about that"), "let me think about that");
+        assert_eq!(
+            remove_fillers("mmm let me think hmm about that"),
+            "let me think about that"
+        );
     }
 
     #[test]
@@ -49,7 +52,10 @@ mod tests {
     #[test]
     fn test_preserve_real_words() {
         // "um" inside "umbrella" should NOT be removed
-        assert_eq!(remove_fillers("the umbrella is humid"), "the umbrella is humid");
+        assert_eq!(
+            remove_fillers("the umbrella is humid"),
+            "the umbrella is humid"
+        );
     }
 
     #[test]

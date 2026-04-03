@@ -2,7 +2,6 @@
 ///
 /// Each mode configures the pipeline: which STT provider to use,
 /// whether to run LLM post-processing, and with what system prompt.
-
 use crate::ModeConfig;
 
 /// Return the default set of built-in modes.

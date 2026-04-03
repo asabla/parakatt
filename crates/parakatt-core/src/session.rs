@@ -3,7 +3,6 @@
 /// Audio is processed in fixed-size chunks with overlap to avoid word splitting
 /// at boundaries. Each chunk is independently transcribed via STT, then
 /// overlap-deduplication stitches the results into a continuous transcript.
-
 use std::collections::HashMap;
 
 use crate::{CoreError, TimestampedSegment};
@@ -107,10 +106,7 @@ impl SessionManager {
         };
 
         // Update trailing words for next chunk's dedup.
-        let all_words: Vec<String> = raw_text
-            .split_whitespace()
-            .map(|w| w.to_string())
-            .collect();
+        let all_words: Vec<String> = raw_text.split_whitespace().map(|w| w.to_string()).collect();
         state.prev_trailing_words = all_words
             .iter()
             .rev()
@@ -267,12 +263,7 @@ mod tests {
 
     #[test]
     fn test_deduplicate_overlap_partial() {
-        let prev = vec![
-            "the".into(),
-            "quick".into(),
-            "brown".into(),
-            "fox".into(),
-        ];
+        let prev = vec!["the".into(), "quick".into(), "brown".into(), "fox".into()];
         let current = "brown fox jumps over";
         assert_eq!(deduplicate_overlap(&prev, current), "jumps over");
     }
@@ -326,13 +317,17 @@ mod tests {
         assert!(mgr.has_session("test-1"));
 
         // First chunk
-        let r1 = mgr.add_chunk("test-1", "hello world this is chunk one", 30.0, vec![]).unwrap();
+        let r1 = mgr
+            .add_chunk("test-1", "hello world this is chunk one", 30.0, vec![])
+            .unwrap();
         assert_eq!(r1.chunk_index, 0);
         assert_eq!(r1.text, "hello world this is chunk one");
         assert!((r1.chunk_offset_secs - 0.0).abs() < 0.01);
 
         // Second chunk with overlap ("chunk one" repeated)
-        let r2 = mgr.add_chunk("test-1", "chunk one and here is chunk two", 30.0, vec![]).unwrap();
+        let r2 = mgr
+            .add_chunk("test-1", "chunk one and here is chunk two", 30.0, vec![])
+            .unwrap();
         assert_eq!(r2.chunk_index, 1);
         assert_eq!(r2.text, "and here is chunk two");
         assert_eq!(
@@ -343,7 +338,10 @@ mod tests {
 
         // Finish
         let (text, duration, segments) = mgr.finish("test-1").unwrap();
-        assert_eq!(text, "hello world this is chunk one\n\nand here is chunk two");
+        assert_eq!(
+            text,
+            "hello world this is chunk one\n\nand here is chunk two"
+        );
         assert!((duration - 60.0).abs() < 0.01);
         assert!(segments.is_empty()); // No segments passed in this test
         assert!(!mgr.has_session("test-1"));
@@ -353,7 +351,8 @@ mod tests {
     fn test_session_cancel() {
         let mut mgr = SessionManager::new();
         mgr.start("cancel-me").unwrap();
-        mgr.add_chunk("cancel-me", "some text", 10.0, vec![]).unwrap();
+        mgr.add_chunk("cancel-me", "some text", 10.0, vec![])
+            .unwrap();
         mgr.cancel("cancel-me");
         assert!(!mgr.has_session("cancel-me"));
     }
@@ -373,22 +372,45 @@ mod tests {
         mgr.start("long").unwrap();
 
         // Chunk 1: full new content
-        let r1 = mgr.add_chunk("long", "the meeting started with introductions", 30.0, vec![]).unwrap();
+        let r1 = mgr
+            .add_chunk(
+                "long",
+                "the meeting started with introductions",
+                30.0,
+                vec![],
+            )
+            .unwrap();
         assert_eq!(r1.chunk_index, 0);
         assert_eq!(r1.text, "the meeting started with introductions");
 
         // Chunk 2: overlap on "with introductions"
-        let r2 = mgr.add_chunk("long", "with introductions and then we discussed the budget", 30.0, vec![]).unwrap();
+        let r2 = mgr
+            .add_chunk(
+                "long",
+                "with introductions and then we discussed the budget",
+                30.0,
+                vec![],
+            )
+            .unwrap();
         assert_eq!(r2.chunk_index, 1);
         assert_eq!(r2.text, "and then we discussed the budget");
 
         // Chunk 3: overlap on "the budget"
-        let r3 = mgr.add_chunk("long", "the budget was reviewed by the finance team", 30.0, vec![]).unwrap();
+        let r3 = mgr
+            .add_chunk(
+                "long",
+                "the budget was reviewed by the finance team",
+                30.0,
+                vec![],
+            )
+            .unwrap();
         assert_eq!(r3.chunk_index, 2);
         assert_eq!(r3.text, "was reviewed by the finance team");
 
         // Chunk 4: no overlap (clean boundary)
-        let r4 = mgr.add_chunk("long", "next steps were assigned to everyone", 30.0, vec![]).unwrap();
+        let r4 = mgr
+            .add_chunk("long", "next steps were assigned to everyone", 30.0, vec![])
+            .unwrap();
         assert_eq!(r4.chunk_index, 3);
         assert_eq!(r4.text, "next steps were assigned to everyone");
 
@@ -413,7 +435,9 @@ mod tests {
             start_secs: 1.0,
             end_secs: 3.0,
         }];
-        let r1 = mgr.add_chunk("seg-test", "hello world", 30.0, seg1).unwrap();
+        let r1 = mgr
+            .add_chunk("seg-test", "hello world", 30.0, seg1)
+            .unwrap();
         assert!((r1.chunk_offset_secs - 0.0).abs() < 0.01);
 
         // Chunk 2 at offset 30s: segment at 2.0-5.0s relative to chunk
@@ -422,7 +446,9 @@ mod tests {
             start_secs: 2.0,
             end_secs: 5.0,
         }];
-        let r2 = mgr.add_chunk("seg-test", "second sentence", 30.0, seg2).unwrap();
+        let r2 = mgr
+            .add_chunk("seg-test", "second sentence", 30.0, seg2)
+            .unwrap();
         assert!((r2.chunk_offset_secs - 30.0).abs() < 0.01);
 
         let (_text, _dur, segments) = mgr.finish("seg-test").unwrap();

@@ -2,7 +2,6 @@
 ///
 /// All audio entering the STT pipeline should be 16kHz mono f32 PCM.
 /// This module handles validation, normalization, and silence trimming.
-
 use crate::CoreError;
 
 /// Expected sample rate for all STT providers.
@@ -115,10 +114,7 @@ fn find_last_voiced_frame(samples: &[f32]) -> Option<usize> {
 
 /// Normalize audio to peak amplitude of 1.0.
 fn normalize(samples: &[f32]) -> Vec<f32> {
-    let peak = samples
-        .iter()
-        .map(|s| s.abs())
-        .fold(0.0f32, f32::max);
+    let peak = samples.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
 
     if peak < 1e-6 {
         return samples.to_vec();

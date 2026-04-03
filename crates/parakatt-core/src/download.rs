@@ -3,7 +3,6 @@
 /// Downloads model files from HuggingFace in chunks, writing to `.part`
 /// temp files and renaming on completion. Progress is reported via a
 /// shared `Mutex<DownloadProgress>` that Swift polls across the FFI boundary.
-
 use std::fs;
 use std::io::{Read, Write};
 use std::path::Path;
@@ -175,7 +174,8 @@ pub fn download_model(
         // Determine total file size from Content-Range or Content-Length
         let total_size = if status.as_u16() == 206 {
             // Parse Content-Range: bytes 1000-9999/10000
-            response.headers()
+            response
+                .headers()
                 .get("content-range")
                 .and_then(|v| v.to_str().ok())
                 .and_then(|s| s.rsplit('/').next())
@@ -259,7 +259,9 @@ pub fn download_model(
                 "Size mismatch for {filename}: expected {total_size} bytes, got {downloaded}"
             );
             let mut p = progress.lock().unwrap();
-            p.state = DownloadState::Failed { message: msg.clone() };
+            p.state = DownloadState::Failed {
+                message: msg.clone(),
+            };
             return Err(CoreError::IoError(msg));
         }
 

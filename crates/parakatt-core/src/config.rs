@@ -3,7 +3,6 @@
 /// Settings are stored in TOML format in the app's config directory.
 /// The config file holds user preferences, active model selection,
 /// LLM provider settings, and dictionary rules.
-
 use std::path::{Path, PathBuf};
 
 use crate::{CoreError, ModeConfig, ReplacementRule};
@@ -264,7 +263,9 @@ impl Config {
             .filter_map(|e| {
                 let path = e.path();
                 if path.extension().and_then(|s| s.to_str()) == Some("toml") {
-                    path.file_stem().and_then(|s| s.to_str()).map(|s| s.to_string())
+                    path.file_stem()
+                        .and_then(|s| s.to_str())
+                        .map(|s| s.to_string())
                 } else {
                     None
                 }
@@ -309,7 +310,10 @@ mod tests {
         let serialized = toml::to_string_pretty(&config).unwrap();
         let deserialized: Config = toml::from_str(&serialized).unwrap();
         assert_eq!(deserialized.general.active_mode, "dictation");
-        assert_eq!(deserialized.stt.active_model, Some("parakeet-tdt-0.6b-v2".to_string()));
+        assert_eq!(
+            deserialized.stt.active_model,
+            Some("parakeet-tdt-0.6b-v2".to_string())
+        );
     }
 
     #[test]
