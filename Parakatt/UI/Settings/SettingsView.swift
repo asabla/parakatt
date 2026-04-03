@@ -338,6 +338,23 @@ struct GeneralSettingsView: View {
                         }
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
+
+                        Divider().padding(.leading, 14)
+
+                        Toggle(isOn: Binding(
+                            get: { appState.debugMode },
+                            set: { appState.setDebugMode($0) }
+                        )) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Debug mode")
+                                    .font(.system(.body))
+                                Text("Enable verbose logging for troubleshooting (visible in Console.app)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
                     }
                     .background {
                         RoundedRectangle(cornerRadius: 10)

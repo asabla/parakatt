@@ -52,6 +52,9 @@ pub struct GeneralConfig {
     /// Maximum word count to send to LLM per chunk (default: 4000).
     #[serde(default = "default_llm_max_words")]
     pub llm_max_words: u32,
+    /// Enable verbose debug logging.
+    #[serde(default)]
+    pub debug_mode: bool,
 }
 
 fn default_chunk_duration() -> u32 {
@@ -75,6 +78,7 @@ impl Default for GeneralConfig {
             retention_days: 0,
             chunk_duration_secs: default_chunk_duration(),
             llm_max_words: default_llm_max_words(),
+            debug_mode: false,
         }
     }
 }

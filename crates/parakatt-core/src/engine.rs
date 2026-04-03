@@ -356,6 +356,23 @@ impl Engine {
         cfg.save(&self.config_dir)
     }
 
+    /// Get whether debug mode is enabled.
+    pub fn get_debug_mode(&self) -> Result<bool, CoreError> {
+        let config = self.config.lock().map_err(|e| {
+            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
+        })?;
+        Ok(config.general.debug_mode)
+    }
+
+    /// Set and persist debug mode.
+    pub fn set_debug_mode(&self, enabled: bool) -> Result<(), CoreError> {
+        let mut cfg = self.config.lock().map_err(|e| {
+            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
+        })?;
+        cfg.general.debug_mode = enabled;
+        cfg.save(&self.config_dir)
+    }
+
     /// Get the retention period in days (0 = disabled).
     pub fn get_retention_days(&self) -> Result<u32, CoreError> {
         let config = self.config.lock().map_err(|e| {

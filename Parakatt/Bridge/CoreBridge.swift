@@ -78,6 +78,14 @@ class CoreBridge {
 
     // MARK: - Behavior settings
 
+    func getDebugMode() throws -> Bool {
+        try engine.getDebugMode()
+    }
+
+    func setDebugMode(_ enabled: Bool) throws {
+        try engine.setDebugMode(enabled: enabled)
+    }
+
     func getAutoPaste() throws -> Bool {
         try engine.getAutoPaste()
     }

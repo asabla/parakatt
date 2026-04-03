@@ -38,6 +38,7 @@ class AppState: ObservableObject {
     // Behavior settings
     @Published var autoPaste = true
     @Published var showRecordingOverlay = true
+    @Published var debugMode = false
 
     // Audio source selection (meeting mode)
     @Published var selectedAudioSourcePID: pid_t?
@@ -116,6 +117,7 @@ class AppState: ObservableObject {
             // Load behavior settings from config
             if let ap = try? bridge?.getAutoPaste() { autoPaste = ap }
             if let so = try? bridge?.getShowOverlay() { showRecordingOverlay = so }
+            if let dm = try? bridge?.getDebugMode() { debugMode = dm }
 
             // Load API key from Keychain (not config file)
             loadLlmApiKeyFromKeychain()
@@ -584,6 +586,15 @@ class AppState: ObservableObject {
             try bridge?.setAutoPaste(enabled)
         } catch {
             NSLog("[Parakatt] Failed to save auto_paste setting: %@", error.localizedDescription)
+        }
+    }
+
+    func setDebugMode(_ enabled: Bool) {
+        debugMode = enabled
+        do {
+            try bridge?.setDebugMode(enabled)
+        } catch {
+            NSLog("[Parakatt] Failed to save debug_mode setting: %@", error.localizedDescription)
         }
     }
 
