@@ -11,6 +11,7 @@ Parakatt.xcodeproj/
 
 # Generated UniFFI Swift Package (regenerate with: make swift-package)
 ParakattCore/
+.swift-package-stamp
 crates/parakatt-core/generated/
 
 # Xcode build artifacts

@@ -1,4 +1,4 @@
-.PHONY: all rust swift-package xcode build release package test clean run launcher
+.PHONY: all rust swift-package swift-package-force xcode build release package test clean run launcher
 
 VERSION := 0.1.0
 APP_NAME := Parakatt
@@ -17,11 +17,26 @@ rust:
 test:
 	cargo test
 
-# Generate the UniFFI Swift Package from the Rust crate (arm64 only for Apple Silicon)
+# Generate the UniFFI Swift Package from the Rust crate (arm64 only for Apple Silicon).
+# Skips regeneration if Rust sources haven't changed since last build.
 swift-package:
-	rm -rf ParakattCore
+	@if [ -d ParakattCore ] && [ -f .swift-package-stamp ] && \
+		[ -z "$$(find crates/parakatt-core/src -newer .swift-package-stamp -name '*.rs' 2>/dev/null)" ] && \
+		[ crates/parakatt-core/Cargo.toml -ot .swift-package-stamp ]; then \
+		echo "ParakattCore is up to date (no Rust changes since last build)"; \
+	else \
+		rm -rf ParakattCore; \
+		cd crates/parakatt-core && echo "y" | cargo swift package --platforms macos --name ParakattCore --target aarch64-apple-darwin; \
+		mv crates/parakatt-core/ParakattCore .; \
+		touch .swift-package-stamp; \
+	fi
+
+# Force regenerate Swift bindings (bypasses incremental check)
+swift-package-force:
+	rm -rf ParakattCore .swift-package-stamp
 	cd crates/parakatt-core && echo "y" | cargo swift package --platforms macos --name ParakattCore --target aarch64-apple-darwin
 	mv crates/parakatt-core/ParakattCore .
+	touch .swift-package-stamp
 
 # Generate the Xcode project from project.yml
 xcode:
