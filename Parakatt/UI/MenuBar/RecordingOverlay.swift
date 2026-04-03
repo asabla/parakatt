@@ -5,14 +5,14 @@ import SwiftUI
 /// Animated equalizer bars driven by audio level.
 struct AudioLevelBarsView: View {
     let level: Float
+    let tint: Color
     private let barCount = 5
-    private let barWidth: CGFloat = 3
-    private let barSpacing: CGFloat = 2
-    private let maxHeight: CGFloat = 20
-    private let minHeight: CGFloat = 3
+    private let barWidth: CGFloat = 2.5
+    private let barSpacing: CGFloat = 1.5
+    private let maxHeight: CGFloat = 14
+    private let minHeight: CGFloat = 2
 
-    // Per-bar multipliers to create staggered equalizer look
-    private let multipliers: [Float] = [0.6, 0.85, 1.0, 0.85, 0.6]
+    private let multipliers: [Float] = [0.5, 0.8, 1.0, 0.8, 0.5]
 
     var body: some View {
         HStack(spacing: barSpacing) {
@@ -21,7 +21,7 @@ struct AudioLevelBarsView: View {
                 let height = minHeight + (maxHeight - minHeight) * barLevel
 
                 RoundedRectangle(cornerRadius: barWidth / 2)
-                    .fill(.red)
+                    .fill(tint)
                     .frame(width: barWidth, height: height)
             }
         }
@@ -29,9 +29,34 @@ struct AudioLevelBarsView: View {
         .animation(
             NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
                 ? nil
-                : .easeOut(duration: 0.1),
+                : .easeOut(duration: 0.08),
             value: level
         )
+    }
+}
+
+/// Pulsing recording dot.
+private struct RecordingDot: View {
+    @State private var isPulsing = false
+    let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+
+    var body: some View {
+        Circle()
+            .fill(.red)
+            .frame(width: 8, height: 8)
+            .overlay(
+                Circle()
+                    .fill(.red.opacity(0.4))
+                    .frame(width: 16, height: 16)
+                    .scaleEffect(isPulsing ? 1.0 : 0.5)
+                    .opacity(isPulsing ? 0.0 : 0.6)
+            )
+            .onAppear {
+                guard !reduceMotion else { return }
+                withAnimation(.easeInOut(duration: 1.0).repeatForever(autoreverses: false)) {
+                    isPulsing = true
+                }
+            }
     }
 }
 
@@ -44,64 +69,90 @@ struct RecordingOverlayView: View {
     let silenceDetected: Bool
     let clippingDetected: Bool
 
+    private var hasText: Bool {
+        if let text = liveText, !text.isEmpty { return true }
+        return false
+    }
+
+    private var hasWarning: Bool {
+        silenceDetected || clippingDetected
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 0) {
             if isRecording {
+                // Header bar — always visible
                 HStack(spacing: 8) {
-                    AudioLevelBarsView(level: audioLevel)
+                    RecordingDot()
+
+                    AudioLevelBarsView(level: audioLevel, tint: .red.opacity(0.8))
+
                     Text("Recording")
-                        .font(.caption)
-                        .fontWeight(.medium)
-                        .foregroundStyle(.secondary)
+                        .font(.system(.callout, weight: .semibold))
+                        .foregroundStyle(.primary)
+
                     Spacer()
-                }
 
-                if let text = liveText, !text.isEmpty {
-                    ScrollView {
-                        Text(text)
-                            .font(.system(.body, design: .rounded))
-                            .multilineTextAlignment(.leading)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                } else if silenceDetected {
-                    HStack(spacing: 4) {
-                        Image(systemName: "mic.slash")
-                            .font(.caption)
-                        Text("No audio detected — check your microphone")
-                            .font(.caption)
-                    }
-                    .foregroundStyle(.orange)
-                } else if clippingDetected {
-                    HStack(spacing: 4) {
-                        Image(systemName: "exclamationmark.triangle")
-                            .font(.caption)
-                        Text("Audio clipping detected — move further from the microphone")
-                            .font(.caption)
-                    }
-                    .foregroundStyle(.orange)
-                } else {
-                    Text("Listening...")
-                        .font(.caption)
+                    Text("Release to stop")
+                        .font(.caption2)
                         .foregroundStyle(.tertiary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(.ultraThinMaterial, in: Capsule())
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+
+                // Expanded content — live text or warnings
+                if hasText || hasWarning {
+                    Divider()
+                        .padding(.horizontal, 12)
+                        .opacity(0.5)
+
+                    Group {
+                        if let text = liveText, !text.isEmpty {
+                            ScrollView {
+                                Text(text)
+                                    .font(.system(.body, design: .rounded))
+                                    .multilineTextAlignment(.leading)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .frame(maxHeight: 100)
+                        } else if silenceDetected {
+                            Label("No audio detected — check your microphone", systemImage: "mic.slash")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                        } else if clippingDetected {
+                            Label("Audio clipping — move further from mic", systemImage: "exclamationmark.triangle")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
                 }
 
-                Spacer(minLength: 0)
             } else if isProcessing {
-                HStack(spacing: 6) {
+                HStack(spacing: 8) {
                     ProgressView()
                         .controlSize(.small)
                     Text("Processing...")
-                        .font(.caption)
+                        .font(.system(.callout, weight: .medium))
                         .foregroundStyle(.secondary)
                     Spacer()
                 }
-                Spacer(minLength: 0)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
             }
         }
-        .padding(16)
-        .frame(width: 420, height: 160)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
-        .shadow(radius: 8)
+        .frame(width: 380)
+        .fixedSize(horizontal: false, vertical: true)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(.white.opacity(0.08), lineWidth: 0.5)
+        )
+        .shadow(color: .black.opacity(0.25), radius: 12, y: 4)
     }
 }
 
@@ -142,7 +193,7 @@ class RecordingOverlayController {
             .sink { [weak self] nested, clippingDetected in
                 let (inner, silenceDetected) = nested
                 let (isRecording, isProcessing, liveText, audioLevel) = inner
-                self?.hostingView?.rootView = RecordingOverlayView(
+                let newView = RecordingOverlayView(
                     isRecording: isRecording,
                     isProcessing: isProcessing,
                     liveText: liveText,
@@ -150,6 +201,20 @@ class RecordingOverlayController {
                     silenceDetected: silenceDetected,
                     clippingDetected: clippingDetected
                 )
+                self?.hostingView?.rootView = newView
+
+                // Resize panel to fit content
+                if let hosting = self?.hostingView, let panel = self?.panel {
+                    let fittingSize = hosting.fittingSize
+                    let currentFrame = panel.frame
+                    let newFrame = NSRect(
+                        x: currentFrame.origin.x,
+                        y: currentFrame.origin.y + currentFrame.height - fittingSize.height,
+                        width: fittingSize.width,
+                        height: fittingSize.height
+                    )
+                    panel.setFrame(newFrame, display: true, animate: false)
+                }
             }
             .store(in: &cancellables)
     }
@@ -168,12 +233,15 @@ class RecordingOverlayController {
     }
 
     private func createPanel() {
-        let view = RecordingOverlayView(isRecording: false, isProcessing: false, liveText: nil, audioLevel: 0, silenceDetected: false, clippingDetected: false)
+        let view = RecordingOverlayView(
+            isRecording: false, isProcessing: false, liveText: nil,
+            audioLevel: 0, silenceDetected: false, clippingDetected: false
+        )
         let hosting = NSHostingView(rootView: view)
-        hosting.frame = NSRect(x: 0, y: 0, width: 420, height: 160)
+        let size = hosting.fittingSize
 
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 160),
+            contentRect: NSRect(x: 0, y: 0, width: size.width, height: size.height),
             styleMask: [.nonactivatingPanel, .borderless],
             backing: .buffered,
             defer: true
@@ -184,13 +252,14 @@ class RecordingOverlayController {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = true
+        panel.hasShadow = false // SwiftUI handles shadow
         panel.hidesOnDeactivate = false
+        panel.isMovableByWindowBackground = true  // Draggable!
 
         if let screen = NSScreen.main {
             let screenFrame = screen.visibleFrame
-            let x = screenFrame.midX - 210
-            let y = screenFrame.midY + 50
+            let x = screenFrame.midX - size.width / 2
+            let y = screenFrame.maxY - size.height - 80
             panel.setFrameOrigin(NSPoint(x: x, y: y))
         }
 
