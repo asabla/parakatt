@@ -128,12 +128,12 @@ class TextInsertionService {
     // MARK: - Clipboard helpers
 
     private var savedItems: [(NSPasteboard.PasteboardType, Data)]?
-    private var savedChangeCount: Int = 0
+    /// changeCount captured right after we write our transcription to the clipboard.
+    private var changeCountAfterSet: Int = 0
 
     private func setClipboard(_ text: String) {
         let pasteboard = NSPasteboard.general
 
-        savedChangeCount = pasteboard.changeCount
         savedItems = pasteboard.pasteboardItems?.compactMap { item -> (NSPasteboard.PasteboardType, Data)? in
             guard let type = item.types.first,
                   let data = item.data(forType: type) else { return nil }
@@ -142,15 +142,17 @@ class TextInsertionService {
 
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
+        changeCountAfterSet = pasteboard.changeCount
         usleep(50_000) // 50ms to ensure pasteboard is ready
     }
 
     private func scheduleClipboardRestore() {
-        let expectedCount = savedChangeCount + 1
+        let expectedCount = changeCountAfterSet
         let items = savedItems
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             let pasteboard = NSPasteboard.general
+            // Only restore if nothing else has touched the clipboard since we set it.
             if pasteboard.changeCount == expectedCount {
                 pasteboard.clearContents()
                 if let items = items {
