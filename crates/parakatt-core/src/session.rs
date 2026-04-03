@@ -114,20 +114,41 @@ impl SessionManager {
             .cloned()
             .collect();
 
+        // Count how many leading words were removed by overlap dedup so we
+        // can skip the corresponding segments (segments bypass word-level dedup).
+        let words_to_skip = if chunk_index > 0 {
+            let raw_words: Vec<&str> = raw_text.split_whitespace().collect();
+            let new_words: Vec<&str> = new_text.split_whitespace().collect();
+            raw_words.len().saturating_sub(new_words.len())
+        } else {
+            0
+        };
+
         // Accumulate segments with absolute timestamps and build text
         // with paragraph breaks: new paragraph at each chunk boundary,
         // and every SENTENCES_PER_PARAGRAPH sentences within a chunk.
         if !segments.is_empty() {
             let mut chunk_sentence_count: usize = 0;
+            let mut words_skipped: usize = 0;
 
             for seg in &segments {
+                let trimmed = seg.text.trim();
+
+                // Skip leading segments that fall within the overlap zone.
+                if words_to_skip > 0 && words_skipped < words_to_skip {
+                    let seg_word_count = trimmed.split_whitespace().count();
+                    words_skipped += seg_word_count;
+                    if words_skipped <= words_to_skip {
+                        continue;
+                    }
+                }
+
                 state.accumulated_segments.push(TimestampedSegment {
                     text: seg.text.clone(),
                     start_secs: chunk_offset_secs + seg.start_secs,
                     end_secs: chunk_offset_secs + seg.end_secs,
                 });
 
-                let trimmed = seg.text.trim();
                 if trimmed.is_empty() {
                     continue;
                 }
@@ -462,6 +483,57 @@ mod tests {
         assert_eq!(segments[1].text, "second sentence");
         assert!((segments[1].start_secs - 32.0).abs() < 0.01);
         assert!((segments[1].end_secs - 35.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_segments_overlap_dedup() {
+        // Simulates the PTT bug: chunk 0 has "As you can see with the",
+        // chunk 1 re-processes overlapping audio and gets the full sentence.
+        // The overlapping segment should be skipped in accumulated text.
+        use crate::TimestampedSegment;
+
+        let mut mgr = SessionManager::new();
+        mgr.start("dedup-seg").unwrap();
+
+        let seg1 = vec![TimestampedSegment {
+            text: "As you can see with the".into(),
+            start_secs: 0.0,
+            end_secs: 2.0,
+        }];
+        let r1 = mgr
+            .add_chunk("dedup-seg", "As you can see with the", 2.0, seg1)
+            .unwrap();
+        assert_eq!(r1.accumulated_text, "As you can see with the");
+
+        // Chunk 2 overlaps: STT reproduces the overlap words plus new content.
+        let seg2 = vec![
+            TimestampedSegment {
+                text: "As you can see with the".into(),
+                start_secs: 0.0,
+                end_secs: 2.0,
+            },
+            TimestampedSegment {
+                text: "pasted text above there is a duplicate.".into(),
+                start_secs: 2.0,
+                end_secs: 5.0,
+            },
+        ];
+        let r2 = mgr
+            .add_chunk(
+                "dedup-seg",
+                "As you can see with the pasted text above there is a duplicate.",
+                5.0,
+                seg2,
+            )
+            .unwrap();
+
+        // The overlap segment should be skipped — no duplication.
+        assert!(
+            !r2.accumulated_text.contains("As you can see with the\n\nAs you can see with the"),
+            "Accumulated text should not contain duplicated overlap: {}",
+            r2.accumulated_text
+        );
+        assert!(r2.accumulated_text.contains("pasted text above"));
     }
 
     #[test]
