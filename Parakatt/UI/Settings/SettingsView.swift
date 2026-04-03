@@ -322,6 +322,7 @@ struct GeneralSettingsView: View {
                                     .foregroundStyle(.secondary)
                             }
                         }
+                        .toggleStyle(.switch)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
 
@@ -339,6 +340,7 @@ struct GeneralSettingsView: View {
                                     .foregroundStyle(.secondary)
                             }
                         }
+                        .toggleStyle(.switch)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
 
@@ -356,6 +358,7 @@ struct GeneralSettingsView: View {
                                     .foregroundStyle(.secondary)
                             }
                         }
+                        .toggleStyle(.switch)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
                     }
@@ -624,10 +627,10 @@ private struct GeneralModeRow: View {
             HStack(spacing: 10) {
                 Image(systemName: mode.icon)
                     .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(isSelected ? .white : .secondary)
+                    .foregroundStyle(isSelected ? .white : mode.color)
                     .frame(width: 28, height: 28)
                     .background(
-                        isSelected ? AnyShapeStyle(mode.color) : AnyShapeStyle(.quaternary),
+                        isSelected ? AnyShapeStyle(mode.color) : AnyShapeStyle(mode.color.opacity(0.15)),
                         in: RoundedRectangle(cornerRadius: 6, style: .continuous)
                     )
 
@@ -883,7 +886,7 @@ private struct LlmProviderRow: View {
             HStack(spacing: 10) {
                 Image(systemName: provider.icon)
                     .font(.system(size: 14))
-                    .foregroundStyle(isSelected ? provider.color : .secondary)
+                    .foregroundStyle(provider.color)
                     .frame(width: 22)
 
                 VStack(alignment: .leading, spacing: 1) {
