@@ -2,117 +2,123 @@
 
 Tracked improvements and feature ideas for Parakatt.
 
+**Status:** 61 completed, 10 deferred for future consideration.
+
 ---
 
-## UX / Quality of Life
+## Completed
 
-- [x] **Completion notifications** — transcription finishes silently; add system notification or sound cue when done
-- [x] **Onboarding flow** — no first-run guide explaining the hotkey, modes, or permissions; users jump straight to Settings
-- [x] **Expose hidden settings** — `auto_paste` and `show_overlay` exist in config but aren't in the Settings UI
-- [x] **Dictionary editor improvements** — no regex validation or test-before-save functionality
-- [x] **LLM connection test button** — users can't verify Ollama/OpenAI setup without attempting a transcription
-- [x] **Remember last meeting audio source** — requires manual app selection each time (already implemented)
-- [x] **Short recording feedback** — recordings <1s are silently skipped; show "Recording too short" warning
-- [x] **Model download progress in menu bar** — menu bar icon shows idle during model download; no visual hint
-- [x] **"No audio detected" warning** — recording overlay shows "Listening..." forever even if mic produces silence
-- [x] **Text insertion failure feedback** — if all 3 paste strategies fail, user sees nothing; show an alert
-- [x] **Clipboard restore race condition** — if user copies something during the 500ms restore window, their copy gets overwritten
+### UX / Quality of Life
+- [x] Completion notifications
+- [x] Onboarding flow
+- [x] Expose hidden settings (auto_paste, show_overlay)
+- [x] Dictionary editor improvements (regex validation)
+- [x] LLM connection test button
+- [x] Remember last meeting audio source
+- [x] Short recording feedback
+- [x] Model download progress in menu bar
+- [x] "No audio detected" warning
+- [x] Text insertion failure feedback
+- [x] Clipboard restore race condition fix
 
-## Export & Data
+### Export & Data
+- [x] JSON export format
+- [x] Batch export
+- [x] Backup/restore (SQLite export/import)
+- [x] Auto-cleanup retention setting
+- [x] Usage statistics (Dashboard + Statistics tab)
 
-- [x] **More export formats** — only Markdown today; add CSV/JSON for integrations
-- [x] **Batch export** — can only export one transcription at a time
-- [x] **Backup/restore** — no way to back up the SQLite DB from within the app
-- [x] **Auto-cleanup** — configurable retention (e.g., auto-delete transcriptions after N days)
-- [x] **Usage statistics** — total hours transcribed, word counts, mode breakdown
+### Audio & Performance
+- [x] Configurable chunk size
+- [x] LLM token limit configurable
+- [x] Audio quality indicators (clipping detection)
+- [x] Resume interrupted model downloads (HTTP Range)
+- [x] Device hot-plug handling
+- [x] Audio preprocessing (noise gate, pre-emphasis)
+- [x] Filler word removal (uh, um, mmm, etc.)
+- [x] Earlier incremental processing (2s instead of 5s)
+- [x] Dynamic paragraph breaks (sentence-based)
 
-## Audio & Performance
+### Customization
+- [x] Custom modes with user-defined LLM prompts
+- [x] Per-app mode defaults
+- [x] Config profiles (save/load)
 
-- [x] **Configurable chunk size** — hardcoded at 30s; shorter = faster feedback, longer = better context
-- [x] **LLM token limit slider** — 4000-token guard is hardcoded; power users may want to tune this
-- [x] **Audio quality indicators** — warn if input is too quiet, clipping, or mic isn't connected
-- [x] **Resume interrupted model downloads** — add HTTP Range header support for resumable downloads
-- [x] **Device hot-plug handling** — if user unplugs explicitly-selected headphones mid-recording, no recovery; add AudioObjectPropertyListener
-- [x] **Cache system audio converter** — SystemAudioCaptureService recreates AVAudioConverter every callback; cache and reuse (already implemented)
-- [x] **Audio preprocessing enhancements** — no noise reduction, echo cancellation, or pre-emphasis filtering; could improve STT quality
-- [x] **Filler word removal** — strip "uh", "um", "mmm", "ah" and similar filler sounds from transcription output
-- [x] **Unnecessary audio copy in STT** — `parakeet.rs` calls `audio.to_vec()` creating ~115MB copy for 30min recordings; investigate zero-copy API (not actionable — parakeet-rs API requires Vec by value)
+### Security
+- [x] SQL injection fix (parameterized queries)
+- [x] API keys in macOS Keychain
+- [x] Model download size verification
+- [x] ReDoS protection (pattern length limit)
 
-## Customization
+### Concurrency & Correctness
+- [x] Lock ordering documented
+- [x] LLM lock released before network I/O
+- [x] Standardized lock error handling
+- [x] Recording state race condition fix
+- [x] Overlap dedup punctuation fix
+- [x] LLM truncation at sentence boundary
 
-- [x] **Custom modes** — users can't create their own modes with custom LLM prompts (only 4 built-in)
-- [x] **Per-app mode defaults** — auto-switch to "Code" mode when VS Code is focused, "Email" in Mail, etc.
-- [x] **Profiles** — save/load different config sets (work vs personal)
+### Robustness
+- [x] Swift test coverage (8 XCTests)
+- [x] Better error surfacing
+- [x] LLM timeout handling
+- [x] LLM error messages with response body
+- [x] LLM streaming (Ollama)
+- [x] LLM retry logic (transient errors only)
 
-## Security
+### Database
+- [x] Indexes on created_at, source
+- [x] Composite index (source, created_at DESC)
 
-- [x] **SQL injection in storage.rs** — `list()` and `search_fts()` use string concatenation for source filter; switch to parameterized queries
-- [x] **API keys stored in plaintext** — config.toml stores OpenAI/Anthropic keys unencrypted; use macOS Keychain instead
-- [x] **Model download checksum verification** — downloaded ONNX files aren't validated against known hashes
-- [x] **ReDoS risk in dictionary** — user-supplied regex patterns (via `re:` prefix) have no complexity limits or timeout
+### CI/CD & Build
+- [x] PR testing workflow (cargo test, clippy, fmt, SwiftFormat)
+- [x] Cargo release profile (LTO, codegen-units, strip)
+- [x] Version single source of truth (VERSION file + sync script)
+- [x] Changelog generation (git-cliff config)
+- [x] Incremental swift-package builds
 
-## Concurrency & Correctness
+### Logging & Observability
+- [x] Consolidated logging (file-based with rotation)
+- [x] Performance metrics (os.signpost)
+- [x] Debug mode toggle in Settings
 
-- [x] **Lock ordering not documented** — Engine holds 8 Mutexes with no documented acquisition order; potential deadlock risk
-- [x] **LLM lock held during network I/O** — `apply_llm()` holds llm_guard through entire HTTP request; blocks config changes
-- [x] **Inconsistent lock error handling** — some locks use `.unwrap()` (panics on poison), others use `.map_err()`; standardize
-- [x] **Recording state race condition** — `startRecording()` guard isn't atomic; rapid start/stop could cause dual recordings
-- [x] **Meeting state consistency** — `isMeetingActive` set before verifying session actually started (already correctly implemented)
-- [x] **Overlap dedup punctuation bug** — words like "brown." won't match "brown" across chunk boundaries; strip punctuation before comparing
-- [x] **LLM truncation is lossy** — 4000-word truncation splits mid-sentence with no user notification; truncate at sentence boundary and warn
+### UI & Design
+- [x] Redesigned recording overlay (draggable, animated, auto-resize)
+- [x] Redesigned selection mode toolbar
+- [x] Redesigned Behavior section (icon badges)
+- [x] Dashboard tab with app info and quick stats
+- [x] Statistics tab with extended metrics
+- [x] Settings window widened for 6 tabs
+- [x] Consistent icon colors across settings
 
-## Robustness
+### Accessibility
+- [x] Respect Reduce Motion
 
-- [x] **Swift test coverage** — Rust has ~53 unit tests, Swift now has 8 XCTests
-- [x] **Better error surfacing** — some failures only log to console; users see generic "No audio captured"
-- [x] **LLM timeout handling** — no explicit timeout UI; requests can hang silently
-- [x] **LLM error messages lack detail** — 4xx/5xx responses only show status code, not response body
-- [x] **LLM streaming support** — both providers hardcode `stream: false`; streaming would give real-time feedback and prevent timeout on long responses
-- [x] **LLM retry logic** — no retry with backoff for transient network failures
+### Documentation
+- [x] Troubleshooting section in README
+- [x] Contribution guide (CONTRIBUTING.md)
+- [x] Swift doc comments
 
-## Database
+---
 
-- [x] **Missing indexes** — no index on `created_at` or `source` columns; `ORDER BY created_at DESC` and source filtering do full table scans
-- [x] **Add composite index** — `(source, created_at DESC)` for the common filtered+sorted query pattern
+## Deferred (Future Consideration)
 
-## macOS Integration
+### macOS Integration
+- [ ] Spotlight indexing of transcriptions
+- [ ] Shortcuts.app support
+- [ ] Share sheet integration
+- [ ] Drag and drop from history
+- [ ] Services menu
 
-- [ ] **Spotlight indexing** — transcriptions not indexed; add Core Spotlight integration for system-wide search
-- [ ] **Shortcuts.app support** — no Shortcuts actions for "Start Recording" or "Transcribe"
-- [ ] **Share sheet** — no NSShareLink integration; only manual copy/export
-- [ ] **Drag and drop** — can't drag transcription text to Finder/Notes/Mail
-- [ ] **Services menu** — could add "Transcribe Selection" as a system service
+### Localization
+- [ ] Localize 50+ hardcoded English strings
 
-## Localization
+### CI/CD & Distribution
+- [ ] Code signing / notarization
+- [ ] Sparkle auto-update framework
 
-- [ ] **50+ hardcoded English strings** — menu bar titles, overlay text, error messages, button labels all use raw strings; no NSLocalizedString or Localizable.strings
+### Logging
+- [ ] Crash reporting (Sentry/Bugsnag)
 
-## CI/CD & Build
-
-- [x] **No PR testing workflow** — no CI runs on pull requests (no linting, testing, or build verification)
-- [x] **No linting enforcement** — no SwiftLint, rustfmt, or clippy checks in CI
-- [ ] **No code signing / notarization** — self-signed only; users must bypass Gatekeeper with xattr workaround
-- [ ] **No auto-update framework** — no Sparkle integration; users must manually download new releases
-- [x] **Manual version bumping** — version hardcoded in 4+ places (Makefile, project.yml, Info.plist, homebrew template); needs single source of truth
-- [x] **No changelog generation** — manual CHANGELOG.md edits; consider git-cliff or conventional commits
-- [x] **swift-package always regenerates** — `make swift-package` deletes and recreates ParakattCore/ even for minor changes; add incremental check
-- [x] **No Cargo release profile optimization** — missing LTO, codegen-units, strip settings in `[profile.release]`
-
-## Logging & Observability
-
-- [x] **Dual logging systems** — NSLog (Swift) and env_logger (Rust) without coordination; consolidate
-- [x] **No file-based logging** — all logs go to console only; add persistent log files with rotation
-- [ ] **No crash reporting** — no Sentry/Bugsnag or lightweight error tracking
-- [x] **No performance metrics** — no os.signpost markers; can't profile STT latency, LLM response time, or text insertion delay in Instruments
-- [x] **No debug mode toggle** — users can't enable verbose logging from Settings
-
-## Accessibility
-
-- [ ] **VoiceOver support** — not tested for screen readers
-- [x] **Respect Reduce Motion** — animations play regardless of system setting
-
-## Documentation
-
-- [x] **No troubleshooting section** — README lacks guidance for common issues (permissions, model downloads, LLM timeouts)
-- [x] **No contribution guide** — no CONTRIBUTING.md with code style expectations
-- [x] **Minimal Swift doc comments** — Rust types have doc comments; Swift services/views have almost none
+### Accessibility
+- [ ] VoiceOver support
