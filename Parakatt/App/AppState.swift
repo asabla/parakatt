@@ -91,6 +91,9 @@ class AppState: ObservableObject {
 
     /// Initialize the Rust engine, audio services, and load settings from config.
     func initializeEngine() {
+        // Set up file logging — captures NSLog output to disk
+        FileLogService.shared.startCapturingNSLog()
+
         // Set up services
         textInsertionService = TextInsertionService()
         contextService = ContextService()
