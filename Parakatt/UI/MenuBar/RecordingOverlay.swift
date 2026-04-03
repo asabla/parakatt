@@ -69,11 +69,6 @@ struct RecordingOverlayView: View {
     let silenceDetected: Bool
     let clippingDetected: Bool
 
-    /// Tracks whether the glow entrance effect is active.
-    @State private var showEntranceGlow = false
-    /// Tracks the entrance animation state.
-    @State private var isAppeared = false
-
     private var hasText: Bool {
         if let text = liveText, !text.isEmpty { return true }
         return false
@@ -82,8 +77,6 @@ struct RecordingOverlayView: View {
     private var hasWarning: Bool {
         silenceDetected || clippingDetected
     }
-
-    private let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -180,40 +173,14 @@ struct RecordingOverlayView: View {
             }
         }
         .frame(width: 400)
+        .frame(minHeight: 44)
         .fixedSize(horizontal: false, vertical: true)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .strokeBorder(.white.opacity(0.08), lineWidth: 0.5)
         )
-        // Normal shadow + entrance glow
         .shadow(color: .black.opacity(0.25), radius: 12, y: 4)
-        .shadow(color: .red.opacity(showEntranceGlow ? 0.5 : 0), radius: 20, y: 0)
-        // Entrance animation: scale up + fade in
-        .scaleEffect(isAppeared ? 1.0 : 0.75)
-        .opacity(isAppeared ? 1.0 : 0.0)
-        .onAppear {
-            if reduceMotion {
-                isAppeared = true
-                return
-            }
-            withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
-                isAppeared = true
-            }
-            if isRecording {
-                showEntranceGlow = true
-                withAnimation(.easeOut(duration: 1.5)) {
-                    showEntranceGlow = false
-                }
-            }
-        }
-        .onChange(of: isRecording) { _, recording in
-            guard recording, !reduceMotion else { return }
-            showEntranceGlow = true
-            withAnimation(.easeOut(duration: 1.5)) {
-                showEntranceGlow = false
-            }
-        }
     }
 }
 
@@ -264,15 +231,19 @@ class RecordingOverlayController {
                 )
                 self?.hostingView?.rootView = newView
 
-                // Resize panel to fit content
+                // Resize panel to fit content (never shrink below session max)
                 if let hosting = self?.hostingView, let panel = self?.panel {
                     let fittingSize = hosting.fittingSize
+                    let height = max(fittingSize.height, self?.sessionMaxHeight ?? 0)
+                    if height > (self?.sessionMaxHeight ?? 0) {
+                        self?.sessionMaxHeight = height
+                    }
                     let currentFrame = panel.frame
                     let newFrame = NSRect(
                         x: currentFrame.origin.x,
-                        y: currentFrame.origin.y + currentFrame.height - fittingSize.height,
+                        y: currentFrame.origin.y + currentFrame.height - height,
                         width: fittingSize.width,
-                        height: fittingSize.height
+                        height: height
                     )
                     panel.setFrame(newFrame, display: true, animate: false)
                 }
@@ -280,12 +251,31 @@ class RecordingOverlayController {
             .store(in: &cancellables)
     }
 
+    /// Track the maximum height reached during this session to prevent collapse.
+    private var sessionMaxHeight: CGFloat = 0
+
     private func showOverlay() {
         guard !isVisible else { return }
         if panel == nil { createPanel() }
-        panel?.alphaValue = 1.0
+        sessionMaxHeight = 0
+
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        if reduceMotion {
+            panel?.alphaValue = 1.0
+        } else {
+            panel?.alphaValue = 0.0
+        }
+
         panel?.orderFrontRegardless()
         isVisible = true
+
+        if !reduceMotion {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.3
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                panel?.animator().alphaValue = 1.0
+            }
+        }
     }
 
     private func hideOverlay() {
@@ -297,7 +287,6 @@ class RecordingOverlayController {
             return
         }
 
-        // Fade + scale out
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = 0.25
             context.timingFunction = CAMediaTimingFunction(name: .easeIn)
