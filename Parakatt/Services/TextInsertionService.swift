@@ -11,23 +11,30 @@ import Carbon
 /// Logs which strategy was used for debugging.
 class TextInsertionService {
 
-    func insertText(_ text: String) {
-        guard !text.isEmpty else { return }
+    /// Insert text into the focused application. Returns false if all strategies fail.
+    @discardableResult
+    func insertText(_ text: String) -> Bool {
+        guard !text.isEmpty else { return false }
 
         NSLog("[Parakatt] Inserting text (%d chars), AXIsProcessTrusted=%d", text.count, AXIsProcessTrusted())
 
         if insertViaAccessibility(text) {
             NSLog("[Parakatt] Text inserted via Accessibility API (%d chars)", text.count)
-            return
+            return true
         }
 
         if insertViaPaste(text) {
             NSLog("[Parakatt] Text inserted via CGEvent paste (%d chars)", text.count)
-            return
+            return true
         }
 
-        insertViaAppleScript(text)
-        NSLog("[Parakatt] Text inserted via AppleScript paste (%d chars)", text.count)
+        if insertViaAppleScript(text) {
+            NSLog("[Parakatt] Text inserted via AppleScript paste (%d chars)", text.count)
+            return true
+        }
+
+        NSLog("[Parakatt] All text insertion strategies failed (%d chars)", text.count)
+        return false
     }
 
     // MARK: - Strategy 1: Accessibility API
@@ -99,7 +106,7 @@ class TextInsertionService {
 
     // MARK: - Strategy 3: Clipboard + AppleScript System Events
 
-    private func insertViaAppleScript(_ text: String) {
+    private func insertViaAppleScript(_ text: String) -> Bool {
         setClipboard(text)
 
         let script = NSAppleScript(source: """
@@ -111,9 +118,11 @@ class TextInsertionService {
         script?.executeAndReturnError(&error)
         if let error = error {
             NSLog("[Parakatt] AppleScript Strategy: failed - %@", error)
+            return false
         }
 
         scheduleClipboardRestore()
+        return true
     }
 
     // MARK: - Clipboard helpers

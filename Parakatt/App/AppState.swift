@@ -314,7 +314,12 @@ class AppState: ObservableObject {
                         self.errorMessage = nil
 
                         if !result.text.isEmpty {
-                            self.textInsertionService?.insertText(result.text)
+                            if self.autoPaste {
+                                let inserted = self.textInsertionService?.insertText(result.text) ?? false
+                                if !inserted {
+                                    self.errorMessage = "Could not paste text — transcription copied to clipboard"
+                                }
+                            }
                             NSLog("[Parakatt] PTT session result (%@, %.2fs): %@",
                                   mode, result.durationSecs, result.text)
                         }
@@ -874,7 +879,12 @@ class AppState: ObservableObject {
                     self.errorMessage = nil
 
                     if !result.text.isEmpty {
-                        self.textInsertionService?.insertText(result.text)
+                        if self.autoPaste {
+                            let inserted = self.textInsertionService?.insertText(result.text) ?? false
+                            if !inserted {
+                                self.errorMessage = "Could not paste text — transcription copied to clipboard"
+                            }
+                        }
                         NSLog("[Parakatt] Result (%@, %.2fs): %@", self.activeMode, result.durationSecs, result.text)
                     } else {
                         NSLog("[Parakatt] Empty transcription (mode=%@, maxAmp=%.4f)", self.activeMode, maxAmp)
