@@ -166,17 +166,22 @@ class MenuBarManager: NSObject {
     private func observeState() {
         appState.$isRecording
             .combineLatest(appState.$isProcessing, appState.$isModelLoaded)
-            .combineLatest(appState.$isMeetingActive)
-            .removeDuplicates { a, b in a.0.0 == b.0.0 && a.0.1 == b.0.1 && a.0.2 == b.0.2 && a.1 == b.1 }
+            .combineLatest(appState.$isMeetingActive, appState.$isDownloading, appState.$downloadProgress)
+            .removeDuplicates { a, b in
+                a.0.0 == b.0.0 && a.0.1 == b.0.1 && a.0.2 == b.0.2
+                && a.1 == b.1 && a.2 == b.2
+            }
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] combined, isMeetingActive in
+            .sink { [weak self] combined, state in
                 let (isRecording, isProcessing, isModelLoaded) = combined
+                let (isMeetingActive, isDownloading, _) = state
                 guard let self else { return }
 
                 let newState: IconState
                 if isMeetingActive { newState = .meeting }
                 else if isRecording { newState = .recording }
                 else if isProcessing { newState = .processing }
+                else if isDownloading { newState = .loading }
                 else if !isModelLoaded { newState = .loading }
                 else { newState = .idle }
 
@@ -206,7 +211,15 @@ class MenuBarManager: NSObject {
                     self.recordMenuItem.isEnabled = false
                     self.meetingMenuItem.isEnabled = false
                 case .loading:
-                    self.statusMenuItem.title = "Loading model..."
+                    if isDownloading, let progress = self.appState.downloadProgress,
+                       progress.bytesTotal > 0 {
+                        let pct = Int(Double(progress.bytesDownloaded) / Double(progress.bytesTotal) * 100)
+                        self.statusMenuItem.title = "Downloading model... \(pct)%"
+                    } else if isDownloading {
+                        self.statusMenuItem.title = "Downloading model..."
+                    } else {
+                        self.statusMenuItem.title = "Loading model..."
+                    }
                     self.recordMenuItem.title = "Start Recording"
                     self.recordMenuItem.isEnabled = false
                     self.meetingMenuItem.isEnabled = false
