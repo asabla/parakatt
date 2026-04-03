@@ -13,7 +13,7 @@ Tracked improvements and feature ideas for Parakatt.
 - [x] **LLM connection test button** — users can't verify Ollama/OpenAI setup without attempting a transcription
 - [x] **Remember last meeting audio source** — requires manual app selection each time (already implemented)
 - [x] **Short recording feedback** — recordings <1s are silently skipped; show "Recording too short" warning
-- [ ] **Model download progress in menu bar** — menu bar icon shows idle during model download; no visual hint
+- [x] **Model download progress in menu bar** — menu bar icon shows idle during model download; no visual hint
 - [x] **"No audio detected" warning** — recording overlay shows "Listening..." forever even if mic produces silence
 - [x] **Text insertion failure feedback** — if all 3 paste strategies fail, user sees nothing; show an alert
 - [x] **Clipboard restore race condition** — if user copies something during the 500ms restore window, their copy gets overwritten
@@ -21,8 +21,8 @@ Tracked improvements and feature ideas for Parakatt.
 ## Export & Data
 
 - [x] **More export formats** — only Markdown today; add CSV/JSON for integrations
-- [ ] **Batch export** — can only export one transcription at a time
-- [ ] **Backup/restore** — no way to back up the SQLite DB from within the app
+- [x] **Batch export** — can only export one transcription at a time
+- [x] **Backup/restore** — no way to back up the SQLite DB from within the app
 - [x] **Auto-cleanup** — configurable retention (e.g., auto-delete transcriptions after N days)
 - [x] **Usage statistics** — total hours transcribed, word counts, mode breakdown
 
@@ -35,7 +35,7 @@ Tracked improvements and feature ideas for Parakatt.
 - [ ] **Device hot-plug handling** — if user unplugs explicitly-selected headphones mid-recording, no recovery; add AudioObjectPropertyListener
 - [x] **Cache system audio converter** — SystemAudioCaptureService recreates AVAudioConverter every callback; cache and reuse (already implemented)
 - [ ] **Audio preprocessing enhancements** — no noise reduction, echo cancellation, or pre-emphasis filtering; could improve STT quality
-- [ ] **Unnecessary audio copy in STT** — `parakeet.rs` calls `audio.to_vec()` creating ~115MB copy for 30min recordings; investigate zero-copy API
+- [x] **Unnecessary audio copy in STT** — `parakeet.rs` calls `audio.to_vec()` creating ~115MB copy for 30min recordings; investigate zero-copy API (not actionable — parakeet-rs API requires Vec by value)
 
 ## Customization
 
@@ -46,7 +46,7 @@ Tracked improvements and feature ideas for Parakatt.
 ## Security
 
 - [x] **SQL injection in storage.rs** — `list()` and `search_fts()` use string concatenation for source filter; switch to parameterized queries
-- [ ] **API keys stored in plaintext** — config.toml stores OpenAI/Anthropic keys unencrypted; use macOS Keychain instead
+- [x] **API keys stored in plaintext** — config.toml stores OpenAI/Anthropic keys unencrypted; use macOS Keychain instead
 - [x] **Model download checksum verification** — downloaded ONNX files aren't validated against known hashes
 - [x] **ReDoS risk in dictionary** — user-supplied regex patterns (via `re:` prefix) have no complexity limits or timeout
 
@@ -63,8 +63,8 @@ Tracked improvements and feature ideas for Parakatt.
 ## Robustness
 
 - [ ] **Swift test coverage** — Rust has ~17 unit tests, Swift has essentially none
-- [ ] **Better error surfacing** — some failures only log to console; users see generic "No audio captured"
-- [ ] **LLM timeout handling** — no explicit timeout UI; requests can hang silently
+- [x] **Better error surfacing** — some failures only log to console; users see generic "No audio captured"
+- [x] **LLM timeout handling** — no explicit timeout UI; requests can hang silently
 - [x] **LLM error messages lack detail** — 4xx/5xx responses only show status code, not response body
 - [ ] **LLM streaming support** — both providers hardcode `stream: false`; streaming would give real-time feedback and prevent timeout on long responses
 - [x] **LLM retry logic** — no retry with backoff for transient network failures
@@ -113,5 +113,5 @@ Tracked improvements and feature ideas for Parakatt.
 ## Documentation
 
 - [x] **No troubleshooting section** — README lacks guidance for common issues (permissions, model downloads, LLM timeouts)
-- [ ] **No contribution guide** — no CONTRIBUTING.md with code style expectations
+- [x] **No contribution guide** — no CONTRIBUTING.md with code style expectations
 - [ ] **Minimal Swift doc comments** — Rust types have doc comments; Swift services/views have almost none
