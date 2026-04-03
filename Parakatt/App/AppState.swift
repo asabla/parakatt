@@ -1131,9 +1131,14 @@ class AppState: ObservableObject {
                 )
                 DispatchQueue.main.async {
                     if self.isRecording || self.isProcessing {
-                        // Store accumulated text; streaming preview composes the display.
-                        self.pttAccumulatedText = result.accumulatedText.isEmpty
+                        let newAccumulated = result.accumulatedText.isEmpty
                             ? nil : result.accumulatedText
+                        self.pttAccumulatedText = newAccumulated
+                        // Immediately update live display to prevent flash/disappearance
+                        // The streaming preview will append the tail on its next cycle
+                        if let text = newAccumulated {
+                            self.liveTranscription = text
+                        }
                     }
                 }
                 NSLog("[Parakatt] PTT chunk %d: \"%@\"", currentIndex, result.text)
@@ -1199,10 +1204,27 @@ class AppState: ObservableObject {
                 )
                 DispatchQueue.main.async {
                     if self.isRecording {
-                        if let prefix = accumulatedPrefix, !prefix.isEmpty {
-                            // Compose: accumulated chunk text + streaming tail preview
-                            let tail = result.text.isEmpty ? "" : "\n\n" + result.text
-                            self.liveTranscription = prefix + tail
+                        // Use latest accumulated text (may have changed during transcription)
+                        let currentPrefix = self.pttAccumulatedText
+
+                        if let prefix = currentPrefix, !prefix.isEmpty {
+                            if result.text.isEmpty {
+                                // No streaming tail — just show accumulated
+                                self.liveTranscription = prefix
+                            } else {
+                                // Append tail, but skip if it duplicates the end of accumulated
+                                let tail = result.text
+                                let prefixSuffix = String(prefix.suffix(80)).lowercased()
+                                let tailPrefix = String(tail.prefix(80)).lowercased()
+
+                                // Check for overlap: if the tail starts with text that
+                                // already ends the accumulated, skip it to avoid duplication
+                                if prefixSuffix.hasSuffix(tailPrefix.prefix(30)) && tailPrefix.count > 30 {
+                                    self.liveTranscription = prefix
+                                } else {
+                                    self.liveTranscription = prefix + "\n\n" + tail
+                                }
+                            }
                         } else {
                             self.liveTranscription = result.text.isEmpty ? nil : result.text
                         }
