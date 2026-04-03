@@ -89,6 +89,7 @@ class AppState: ObservableObject {
 
     // MARK: - Lifecycle
 
+    /// Initialize the Rust engine, audio services, and load settings from config.
     func initializeEngine() {
         // Set up services
         textInsertionService = TextInsertionService()
@@ -170,6 +171,7 @@ class AppState: ObservableObject {
         }
     }
 
+    /// Clean up all running sessions and audio capture on app termination.
     func shutdown() {
         stopRecording()
         if let sessionId = pttSessionId {
@@ -184,6 +186,7 @@ class AppState: ObservableObject {
 
     // MARK: - Recording
 
+    /// Start a push-to-talk recording session via AVAudioEngine.
     func startRecording() {
         guard !isRecording, !isCaptureDraining else {
             NSLog("[Parakatt] startRecording called but already recording or draining — ignoring")
@@ -243,6 +246,7 @@ class AppState: ObservableObject {
     /// Allows the AVAudioEngine tap to deliver remaining buffered samples (~256ms).
     private let captureDrainDelaySecs: TimeInterval = 0.3
 
+    /// Stop recording and process the captured audio through the STT pipeline.
     func stopRecording() {
         guard isRecording else { return }
 

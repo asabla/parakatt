@@ -92,6 +92,7 @@ class AudioCaptureService {
         NSLog("[Parakatt] Audio capture STARTED")
     }
 
+    /// Stop the current recording session and tear down the audio engine.
     func stopCapture() {
         engineLock.lock()
         let hasEngine = audioEngine != nil
