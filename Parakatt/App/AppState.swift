@@ -78,7 +78,7 @@ class AppState: ObservableObject {
     private var isCaptureDraining = false
 
     /// Seconds before transitioning from single-shot preview to incremental chunking.
-    private let firstChunkDelaySecs: TimeInterval = 5.0
+    private let firstChunkDelaySecs: TimeInterval = 2.0
     /// Chunk dispatch interval after the first chunk (30s chunk - 2s overlap).
     private let pttChunkIntervalSecs: TimeInterval = 28.0
 
