@@ -71,6 +71,8 @@ struct RecordingOverlayView: View {
 
     /// Tracks whether the glow entrance effect is active.
     @State private var showEntranceGlow = false
+    /// Tracks the entrance animation state.
+    @State private var isAppeared = false
 
     private var hasText: Bool {
         if let text = liveText, !text.isEmpty { return true }
@@ -187,11 +189,22 @@ struct RecordingOverlayView: View {
         // Normal shadow + entrance glow
         .shadow(color: .black.opacity(0.25), radius: 12, y: 4)
         .shadow(color: .red.opacity(showEntranceGlow ? 0.5 : 0), radius: 20, y: 0)
+        // Entrance animation: scale up + fade in
+        .scaleEffect(isAppeared ? 1.0 : 0.92)
+        .opacity(isAppeared ? 1.0 : 0.0)
         .onAppear {
-            guard isRecording, !reduceMotion else { return }
-            showEntranceGlow = true
-            withAnimation(.easeOut(duration: 1.5)) {
-                showEntranceGlow = false
+            if reduceMotion {
+                isAppeared = true
+                return
+            }
+            withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
+                isAppeared = true
+            }
+            if isRecording {
+                showEntranceGlow = true
+                withAnimation(.easeOut(duration: 1.5)) {
+                    showEntranceGlow = false
+                }
             }
         }
         .onChange(of: isRecording) { _, recording in
