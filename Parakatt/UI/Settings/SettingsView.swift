@@ -8,11 +8,11 @@ struct SettingsView: View {
             DashboardSettingsView()
                 .tabItem { Label("Dashboard", systemImage: "house") }
 
-            ModelsSettingsView()
-                .tabItem { Label("Models", systemImage: "arrow.down.circle") }
-
             GeneralSettingsView()
                 .tabItem { Label("General", systemImage: "gear") }
+
+            ModelsSettingsView()
+                .tabItem { Label("Models", systemImage: "arrow.down.circle") }
 
             LlmSettingsView()
                 .tabItem { Label("LLM", systemImage: "brain") }
