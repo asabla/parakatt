@@ -134,13 +134,22 @@ struct RecordingOverlayView: View {
 
                     Group {
                         if let text = liveText, !text.isEmpty {
-                            ScrollView {
-                                Text(text)
-                                    .font(.system(.body, design: .rounded))
-                                    .multilineTextAlignment(.leading)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            ScrollViewReader { proxy in
+                                ScrollView {
+                                    Text(text)
+                                        .font(.system(.body, design: .rounded))
+                                        .multilineTextAlignment(.leading)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .id("liveText")
+                                }
+                                .onChange(of: text) { _, _ in
+                                    proxy.scrollTo("liveText", anchor: .bottom)
+                                }
+                                .onAppear {
+                                    proxy.scrollTo("liveText", anchor: .bottom)
+                                }
                             }
-                            .frame(maxHeight: 100)
+                            .frame(maxHeight: 160)
                         } else if silenceDetected {
                             Label("No audio detected — check your microphone", systemImage: "mic.slash")
                                 .font(.callout)
