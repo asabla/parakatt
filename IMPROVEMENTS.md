@@ -39,9 +39,9 @@ Tracked improvements and feature ideas for Parakatt.
 
 ## Customization
 
-- [ ] **Custom modes** — users can't create their own modes with custom LLM prompts (only 4 built-in)
-- [ ] **Per-app mode defaults** — auto-switch to "Code" mode when VS Code is focused, "Email" in Mail, etc.
-- [ ] **Profiles** — save/load different config sets (work vs personal)
+- [x] **Custom modes** — users can't create their own modes with custom LLM prompts (only 4 built-in)
+- [x] **Per-app mode defaults** — auto-switch to "Code" mode when VS Code is focused, "Email" in Mail, etc.
+- [x] **Profiles** — save/load different config sets (work vs personal)
 
 ## Security
 
