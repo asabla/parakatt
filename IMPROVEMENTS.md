@@ -23,8 +23,8 @@ Tracked improvements and feature ideas for Parakatt.
 - [x] **More export formats** — only Markdown today; add CSV/JSON for integrations
 - [ ] **Batch export** — can only export one transcription at a time
 - [ ] **Backup/restore** — no way to back up the SQLite DB from within the app
-- [ ] **Auto-cleanup** — configurable retention (e.g., auto-delete transcriptions after N days)
-- [ ] **Usage statistics** — total hours transcribed, word counts, mode breakdown
+- [x] **Auto-cleanup** — configurable retention (e.g., auto-delete transcriptions after N days)
+- [x] **Usage statistics** — total hours transcribed, word counts, mode breakdown
 
 ## Audio & Performance
 
@@ -33,7 +33,7 @@ Tracked improvements and feature ideas for Parakatt.
 - [ ] **Audio quality indicators** — warn if input is too quiet, clipping, or mic isn't connected
 - [ ] **Resume interrupted model downloads** — add HTTP Range header support for resumable downloads
 - [ ] **Device hot-plug handling** — if user unplugs explicitly-selected headphones mid-recording, no recovery; add AudioObjectPropertyListener
-- [ ] **Cache system audio converter** — SystemAudioCaptureService recreates AVAudioConverter every callback; cache and reuse
+- [x] **Cache system audio converter** — SystemAudioCaptureService recreates AVAudioConverter every callback; cache and reuse (already implemented)
 - [ ] **Audio preprocessing enhancements** — no noise reduction, echo cancellation, or pre-emphasis filtering; could improve STT quality
 - [ ] **Unnecessary audio copy in STT** — `parakeet.rs` calls `audio.to_vec()` creating ~115MB copy for 30min recordings; investigate zero-copy API
 
@@ -48,7 +48,7 @@ Tracked improvements and feature ideas for Parakatt.
 - [x] **SQL injection in storage.rs** — `list()` and `search_fts()` use string concatenation for source filter; switch to parameterized queries
 - [ ] **API keys stored in plaintext** — config.toml stores OpenAI/Anthropic keys unencrypted; use macOS Keychain instead
 - [x] **Model download checksum verification** — downloaded ONNX files aren't validated against known hashes
-- [ ] **ReDoS risk in dictionary** — user-supplied regex patterns (via `re:` prefix) have no complexity limits or timeout
+- [x] **ReDoS risk in dictionary** — user-supplied regex patterns (via `re:` prefix) have no complexity limits or timeout
 
 ## Concurrency & Correctness
 
@@ -89,10 +89,10 @@ Tracked improvements and feature ideas for Parakatt.
 ## CI/CD & Build
 
 - [x] **No PR testing workflow** — no CI runs on pull requests (no linting, testing, or build verification)
-- [ ] **No linting enforcement** — no SwiftLint, rustfmt, or clippy checks in CI
+- [x] **No linting enforcement** — no SwiftLint, rustfmt, or clippy checks in CI
 - [ ] **No code signing / notarization** — self-signed only; users must bypass Gatekeeper with xattr workaround
 - [ ] **No auto-update framework** — no Sparkle integration; users must manually download new releases
-- [ ] **Manual version bumping** — version hardcoded in 4+ places (Makefile, project.yml, Info.plist, homebrew template); needs single source of truth
+- [x] **Manual version bumping** — version hardcoded in 4+ places (Makefile, project.yml, Info.plist, homebrew template); needs single source of truth
 - [ ] **No changelog generation** — manual CHANGELOG.md edits; consider git-cliff or conventional commits
 - [ ] **swift-package always regenerates** — `make swift-package` deletes and recreates ParakattCore/ even for minor changes; add incremental check
 - [x] **No Cargo release profile optimization** — missing LTO, codegen-units, strip settings in `[profile.release]`
@@ -108,10 +108,10 @@ Tracked improvements and feature ideas for Parakatt.
 ## Accessibility
 
 - [ ] **VoiceOver support** — not tested for screen readers
-- [ ] **Respect Reduce Motion** — animations play regardless of system setting
+- [x] **Respect Reduce Motion** — animations play regardless of system setting
 
 ## Documentation
 
-- [ ] **No troubleshooting section** — README lacks guidance for common issues (permissions, model downloads, LLM timeouts)
+- [x] **No troubleshooting section** — README lacks guidance for common issues (permissions, model downloads, LLM timeouts)
 - [ ] **No contribution guide** — no CONTRIBUTING.md with code style expectations
 - [ ] **Minimal Swift doc comments** — Rust types have doc comments; Swift services/views have almost none
