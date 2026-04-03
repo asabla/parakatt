@@ -43,11 +43,11 @@ private struct RecordingDot: View {
     var body: some View {
         Circle()
             .fill(.red)
-            .frame(width: 8, height: 8)
+            .frame(width: 10, height: 10)
             .overlay(
                 Circle()
                     .fill(.red.opacity(0.4))
-                    .frame(width: 16, height: 16)
+                    .frame(width: 20, height: 20)
                     .scaleEffect(isPulsing ? 1.0 : 0.5)
                     .opacity(isPulsing ? 0.0 : 0.6)
             )
@@ -69,6 +69,9 @@ struct RecordingOverlayView: View {
     let silenceDetected: Bool
     let clippingDetected: Bool
 
+    /// Tracks whether the glow entrance effect is active.
+    @State private var showEntranceGlow = false
+
     private var hasText: Bool {
         if let text = liveText, !text.isEmpty { return true }
         return false
@@ -78,30 +81,50 @@ struct RecordingOverlayView: View {
         silenceDetected || clippingDetected
     }
 
+    private let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            // Red accent bar along the top edge
             if isRecording {
-                // Header bar — always visible
-                HStack(spacing: 8) {
+                LinearGradient(
+                    colors: [.red.opacity(0.9), .orange.opacity(0.7)],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+                .frame(height: 3)
+                .clipShape(
+                    UnevenRoundedRectangle(
+                        topLeadingRadius: 14,
+                        bottomLeadingRadius: 0,
+                        bottomTrailingRadius: 0,
+                        topTrailingRadius: 14
+                    )
+                )
+            }
+
+            if isRecording {
+                // Header bar — larger sizing for visibility
+                HStack(spacing: 10) {
                     RecordingDot()
 
                     AudioLevelBarsView(level: audioLevel, tint: .red.opacity(0.8))
 
                     Text("Recording")
-                        .font(.system(.callout, weight: .semibold))
+                        .font(.system(.body, weight: .semibold))
                         .foregroundStyle(.primary)
 
                     Spacer()
 
                     Text("Release to stop")
-                        .font(.caption2)
+                        .font(.caption)
                         .foregroundStyle(.tertiary)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
                         .background(.ultraThinMaterial, in: Capsule())
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 12)
 
                 // Expanded content — live text or warnings
                 if hasText || hasWarning {
@@ -120,39 +143,55 @@ struct RecordingOverlayView: View {
                             .frame(maxHeight: 100)
                         } else if silenceDetected {
                             Label("No audio detected — check your microphone", systemImage: "mic.slash")
-                                .font(.caption)
+                                .font(.callout)
                                 .foregroundStyle(.orange)
                         } else if clippingDetected {
                             Label("Audio clipping — move further from mic", systemImage: "exclamationmark.triangle")
-                                .font(.caption)
+                                .font(.callout)
                                 .foregroundStyle(.orange)
                         }
                     }
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, 18)
                     .padding(.vertical, 10)
                 }
 
             } else if isProcessing {
-                HStack(spacing: 8) {
+                HStack(spacing: 10) {
                     ProgressView()
                         .controlSize(.small)
                     Text("Processing...")
-                        .font(.system(.callout, weight: .medium))
+                        .font(.system(.body, weight: .medium))
                         .foregroundStyle(.secondary)
                     Spacer()
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 12)
             }
         }
-        .frame(width: 380)
+        .frame(width: 400)
         .fixedSize(horizontal: false, vertical: true)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .strokeBorder(.white.opacity(0.08), lineWidth: 0.5)
         )
+        // Normal shadow + entrance glow
         .shadow(color: .black.opacity(0.25), radius: 12, y: 4)
+        .shadow(color: .red.opacity(showEntranceGlow ? 0.5 : 0), radius: 20, y: 0)
+        .onAppear {
+            guard isRecording, !reduceMotion else { return }
+            showEntranceGlow = true
+            withAnimation(.easeOut(duration: 1.5)) {
+                showEntranceGlow = false
+            }
+        }
+        .onChange(of: isRecording) { _, recording in
+            guard recording, !reduceMotion else { return }
+            showEntranceGlow = true
+            withAnimation(.easeOut(duration: 1.5)) {
+                showEntranceGlow = false
+            }
+        }
     }
 }
 
