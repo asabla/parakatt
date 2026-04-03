@@ -141,6 +141,22 @@ class CoreBridge {
 
     // MARK: - Modes
 
+    func getAppModeDefaults() throws -> [(String, String)] {
+        let raw = try engine.getAppModeDefaults()
+        return raw.compactMap { pair in
+            guard pair.count == 2 else { return nil }
+            return (pair[0], pair[1])
+        }
+    }
+
+    func setAppModeDefault(bundleId: String, mode: String) throws {
+        try engine.setAppModeDefault(bundleId: bundleId, mode: mode)
+    }
+
+    func resolveModeForApp(bundleId: String?) throws -> String {
+        try engine.resolveModeForApp(bundleId: bundleId)
+    }
+
     func saveMode(_ mode: ModeConfig) throws {
         try engine.saveMode(mode: mode)
     }

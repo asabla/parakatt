@@ -521,6 +521,23 @@ class AppState: ObservableObject {
         }
     }
 
+    func getAppModeDefaults() -> [(String, String)] {
+        do {
+            return try bridge?.getAppModeDefaults() ?? []
+        } catch {
+            NSLog("[Parakatt] Failed to get app mode defaults: %@", error.localizedDescription)
+            return []
+        }
+    }
+
+    func setAppModeDefault(bundleId: String, mode: String) {
+        do {
+            try bridge?.setAppModeDefault(bundleId: bundleId, mode: mode)
+        } catch {
+            NSLog("[Parakatt] Failed to set app mode default: %@", error.localizedDescription)
+        }
+    }
+
     func deleteMode(_ name: String) {
         do {
             try bridge?.deleteMode(name)
@@ -945,11 +962,20 @@ class AppState: ObservableObject {
 
             let context = self.contextService?.currentContext()
 
+            // Resolve mode: use per-app default if configured, otherwise global active mode
+            let effectiveMode: String
+            if let bundleId = context?.appBundleId,
+               let resolved = try? bridge.resolveModeForApp(bundleId: bundleId) {
+                effectiveMode = resolved
+            } else {
+                effectiveMode = self.activeMode
+            }
+
             do {
                 let result = try bridge.transcribe(
                     audioSamples: samples,
                     sampleRate: 16000,
-                    mode: self.activeMode,
+                    mode: effectiveMode,
                     context: context
                 )
 
