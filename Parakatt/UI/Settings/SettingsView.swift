@@ -487,57 +487,42 @@ struct GeneralSettingsView: View {
                         .tracking(0.5)
 
                     VStack(spacing: 0) {
-                        Toggle(isOn: Binding(
-                            get: { appState.autoPaste },
-                            set: { appState.setAutoPaste($0) }
-                        )) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Auto-paste transcription")
-                                    .font(.system(.body))
-                                Text("Automatically insert text at cursor after recording")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        .toggleStyle(.switch)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
+                        BehaviorToggleRow(
+                            icon: "doc.on.clipboard",
+                            color: .blue,
+                            label: "Auto-paste transcription",
+                            description: "Automatically insert text at cursor after recording",
+                            isOn: Binding(
+                                get: { appState.autoPaste },
+                                set: { appState.setAutoPaste($0) }
+                            )
+                        )
 
-                        Divider().padding(.leading, 14)
+                        Divider().padding(.leading, 52)
 
-                        Toggle(isOn: Binding(
-                            get: { appState.showRecordingOverlay },
-                            set: { appState.setShowOverlay($0) }
-                        )) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Show recording overlay")
-                                    .font(.system(.body))
-                                Text("Display a floating window with live transcription while recording")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        .toggleStyle(.switch)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
+                        BehaviorToggleRow(
+                            icon: "rectangle.on.rectangle",
+                            color: .green,
+                            label: "Show recording overlay",
+                            description: "Display a floating window with live transcription while recording",
+                            isOn: Binding(
+                                get: { appState.showRecordingOverlay },
+                                set: { appState.setShowOverlay($0) }
+                            )
+                        )
 
-                        Divider().padding(.leading, 14)
+                        Divider().padding(.leading, 52)
 
-                        Toggle(isOn: Binding(
-                            get: { appState.debugMode },
-                            set: { appState.setDebugMode($0) }
-                        )) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Debug mode")
-                                    .font(.system(.body))
-                                Text("Enable verbose logging for troubleshooting (visible in Console.app)")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        .toggleStyle(.switch)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
+                        BehaviorToggleRow(
+                            icon: "ant",
+                            color: .orange,
+                            label: "Debug mode",
+                            description: "Enable verbose logging for troubleshooting (visible in Console.app)",
+                            isOn: Binding(
+                                get: { appState.debugMode },
+                                set: { appState.setDebugMode($0) }
+                            )
+                        )
                     }
                     .background {
                         RoundedRectangle(cornerRadius: 10)
@@ -791,6 +776,45 @@ class HotkeyRecorderNSView: NSView {
         case 101: return "f9"; case 109: return "f10"; case 103: return "f11"; case 111: return "f12"
         default: return ""
         }
+    }
+}
+
+private struct BehaviorToggleRow: View {
+    let icon: String
+    let color: Color
+    let label: String
+    let description: String
+    @Binding var isOn: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(isOn ? .white : color)
+                .frame(width: 28, height: 28)
+                .background(
+                    isOn ? AnyShapeStyle(color) : AnyShapeStyle(color.opacity(0.15)),
+                    in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+                )
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(label)
+                    .font(.system(.body, weight: .medium))
+                Text(description)
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(2)
+            }
+
+            Spacer()
+
+            Toggle("", isOn: $isOn)
+                .toggleStyle(.switch)
+                .labelsHidden()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .contentShape(Rectangle())
     }
 }
 
