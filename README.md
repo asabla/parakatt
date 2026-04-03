@@ -75,6 +75,38 @@ If you download a release that hasn't been notarized by Apple, macOS Gatekeeper 
 
 This is standard for open-source macOS apps distributed outside the App Store.
 
+## Troubleshooting
+
+**"No audio captured" after recording**
+- Check that Parakatt has Microphone permission in System Settings > Privacy & Security > Microphone
+- If using Bluetooth headphones, try switching to the built-in microphone — some Bluetooth devices cause issues with AVAudioEngine
+
+**Model download stalls or fails**
+- The Parakeet model is ~2.5GB; ensure a stable internet connection
+- If download fails partway, restart the app — it will skip already-downloaded files and resume
+- Check Console.app for `[Parakatt]` logs for detailed error messages
+
+**LLM post-processing not working**
+- Use the "Test Connection" button in Settings > LLM to verify connectivity
+- For Ollama: ensure the server is running (`ollama serve`) and the model is pulled (`ollama pull llama3.2`)
+- For OpenAI: verify your API key is correct and has available credits
+- Dictation mode skips LLM processing by design — switch to Clean, Email, or Code mode
+
+**Meeting transcription: no system audio captured**
+- System Audio Recording permission is required: System Settings > Privacy & Security > Screen & System Audio Recording
+- On macOS 15+, only "System Audio Recording" is needed (not full Screen Recording)
+- If a specific app is selected but not running, Parakatt falls back to all system audio
+
+**Hotkey not working**
+- Ensure Accessibility permission is granted in System Settings > Privacy & Security > Accessibility
+- Option+Space may conflict with system input source switching — check System Settings > Keyboard > Shortcuts
+- Hotkey may not work in full-screen apps or during Screen Time restrictions
+
+**Text not pasted after recording**
+- Parakatt needs Accessibility permission to insert text directly
+- If paste fails, the transcription is still available in the menu bar and history
+- Check that "Auto-paste transcription" is enabled in Settings > General
+
 ## License
 
 [MIT](LICENSE)
