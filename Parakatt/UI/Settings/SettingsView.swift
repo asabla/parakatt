@@ -47,7 +47,7 @@ struct DashboardSettingsView: View {
 
                 // App header
                 HStack(spacing: 14) {
-                    Image(nsImage: NSApp.applicationIconImage)
+                    Image("ParakattLogo")
                         .resizable()
                         .frame(width: 48, height: 48)
                         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
