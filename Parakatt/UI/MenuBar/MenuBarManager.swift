@@ -144,15 +144,30 @@ class MenuBarManager: NSObject {
         settingsItem.target = self
         menu.addItem(settingsItem)
 
-        let diagItem = NSMenuItem(title: "Run Diagnostic", action: #selector(runDiagnostic), keyEquivalent: "d")
+        // Help & Diagnostics submenu
+        let helpMenu = NSMenu()
+
+        let diagItem = NSMenuItem(title: "Run Audio Diagnostic", action: #selector(runDiagnostic), keyEquivalent: "")
         diagItem.target = self
-        menu.addItem(diagItem)
+        helpMenu.addItem(diagItem)
 
         if #available(macOS 14.2, *) {
             let sysDiagItem = NSMenuItem(title: "Run System Audio Diagnostic", action: #selector(runSystemAudioDiagnostic), keyEquivalent: "")
             sysDiagItem.target = self
-            menu.addItem(sysDiagItem)
+            helpMenu.addItem(sysDiagItem)
         }
+
+        helpMenu.addItem(.separator())
+
+        let openLogsItem = NSMenuItem(title: "Open Log File", action: #selector(openLogFile), keyEquivalent: "")
+        openLogsItem.target = self
+        helpMenu.addItem(openLogsItem)
+
+        let helpMenuItem = NSMenuItem(title: "Help & Diagnostics", action: nil, keyEquivalent: "")
+        helpMenuItem.submenu = helpMenu
+        menu.addItem(helpMenuItem)
+
+        menu.addItem(.separator())
 
         let quitItem = NSMenuItem(title: "Quit Parakatt", action: #selector(quit), keyEquivalent: "q")
         quitItem.target = self
@@ -167,16 +182,18 @@ class MenuBarManager: NSObject {
         appState.$isRecording
             .combineLatest(appState.$isProcessing, appState.$isModelLoaded)
             .combineLatest(appState.$isMeetingActive)
-            .removeDuplicates { a, b in a.0.0 == b.0.0 && a.0.1 == b.0.1 && a.0.2 == b.0.2 && a.1 == b.1 }
+            .combineLatest(appState.$isDownloading)
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] combined, isMeetingActive in
-                let (isRecording, isProcessing, isModelLoaded) = combined
+            .sink { [weak self] nested, isDownloading in
+                let (inner, isMeetingActive) = nested
+                let (isRecording, isProcessing, isModelLoaded) = inner
                 guard let self else { return }
 
                 let newState: IconState
                 if isMeetingActive { newState = .meeting }
                 else if isRecording { newState = .recording }
                 else if isProcessing { newState = .processing }
+                else if isDownloading { newState = .loading }
                 else if !isModelLoaded { newState = .loading }
                 else { newState = .idle }
 
@@ -206,7 +223,15 @@ class MenuBarManager: NSObject {
                     self.recordMenuItem.isEnabled = false
                     self.meetingMenuItem.isEnabled = false
                 case .loading:
-                    self.statusMenuItem.title = "Loading model..."
+                    if isDownloading, let progress = self.appState.downloadProgress,
+                       progress.bytesTotal > 0 {
+                        let pct = Int(Double(progress.bytesDownloaded) / Double(progress.bytesTotal) * 100)
+                        self.statusMenuItem.title = "Downloading model... \(pct)%"
+                    } else if isDownloading {
+                        self.statusMenuItem.title = "Downloading model..."
+                    } else {
+                        self.statusMenuItem.title = "Loading model..."
+                    }
                     self.recordMenuItem.title = "Start Recording"
                     self.recordMenuItem.isEnabled = false
                     self.meetingMenuItem.isEnabled = false
@@ -413,7 +438,7 @@ class MenuBarManager: NSObject {
 
         let view = SettingsView().environmentObject(appState)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 550, height: 450),
+            contentRect: NSRect(x: 0, y: 0, width: 700, height: 500),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -434,6 +459,15 @@ class MenuBarManager: NSObject {
     @available(macOS 14.2, *)
     @objc private func runSystemAudioDiagnostic() {
         appState.runSystemAudioDiagnostic()
+    }
+
+    @objc private func openLogFile() {
+        let logDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("Parakatt/logs")
+        if let logDir {
+            // Open the log directory in Finder
+            NSWorkspace.shared.open(logDir)
+        }
     }
 
     @objc private func quit() {

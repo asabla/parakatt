@@ -3,6 +3,7 @@ pub mod config;
 pub mod dictionary;
 pub mod download;
 pub mod engine;
+pub mod filler;
 pub mod llm;
 pub mod models;
 pub mod modes;

@@ -74,17 +74,20 @@ struct TranscriptionDetailView: View {
                 Button {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(item.text, forType: .string)
-                    withAnimation(.easeInOut(duration: 0.2)) { copied = true }
+                    let anim: Animation? = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+                        ? nil : .easeInOut(duration: 0.2)
+                    withAnimation(anim) { copied = true }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                        withAnimation(.easeInOut(duration: 0.2)) { copied = false }
+                        withAnimation(anim) { copied = false }
                     }
                 } label: {
                     Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
                 }
                 .tint(copied ? .green : nil)
 
-                Button {
-                    exportMarkdown()
+                Menu {
+                    Button("Markdown (.md)") { exportMarkdown() }
+                    Button("JSON (.json)") { exportJSON() }
                 } label: {
                     Label("Export", systemImage: "square.and.arrow.up")
                 }
@@ -239,6 +242,40 @@ struct TranscriptionDetailView: View {
             \(bodyText)
             """
             try? md.write(to: url, atomically: true, encoding: .utf8)
+        }
+    }
+
+    private func exportJSON() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [UTType.json]
+        panel.nameFieldStringValue = "\(item.title ?? "transcription").json"
+
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+
+            var dict: [String: Any] = [
+                "id": item.id,
+                "title": item.title ?? "",
+                "created_at": item.createdAt,
+                "duration_secs": item.durationSecs,
+                "source": item.source,
+                "mode": item.mode,
+                "text": item.text,
+            ]
+
+            if !segments.isEmpty {
+                dict["segments"] = segments.map { seg in
+                    [
+                        "text": seg.text,
+                        "start_secs": seg.startSecs,
+                        "end_secs": seg.endSecs,
+                    ] as [String: Any]
+                }
+            }
+
+            if let data = try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted, .sortedKeys]) {
+                try? data.write(to: url)
+            }
         }
     }
 

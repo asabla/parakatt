@@ -4,7 +4,6 @@
 ///
 /// Expects f32le, 16kHz, mono.
 /// Default path: /tmp/parakatt_test.raw
-
 use parakatt_core::engine::Engine;
 use parakatt_core::*;
 
@@ -13,10 +12,7 @@ fn main() {
         .nth(1)
         .unwrap_or_else(|| "/tmp/parakatt_test.raw".to_string());
 
-    let models_dir = format!(
-        "{}/Parakatt/models",
-        dirs::data_dir().unwrap().display()
-    );
+    let models_dir = format!("{}/Parakatt/models", dirs::data_dir().unwrap().display());
     let config_dir = format!("{}/parakatt-test", std::env::temp_dir().display());
 
     // Read audio
@@ -37,7 +33,12 @@ fn main() {
     let duration = samples.len() as f64 / 16000.0;
     let max_amp: f32 = samples.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
 
-    eprintln!("Samples: {} ({:.1}s), max amplitude: {:.6}", samples.len(), duration, max_amp);
+    eprintln!(
+        "Samples: {} ({:.1}s), max amplitude: {:.6}",
+        samples.len(),
+        duration,
+        max_amp
+    );
 
     if max_amp < 0.001 {
         eprintln!("Audio is silence — nothing to transcribe");

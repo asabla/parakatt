@@ -1,5 +1,4 @@
 /// Integration tests for the Parakatt engine.
-
 use parakatt_core::engine::Engine;
 use parakatt_core::*;
 use std::path::PathBuf;

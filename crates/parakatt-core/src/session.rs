@@ -3,7 +3,6 @@
 /// Audio is processed in fixed-size chunks with overlap to avoid word splitting
 /// at boundaries. Each chunk is independently transcribed via STT, then
 /// overlap-deduplication stitches the results into a continuous transcript.
-
 use std::collections::HashMap;
 
 use crate::{CoreError, TimestampedSegment};
@@ -23,6 +22,9 @@ pub struct ChunkResult {
     pub chunk_offset_secs: f64,
 }
 
+/// Number of sentences per paragraph in accumulated text.
+const SENTENCES_PER_PARAGRAPH: usize = 3;
+
 /// Internal state for a running transcription session.
 struct SessionState {
     /// Full accumulated transcript text.
@@ -35,9 +37,12 @@ struct SessionState {
     total_duration_secs: f64,
     /// All segments accumulated across chunks, with absolute timestamps.
     accumulated_segments: Vec<TimestampedSegment>,
+    /// Sentence count for paragraph breaking.
+    sentence_count: usize,
 }
 
 /// Manages multiple concurrent transcription sessions.
+#[derive(Default)]
 pub struct SessionManager {
     sessions: HashMap<String, SessionState>,
 }
@@ -47,9 +52,7 @@ const OVERLAP_WORD_COUNT: usize = 8;
 
 impl SessionManager {
     pub fn new() -> Self {
-        Self {
-            sessions: HashMap::new(),
-        }
+        Self::default()
     }
 
     /// Start a new transcription session.
@@ -68,6 +71,7 @@ impl SessionManager {
                 chunk_count: 0,
                 total_duration_secs: 0.0,
                 accumulated_segments: Vec::new(),
+                sentence_count: 0,
             },
         );
 
@@ -101,10 +105,7 @@ impl SessionManager {
         };
 
         // Update trailing words for next chunk's dedup.
-        let all_words: Vec<String> = raw_text
-            .split_whitespace()
-            .map(|w| w.to_string())
-            .collect();
+        let all_words: Vec<String> = raw_text.split_whitespace().map(|w| w.to_string()).collect();
         state.prev_trailing_words = all_words
             .iter()
             .rev()
@@ -113,21 +114,45 @@ impl SessionManager {
             .cloned()
             .collect();
 
-        // Append to accumulated text.
-        if !new_text.is_empty() {
+        // Accumulate segments with absolute timestamps and build text
+        // with paragraph breaks: new paragraph at each chunk boundary,
+        // and every SENTENCES_PER_PARAGRAPH sentences within a chunk.
+        if !segments.is_empty() {
+            let mut chunk_sentence_count: usize = 0;
+
+            for seg in &segments {
+                state.accumulated_segments.push(TimestampedSegment {
+                    text: seg.text.clone(),
+                    start_secs: chunk_offset_secs + seg.start_secs,
+                    end_secs: chunk_offset_secs + seg.end_secs,
+                });
+
+                let trimmed = seg.text.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+
+                if !state.accumulated_text.is_empty() {
+                    // Paragraph break at chunk boundary (first sentence of new chunk)
+                    // or every N sentences within a chunk
+                    if chunk_sentence_count == 0
+                        || chunk_sentence_count.is_multiple_of(SENTENCES_PER_PARAGRAPH)
+                    {
+                        state.accumulated_text.push_str("\n\n");
+                    } else {
+                        state.accumulated_text.push(' ');
+                    }
+                }
+                state.accumulated_text.push_str(trimmed);
+                chunk_sentence_count += 1;
+            }
+            state.sentence_count += chunk_sentence_count;
+        } else if !new_text.is_empty() {
+            // Fallback: no segments available, use raw text with chunk breaks
             if !state.accumulated_text.is_empty() {
-                state.accumulated_text.push(' ');
+                state.accumulated_text.push_str("\n\n");
             }
             state.accumulated_text.push_str(&new_text);
-        }
-
-        // Accumulate segments with absolute timestamps (offset by chunk start).
-        for seg in &segments {
-            state.accumulated_segments.push(TimestampedSegment {
-                text: seg.text.clone(),
-                start_secs: chunk_offset_secs + seg.start_secs,
-                end_secs: chunk_offset_secs + seg.end_secs,
-            });
         }
 
         state.chunk_count += 1;
@@ -180,11 +205,17 @@ impl SessionManager {
     }
 }
 
+/// Strip leading/trailing punctuation from a word for comparison purposes.
+fn strip_punctuation(word: &str) -> &str {
+    word.trim_matches(|c: char| c.is_ascii_punctuation())
+}
+
 /// Remove overlapping words between the end of the previous chunk and the
 /// start of the current chunk's STT output.
 ///
 /// Finds the longest suffix of `prev_trailing` that matches a prefix of
-/// `current_text` (word-level, case-insensitive), then strips that prefix.
+/// `current_text` (word-level, case-insensitive, punctuation-insensitive),
+/// then strips that prefix.
 fn deduplicate_overlap(prev_trailing: &[String], current_text: &str) -> String {
     if prev_trailing.is_empty() || current_text.is_empty() {
         return current_text.to_string();
@@ -203,11 +234,9 @@ fn deduplicate_overlap(prev_trailing: &[String], current_text: &str) -> String {
         let suffix = &prev_trailing[prev_trailing.len() - suffix_len..];
         let prefix = &current_words[..suffix_len];
 
-        if suffix
-            .iter()
-            .zip(prefix.iter())
-            .all(|(a, b)| a.to_lowercase() == b.to_lowercase())
-        {
+        if suffix.iter().zip(prefix.iter()).all(|(a, b)| {
+            strip_punctuation(a).to_lowercase() == strip_punctuation(b).to_lowercase()
+        }) {
             best_overlap = suffix_len;
             break;
         }
@@ -233,12 +262,7 @@ mod tests {
 
     #[test]
     fn test_deduplicate_overlap_partial() {
-        let prev = vec![
-            "the".into(),
-            "quick".into(),
-            "brown".into(),
-            "fox".into(),
-        ];
+        let prev = vec!["the".into(), "quick".into(), "brown".into(), "fox".into()];
         let current = "brown fox jumps over";
         assert_eq!(deduplicate_overlap(&prev, current), "jumps over");
     }
@@ -271,6 +295,20 @@ mod tests {
     }
 
     #[test]
+    fn test_deduplicate_overlap_with_punctuation() {
+        let prev = vec!["the".into(), "quick".into(), "brown.".into()];
+        let current = "brown jumps over";
+        assert_eq!(deduplicate_overlap(&prev, current), "jumps over");
+    }
+
+    #[test]
+    fn test_deduplicate_overlap_punctuation_both_sides() {
+        let prev = vec!["hello,".into(), "world.".into()];
+        let current = "hello, world! and more";
+        assert_eq!(deduplicate_overlap(&prev, current), "and more");
+    }
+
+    #[test]
     fn test_session_lifecycle() {
         let mut mgr = SessionManager::new();
 
@@ -278,24 +316,31 @@ mod tests {
         assert!(mgr.has_session("test-1"));
 
         // First chunk
-        let r1 = mgr.add_chunk("test-1", "hello world this is chunk one", 30.0, vec![]).unwrap();
+        let r1 = mgr
+            .add_chunk("test-1", "hello world this is chunk one", 30.0, vec![])
+            .unwrap();
         assert_eq!(r1.chunk_index, 0);
         assert_eq!(r1.text, "hello world this is chunk one");
         assert!((r1.chunk_offset_secs - 0.0).abs() < 0.01);
 
         // Second chunk with overlap ("chunk one" repeated)
-        let r2 = mgr.add_chunk("test-1", "chunk one and here is chunk two", 30.0, vec![]).unwrap();
+        let r2 = mgr
+            .add_chunk("test-1", "chunk one and here is chunk two", 30.0, vec![])
+            .unwrap();
         assert_eq!(r2.chunk_index, 1);
         assert_eq!(r2.text, "and here is chunk two");
         assert_eq!(
             r2.accumulated_text,
-            "hello world this is chunk one and here is chunk two"
+            "hello world this is chunk one\n\nand here is chunk two"
         );
         assert!((r2.chunk_offset_secs - 30.0).abs() < 0.01);
 
         // Finish
         let (text, duration, segments) = mgr.finish("test-1").unwrap();
-        assert_eq!(text, "hello world this is chunk one and here is chunk two");
+        assert_eq!(
+            text,
+            "hello world this is chunk one\n\nand here is chunk two"
+        );
         assert!((duration - 60.0).abs() < 0.01);
         assert!(segments.is_empty()); // No segments passed in this test
         assert!(!mgr.has_session("test-1"));
@@ -305,7 +350,8 @@ mod tests {
     fn test_session_cancel() {
         let mut mgr = SessionManager::new();
         mgr.start("cancel-me").unwrap();
-        mgr.add_chunk("cancel-me", "some text", 10.0, vec![]).unwrap();
+        mgr.add_chunk("cancel-me", "some text", 10.0, vec![])
+            .unwrap();
         mgr.cancel("cancel-me");
         assert!(!mgr.has_session("cancel-me"));
     }
@@ -325,29 +371,52 @@ mod tests {
         mgr.start("long").unwrap();
 
         // Chunk 1: full new content
-        let r1 = mgr.add_chunk("long", "the meeting started with introductions", 30.0, vec![]).unwrap();
+        let r1 = mgr
+            .add_chunk(
+                "long",
+                "the meeting started with introductions",
+                30.0,
+                vec![],
+            )
+            .unwrap();
         assert_eq!(r1.chunk_index, 0);
         assert_eq!(r1.text, "the meeting started with introductions");
 
         // Chunk 2: overlap on "with introductions"
-        let r2 = mgr.add_chunk("long", "with introductions and then we discussed the budget", 30.0, vec![]).unwrap();
+        let r2 = mgr
+            .add_chunk(
+                "long",
+                "with introductions and then we discussed the budget",
+                30.0,
+                vec![],
+            )
+            .unwrap();
         assert_eq!(r2.chunk_index, 1);
         assert_eq!(r2.text, "and then we discussed the budget");
 
         // Chunk 3: overlap on "the budget"
-        let r3 = mgr.add_chunk("long", "the budget was reviewed by the finance team", 30.0, vec![]).unwrap();
+        let r3 = mgr
+            .add_chunk(
+                "long",
+                "the budget was reviewed by the finance team",
+                30.0,
+                vec![],
+            )
+            .unwrap();
         assert_eq!(r3.chunk_index, 2);
         assert_eq!(r3.text, "was reviewed by the finance team");
 
         // Chunk 4: no overlap (clean boundary)
-        let r4 = mgr.add_chunk("long", "next steps were assigned to everyone", 30.0, vec![]).unwrap();
+        let r4 = mgr
+            .add_chunk("long", "next steps were assigned to everyone", 30.0, vec![])
+            .unwrap();
         assert_eq!(r4.chunk_index, 3);
         assert_eq!(r4.text, "next steps were assigned to everyone");
 
         let (text, duration, _segments) = mgr.finish("long").unwrap();
         assert_eq!(
             text,
-            "the meeting started with introductions and then we discussed the budget was reviewed by the finance team next steps were assigned to everyone"
+            "the meeting started with introductions\n\nand then we discussed the budget\n\nwas reviewed by the finance team\n\nnext steps were assigned to everyone"
         );
         assert!((duration - 120.0).abs() < 0.01);
     }
@@ -365,7 +434,9 @@ mod tests {
             start_secs: 1.0,
             end_secs: 3.0,
         }];
-        let r1 = mgr.add_chunk("seg-test", "hello world", 30.0, seg1).unwrap();
+        let r1 = mgr
+            .add_chunk("seg-test", "hello world", 30.0, seg1)
+            .unwrap();
         assert!((r1.chunk_offset_secs - 0.0).abs() < 0.01);
 
         // Chunk 2 at offset 30s: segment at 2.0-5.0s relative to chunk
@@ -374,7 +445,9 @@ mod tests {
             start_secs: 2.0,
             end_secs: 5.0,
         }];
-        let r2 = mgr.add_chunk("seg-test", "second sentence", 30.0, seg2).unwrap();
+        let r2 = mgr
+            .add_chunk("seg-test", "second sentence", 30.0, seg2)
+            .unwrap();
         assert!((r2.chunk_offset_secs - 30.0).abs() < 0.01);
 
         let (_text, _dur, segments) = mgr.finish("seg-test").unwrap();

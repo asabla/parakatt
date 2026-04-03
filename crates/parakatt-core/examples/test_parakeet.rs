@@ -2,10 +2,7 @@ use parakatt_core::engine::Engine;
 use parakatt_core::*;
 
 fn main() {
-    let models_dir = format!(
-        "{}/Parakatt/models",
-        dirs::data_dir().unwrap().display()
-    );
+    let models_dir = format!("{}/Parakatt/models", dirs::data_dir().unwrap().display());
     let config_dir = format!("{}/parakatt-test", std::env::temp_dir().display());
 
     eprintln!("Models dir: {}", models_dir);

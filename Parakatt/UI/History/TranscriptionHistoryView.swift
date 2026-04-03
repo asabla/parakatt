@@ -1,5 +1,6 @@
 import SwiftUI
 import ParakattCore
+import UniformTypeIdentifiers
 
 /// Main history window — master-detail split inspired by Notes.app.
 struct TranscriptionHistoryView: View {
@@ -60,45 +61,66 @@ struct TranscriptionHistoryView: View {
     private var sidebarContent: some View {
         VStack(spacing: 0) {
             // Filter + selection mode toolbar
-            HStack(spacing: 8) {
-                if isSelectionMode {
-                    // Selection mode toolbar
-                    Text("\(selectedIds.count) selected")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
+            Group {
+            if isSelectionMode {
+                // Selection mode toolbar — two rows for breathing room
+                VStack(spacing: 8) {
+                    // Row 1: Selection count + management
+                    HStack {
+                        Text("\(selectedIds.count)")
+                            .font(.system(.title3, design: .rounded, weight: .semibold))
+                            .monospacedDigit()
+                        + Text(" selected")
+                            .font(.system(.body))
+                            .foregroundColor(.secondary)
 
-                    Spacer()
+                        Spacer()
 
-                    Button {
-                        if selectedIds.count == transcriptions.count {
-                            selectedIds.removeAll()
-                        } else {
-                            selectedIds = Set(transcriptions.map(\.id))
+                        Button {
+                            if selectedIds.count == transcriptions.count {
+                                selectedIds.removeAll()
+                            } else {
+                                selectedIds = Set(transcriptions.map(\.id))
+                            }
+                        } label: {
+                            Text(selectedIds.count == transcriptions.count ? "Deselect All" : "Select All")
                         }
-                    } label: {
-                        Text(selectedIds.count == transcriptions.count ? "Deselect All" : "Select All")
-                            .font(.caption)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(Color.accentColor)
 
-                    Button(role: .destructive) {
-                        showDeleteConfirmation = true
-                    } label: {
-                        Label("Delete", systemImage: "trash")
-                            .font(.caption)
+                        Button("Done") {
+                            isSelectionMode = false
+                            selectedIds.removeAll()
+                        }
+                        .buttonStyle(.bordered)
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .disabled(selectedIds.isEmpty)
 
-                    Button("Done") {
-                        isSelectionMode = false
-                        selectedIds.removeAll()
+                    // Row 2: Actions
+                    HStack(spacing: 8) {
+                        Button {
+                            exportSelected()
+                        } label: {
+                            Label("Export", systemImage: "square.and.arrow.up")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(selectedIds.isEmpty)
+
+                        Button(role: .destructive) {
+                            showDeleteConfirmation = true
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(.red)
+                        .disabled(selectedIds.isEmpty)
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                } else {
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+            } else {
+                HStack(spacing: 8) {
                     Picker("Filter", selection: Binding(
                         get: { activeFilter },
                         set: { option in
@@ -126,11 +148,17 @@ struct TranscriptionHistoryView: View {
                         .help("Select multiple items")
                     }
                 }
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
+                .padding(.bottom, 6)
             }
-            .padding(.horizontal, 12)
-            .padding(.top, 8)
-            .padding(.bottom, 6)
-            .animation(.easeInOut(duration: 0.15), value: isSelectionMode)
+            }
+            .animation(
+                NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+                    ? nil
+                    : .easeInOut(duration: 0.15),
+                value: isSelectionMode
+            )
 
             Divider()
 
@@ -281,6 +309,35 @@ struct TranscriptionHistoryView: View {
     private func copyText(_ text: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    private func exportSelected() {
+        let selected = transcriptions.filter { selectedIds.contains($0.id) }
+        guard !selected.isEmpty else { return }
+
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [UTType.json]
+        panel.nameFieldStringValue = "parakatt-export-\(selected.count).json"
+
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+
+            let items: [[String: Any]] = selected.map { item in
+                [
+                    "id": item.id,
+                    "title": item.title ?? "",
+                    "created_at": item.createdAt,
+                    "duration_secs": item.durationSecs,
+                    "source": item.source,
+                    "mode": item.mode,
+                    "text": item.text,
+                ]
+            }
+
+            if let data = try? JSONSerialization.data(withJSONObject: items, options: [.prettyPrinted, .sortedKeys]) {
+                try? data.write(to: url)
+            }
+        }
     }
 }
 

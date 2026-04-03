@@ -76,11 +76,43 @@ class CoreBridge {
         engine.getDictionaryRules()
     }
 
+    // MARK: - Behavior settings
+
+    /// Get whether debug logging is enabled.
+    func getDebugMode() throws -> Bool {
+        try engine.getDebugMode()
+    }
+
+    /// Enable or disable debug logging.
+    func setDebugMode(_ enabled: Bool) throws {
+        try engine.setDebugMode(enabled: enabled)
+    }
+
+    /// Get whether auto-paste after transcription is enabled.
+    func getAutoPaste() throws -> Bool {
+        try engine.getAutoPaste()
+    }
+
+    /// Enable or disable auto-paste after transcription.
+    func setAutoPaste(_ enabled: Bool) throws {
+        try engine.setAutoPaste(enabled: enabled)
+    }
+
+    /// Get whether the recording overlay is shown.
+    func getShowOverlay() throws -> Bool {
+        try engine.getShowOverlay()
+    }
+
+    /// Enable or disable the recording overlay.
+    func setShowOverlay(_ enabled: Bool) throws {
+        try engine.setShowOverlay(enabled: enabled)
+    }
+
     // MARK: - Hotkey config
 
     /// Get current hotkey configuration.
-    func getHotkeyConfig() -> HotkeyConfig {
-        engine.getHotkeyConfig()
+    func getHotkeyConfig() throws -> HotkeyConfig {
+        try engine.getHotkeyConfig()
     }
 
     /// Set and persist hotkey configuration.
@@ -89,8 +121,8 @@ class CoreBridge {
     }
 
     /// Get the preferred audio source bundle ID.
-    func getPreferredAudioSource() -> String? {
-        engine.getPreferredAudioSource()
+    func getPreferredAudioSource() throws -> String? {
+        try engine.getPreferredAudioSource()
     }
 
     /// Set and persist the preferred audio source bundle ID.
@@ -108,6 +140,75 @@ class CoreBridge {
         try engine.listLlmModels(provider: provider, baseUrl: baseUrl, apiKey: apiKey)
     }
 
+    /// Test the current LLM connection.
+    func testLlmConnection() throws -> String {
+        try engine.testLlmConnection()
+    }
+
+    // MARK: - Modes
+
+    /// Get per-app mode defaults as (bundleId, modeName) pairs.
+    func getAppModeDefaults() throws -> [(String, String)] {
+        let raw = try engine.getAppModeDefaults()
+        return raw.compactMap { pair in
+            guard pair.count == 2 else { return nil }
+            return (pair[0], pair[1])
+        }
+    }
+
+    /// Set a per-app mode default. Pass empty mode to remove.
+    func setAppModeDefault(bundleId: String, mode: String) throws {
+        try engine.setAppModeDefault(bundleId: bundleId, mode: mode)
+    }
+
+    /// Resolve which mode to use for a given app, falling back to the global default.
+    func resolveModeForApp(bundleId: String?) throws -> String {
+        try engine.resolveModeForApp(bundleId: bundleId)
+    }
+
+    // MARK: - Profiles
+
+    /// List available config profile names.
+    func listProfiles() -> [String] {
+        engine.listProfiles()
+    }
+
+    /// Save the current config as a named profile.
+    func saveProfile(_ name: String) throws {
+        try engine.saveProfile(name: name)
+    }
+
+    /// Load a named profile, replacing the current config.
+    func loadProfile(_ name: String) throws {
+        try engine.loadProfile(name: name)
+    }
+
+    /// Delete a named profile.
+    func deleteProfile(_ name: String) throws {
+        try engine.deleteProfile(name: name)
+    }
+
+    /// Save or update a custom mode.
+    func saveMode(_ mode: ModeConfig) throws {
+        try engine.saveMode(mode: mode)
+    }
+
+    /// Delete a custom mode by name. Built-in modes cannot be deleted.
+    func deleteMode(_ name: String) throws {
+        try engine.deleteMode(name: name)
+    }
+
+    // MARK: - Statistics
+
+    /// Get usage statistics as (label, value) pairs.
+    func getStatistics() throws -> [(String, String)] {
+        let raw = try engine.getStatistics()
+        return raw.compactMap { pair in
+            guard pair.count == 2 else { return nil }
+            return (pair[0], pair[1])
+        }
+    }
+
     // MARK: - Model downloading
 
     /// Start downloading a model in the background.
@@ -121,8 +222,8 @@ class CoreBridge {
     }
 
     /// Get current download progress (poll on a timer).
-    func getDownloadProgress() -> DownloadProgress {
-        engine.getDownloadProgress()
+    func getDownloadProgress() throws -> DownloadProgress {
+        try engine.getDownloadProgress()
     }
 
     /// Delete a downloaded model's files.

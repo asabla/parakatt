@@ -1,8 +1,7 @@
 /// SQLite-backed storage for transcription history with FTS5 full-text search.
-
 use std::path::Path;
 
-use rusqlite::{Connection, params};
+use rusqlite::{params, Connection};
 
 use crate::{CoreError, TimestampedSegment};
 
@@ -112,6 +111,13 @@ impl Storage {
                 );
                 CREATE INDEX IF NOT EXISTS idx_segments_transcription
                     ON transcript_segments(transcription_id);
+
+                CREATE INDEX IF NOT EXISTS idx_transcriptions_created_at
+                    ON transcriptions(created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_transcriptions_source
+                    ON transcriptions(source);
+                CREATE INDEX IF NOT EXISTS idx_transcriptions_source_created_at
+                    ON transcriptions(source, created_at DESC);
                 ",
             )
             .map_err(|e| CoreError::IoError(format!("Database migration failed: {e}")))?;
@@ -154,25 +160,29 @@ impl Storage {
             "SELECT id, created_at, duration_secs, source, mode, audio_source, app_context, title, text
              FROM transcriptions"
         );
-        let mut conditions = Vec::new();
+        let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        let mut param_idx = 1u32;
 
         if let Some(source) = &query.source_filter {
-            conditions.push(format!("source = '{}'", source.replace('\'', "''")));
-        }
-
-        if !conditions.is_empty() {
-            sql.push_str(" WHERE ");
-            sql.push_str(&conditions.join(" AND "));
+            sql.push_str(&format!(" WHERE source = ?{param_idx}"));
+            param_values.push(Box::new(source.clone()));
+            param_idx += 1;
         }
 
         sql.push_str(" ORDER BY created_at DESC");
-        sql.push_str(&format!(" LIMIT {} OFFSET {}", query.limit, query.offset));
+        sql.push_str(&format!(" LIMIT ?{param_idx} OFFSET ?{}", param_idx + 1));
+        param_values.push(Box::new(query.limit));
+        param_values.push(Box::new(query.offset));
 
-        let mut stmt = self.conn.prepare(&sql)
+        let mut stmt = self
+            .conn
+            .prepare(&sql)
             .map_err(|e| CoreError::IoError(format!("Query failed: {e}")))?;
 
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            param_values.iter().map(|p| p.as_ref()).collect();
         let rows = stmt
-            .query_map([], |row| {
+            .query_map(param_refs.as_slice(), |row| {
                 Ok(StoredTranscription {
                     id: row.get(0)?,
                     created_at: row.get(1)?,
@@ -189,9 +199,7 @@ impl Storage {
 
         let mut results = Vec::new();
         for row in rows {
-            results.push(
-                row.map_err(|e| CoreError::IoError(format!("Row read failed: {e}")))?
-            );
+            results.push(row.map_err(|e| CoreError::IoError(format!("Row read failed: {e}")))?);
         }
 
         Ok(results)
@@ -210,21 +218,32 @@ impl Storage {
                     t.audio_source, t.app_context, t.title, t.text
              FROM transcriptions t
              JOIN transcriptions_fts fts ON t.rowid = fts.rowid
-             WHERE transcriptions_fts MATCH ?1"
+             WHERE transcriptions_fts MATCH ?1",
         );
+        let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        param_values.push(Box::new(search_text.to_string()));
+        let mut param_idx = 2u32;
 
         if let Some(source) = source_filter {
-            sql.push_str(&format!(" AND t.source = '{}'", source.replace('\'', "''")));
+            sql.push_str(&format!(" AND t.source = ?{param_idx}"));
+            param_values.push(Box::new(source.clone()));
+            param_idx += 1;
         }
 
         sql.push_str(" ORDER BY rank");
-        sql.push_str(&format!(" LIMIT {} OFFSET {}", limit, offset));
+        sql.push_str(&format!(" LIMIT ?{param_idx} OFFSET ?{}", param_idx + 1));
+        param_values.push(Box::new(limit));
+        param_values.push(Box::new(offset));
 
-        let mut stmt = self.conn.prepare(&sql)
+        let mut stmt = self
+            .conn
+            .prepare(&sql)
             .map_err(|e| CoreError::IoError(format!("FTS query failed: {e}")))?;
 
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            param_values.iter().map(|p| p.as_ref()).collect();
         let rows = stmt
-            .query_map(params![search_text], |row| {
+            .query_map(param_refs.as_slice(), |row| {
                 Ok(StoredTranscription {
                     id: row.get(0)?,
                     created_at: row.get(1)?,
@@ -241,9 +260,7 @@ impl Storage {
 
         let mut results = Vec::new();
         for row in rows {
-            results.push(
-                row.map_err(|e| CoreError::IoError(format!("Row read failed: {e}")))?
-            );
+            results.push(row.map_err(|e| CoreError::IoError(format!("Row read failed: {e}")))?);
         }
 
         Ok(results)
@@ -275,7 +292,8 @@ impl Storage {
 
     /// Update the title of a transcription.
     pub fn update_title(&self, id: &str, title: &str) -> Result<(), CoreError> {
-        let changed = self.conn
+        let changed = self
+            .conn
             .execute(
                 "UPDATE transcriptions SET title = ?1 WHERE id = ?2",
                 params![title, id],
@@ -323,7 +341,10 @@ impl Storage {
     }
 
     /// Get timestamp segments for a transcription, ordered by start time.
-    pub fn get_segments(&self, transcription_id: &str) -> Result<Vec<TimestampedSegment>, CoreError> {
+    pub fn get_segments(
+        &self,
+        transcription_id: &str,
+    ) -> Result<Vec<TimestampedSegment>, CoreError> {
         let mut stmt = self
             .conn
             .prepare(
@@ -344,9 +365,7 @@ impl Storage {
 
         let mut results = Vec::new();
         for row in rows {
-            results.push(
-                row.map_err(|e| CoreError::IoError(format!("Segment read failed: {e}")))?
-            );
+            results.push(row.map_err(|e| CoreError::IoError(format!("Segment read failed: {e}")))?);
         }
 
         Ok(results)
@@ -367,10 +386,159 @@ impl Storage {
         for id in ids {
             self.conn
                 .execute("DELETE FROM transcriptions WHERE id = ?1", params![id])
-                .map_err(|e| CoreError::IoError(format!("Failed to delete transcription {id}: {e}")))?;
+                .map_err(|e| {
+                    CoreError::IoError(format!("Failed to delete transcription {id}: {e}"))
+                })?;
             count += 1;
         }
         Ok(count)
+    }
+
+    /// Get usage statistics: total transcriptions, total duration, word count, and per-mode counts.
+    pub fn get_statistics(&self) -> Result<Vec<(String, String)>, CoreError> {
+        let mut stats = Vec::new();
+
+        // Total count and duration
+        let (total_count, total_duration): (u32, f64) = self
+            .conn
+            .query_row(
+                "SELECT COUNT(*), COALESCE(SUM(duration_secs), 0) FROM transcriptions",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(|e| CoreError::IoError(format!("Stats query failed: {e}")))?;
+
+        let hours = total_duration / 3600.0;
+        stats.push(("Total transcriptions".into(), total_count.to_string()));
+        stats.push(("Total duration".into(), format!("{:.1}h", hours)));
+
+        // Word count
+        let word_count: u32 = self.conn.query_row(
+            "SELECT COALESCE(SUM(LENGTH(text) - LENGTH(REPLACE(text, ' ', '')) + 1), 0) FROM transcriptions WHERE text != ''",
+            [],
+            |row| row.get(0),
+        ).map_err(|e| CoreError::IoError(format!("Word count query failed: {e}")))?;
+        stats.push(("Total words".into(), word_count.to_string()));
+
+        // Per-source counts
+        let mut stmt = self
+            .conn
+            .prepare("SELECT source, COUNT(*) FROM transcriptions GROUP BY source ORDER BY source")
+            .map_err(|e| CoreError::IoError(format!("Source stats query failed: {e}")))?;
+
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, u32>(1)?))
+            })
+            .map_err(|e| CoreError::IoError(format!("Source stats query failed: {e}")))?;
+
+        for row in rows {
+            let (source, count) =
+                row.map_err(|e| CoreError::IoError(format!("Row read failed: {e}")))?;
+            let label = match source.as_str() {
+                "push_to_talk" => "Voice notes".into(),
+                "meeting" => "Meetings".into(),
+                other => other.to_string(),
+            };
+            stats.push((label, count.to_string()));
+        }
+
+        // Per-mode counts
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT mode, COUNT(*) FROM transcriptions GROUP BY mode ORDER BY COUNT(*) DESC",
+            )
+            .map_err(|e| CoreError::IoError(format!("Mode stats query failed: {e}")))?;
+
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, u32>(1)?))
+            })
+            .map_err(|e| CoreError::IoError(format!("Mode stats query failed: {e}")))?;
+
+        for row in rows {
+            let (mode, count) =
+                row.map_err(|e| CoreError::IoError(format!("Row read failed: {e}")))?;
+            stats.push((format!("Mode: {mode}"), count.to_string()));
+        }
+
+        // Average duration
+        if total_count > 0 {
+            let avg_secs = total_duration / total_count as f64;
+            let avg_formatted = if avg_secs >= 60.0 {
+                format!("{:.0}m {:.0}s", avg_secs / 60.0, avg_secs % 60.0)
+            } else {
+                format!("{:.1}s", avg_secs)
+            };
+            stats.push(("Avg duration".into(), avg_formatted));
+        }
+
+        // Longest transcription
+        let longest: Option<(String, f64)> = self.conn.query_row(
+            "SELECT COALESCE(title, 'Untitled'), duration_secs FROM transcriptions ORDER BY duration_secs DESC LIMIT 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        ).ok();
+        if let Some((title, dur)) = longest {
+            let dur_fmt = if dur >= 3600.0 {
+                format!("{:.0}h {:.0}m", dur / 3600.0, (dur % 3600.0) / 60.0)
+            } else if dur >= 60.0 {
+                format!("{:.0}m {:.0}s", dur / 60.0, dur % 60.0)
+            } else {
+                format!("{:.0}s", dur)
+            };
+            stats.push(("Longest".into(), format!("{} ({})", title, dur_fmt)));
+        }
+
+        // Total segments (timeline entries)
+        let segment_count: u32 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM transcript_segments", [], |row| {
+                row.get(0)
+            })
+            .unwrap_or(0);
+        stats.push(("Total segments".into(), segment_count.to_string()));
+
+        // Database size
+        let db_size: u64 = self
+            .conn
+            .query_row(
+                "SELECT page_count * page_size FROM pragma_page_count, pragma_page_size",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+        let size_mb = db_size as f64 / (1024.0 * 1024.0);
+        stats.push(("Database size".into(), format!("{:.1} MB", size_mb)));
+
+        Ok(stats)
+    }
+
+    /// Delete transcriptions older than the given number of days.
+    /// Returns the number of transcriptions deleted.
+    pub fn delete_older_than(&self, days: u32) -> Result<u32, CoreError> {
+        let cutoff = chrono::Utc::now() - chrono::Duration::days(days as i64);
+        let cutoff_str = cutoff.to_rfc3339();
+
+        let count = self
+            .conn
+            .execute(
+                "DELETE FROM transcriptions WHERE created_at < ?1",
+                params![cutoff_str],
+            )
+            .map_err(|e| CoreError::IoError(format!("Failed to delete old transcriptions: {e}")))?;
+
+        Ok(count as u32)
+    }
+
+    /// Force a WAL checkpoint so all data is written to the main database file.
+    /// Useful before copying the database file for backup.
+    pub fn checkpoint(&self) -> Result<(), CoreError> {
+        self.conn
+            .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+            .map_err(|e| CoreError::IoError(format!("WAL checkpoint failed: {e}")))?;
+        Ok(())
     }
 }
 
@@ -411,8 +579,12 @@ mod tests {
     #[test]
     fn test_list_all() {
         let (storage, _dir) = temp_storage();
-        storage.save(&sample_transcription("push_to_talk", "first")).unwrap();
-        storage.save(&sample_transcription("meeting", "second")).unwrap();
+        storage
+            .save(&sample_transcription("push_to_talk", "first"))
+            .unwrap();
+        storage
+            .save(&sample_transcription("meeting", "second"))
+            .unwrap();
 
         let query = TranscriptionQuery {
             search_text: None,
@@ -427,8 +599,12 @@ mod tests {
     #[test]
     fn test_list_with_source_filter() {
         let (storage, _dir) = temp_storage();
-        storage.save(&sample_transcription("push_to_talk", "ptt one")).unwrap();
-        storage.save(&sample_transcription("meeting", "meeting one")).unwrap();
+        storage
+            .save(&sample_transcription("push_to_talk", "ptt one"))
+            .unwrap();
+        storage
+            .save(&sample_transcription("meeting", "meeting one"))
+            .unwrap();
 
         let query = TranscriptionQuery {
             search_text: None,
@@ -444,8 +620,18 @@ mod tests {
     #[test]
     fn test_fts_search() {
         let (storage, _dir) = temp_storage();
-        storage.save(&sample_transcription("push_to_talk", "the quick brown fox jumps")).unwrap();
-        storage.save(&sample_transcription("push_to_talk", "lazy dog sleeps all day")).unwrap();
+        storage
+            .save(&sample_transcription(
+                "push_to_talk",
+                "the quick brown fox jumps",
+            ))
+            .unwrap();
+        storage
+            .save(&sample_transcription(
+                "push_to_talk",
+                "lazy dog sleeps all day",
+            ))
+            .unwrap();
 
         let query = TranscriptionQuery {
             search_text: Some("fox".to_string()),
@@ -530,7 +716,9 @@ mod tests {
     fn test_pagination() {
         let (storage, _dir) = temp_storage();
         for i in 0..10 {
-            storage.save(&sample_transcription("push_to_talk", &format!("item {i}"))).unwrap();
+            storage
+                .save(&sample_transcription("push_to_talk", &format!("item {i}")))
+                .unwrap();
         }
 
         let query = TranscriptionQuery {

@@ -87,3 +87,18 @@ targets:
         embed: true
       - package: ParakattCore
       - package: HotKey
+
+  ParakattTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.parakatt.tests
+        SWIFT_VERSION: "5.10"
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        GENERATE_INFOPLIST_FILE: true
+        CODE_SIGN_STYLE: Automatic
+    dependencies:
+      - target: ParakattApp

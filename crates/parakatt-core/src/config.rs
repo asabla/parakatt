@@ -3,7 +3,6 @@
 /// Settings are stored in TOML format in the app's config directory.
 /// The config file holds user preferences, active model selection,
 /// LLM provider settings, and dictionary rules.
-
 use std::path::{Path, PathBuf};
 
 use crate::{CoreError, ModeConfig, ReplacementRule};
@@ -43,6 +42,30 @@ pub struct GeneralConfig {
     /// Preferred bundle ID for meeting audio source capture (e.g. "com.microsoft.teams2").
     #[serde(default)]
     pub preferred_audio_source_bundle_id: Option<String>,
+    /// Auto-delete transcriptions older than this many days (0 = disabled).
+    #[serde(default)]
+    pub retention_days: u32,
+    /// Chunk duration in seconds for meeting transcription (default: 30).
+    #[serde(default = "default_chunk_duration")]
+    pub chunk_duration_secs: u32,
+    /// Maximum word count to send to LLM per chunk (default: 4000).
+    #[serde(default = "default_llm_max_words")]
+    pub llm_max_words: u32,
+    /// Enable verbose debug logging.
+    #[serde(default)]
+    pub debug_mode: bool,
+    /// Per-app mode defaults: maps bundle ID to mode name.
+    /// e.g., {"com.microsoft.VSCode": "code", "com.apple.mail": "email"}
+    #[serde(default)]
+    pub app_mode_defaults: std::collections::HashMap<String, String>,
+}
+
+fn default_chunk_duration() -> u32 {
+    30
+}
+
+fn default_llm_max_words() -> u32 {
+    4000
 }
 
 impl Default for GeneralConfig {
@@ -55,6 +78,11 @@ impl Default for GeneralConfig {
             hotkey_modifiers: default_hotkey_modifiers(),
             hotkey_mode: default_hotkey_mode(),
             preferred_audio_source_bundle_id: None,
+            retention_days: 0,
+            chunk_duration_secs: default_chunk_duration(),
+            llm_max_words: default_llm_max_words(),
+            debug_mode: false,
+            app_mode_defaults: std::collections::HashMap::new(),
         }
     }
 }
@@ -192,6 +220,68 @@ impl Config {
 
         Ok(())
     }
+
+    // --- Profile management ---
+
+    /// Save the current config as a named profile.
+    pub fn save_profile(&self, config_dir: &Path, name: &str) -> Result<(), CoreError> {
+        let profiles_dir = config_dir.join("profiles");
+        std::fs::create_dir_all(&profiles_dir)
+            .map_err(|e| CoreError::IoError(format!("Failed to create profiles dir: {e}")))?;
+
+        let content = toml::to_string_pretty(self)
+            .map_err(|e| CoreError::ConfigError(format!("Failed to serialize profile: {e}")))?;
+
+        let path = profiles_dir.join(format!("{name}.toml"));
+        std::fs::write(&path, content)
+            .map_err(|e| CoreError::IoError(format!("Failed to write profile: {e}")))?;
+
+        log::info!("Saved profile: {name}");
+        Ok(())
+    }
+
+    /// Load a named profile, replacing the current config.
+    pub fn load_profile(config_dir: &Path, name: &str) -> Result<Self, CoreError> {
+        let path = config_dir.join("profiles").join(format!("{name}.toml"));
+        if !path.exists() {
+            return Err(CoreError::ConfigError(format!("Profile not found: {name}")));
+        }
+        let content = std::fs::read_to_string(&path)
+            .map_err(|e| CoreError::ConfigError(format!("Failed to read profile: {e}")))?;
+        toml::from_str(&content)
+            .map_err(|e| CoreError::ConfigError(format!("Failed to parse profile: {e}")))
+    }
+
+    /// List available profile names.
+    pub fn list_profiles(config_dir: &Path) -> Vec<String> {
+        let profiles_dir = config_dir.join("profiles");
+        let Ok(entries) = std::fs::read_dir(profiles_dir) else {
+            return Vec::new();
+        };
+        entries
+            .flatten()
+            .filter_map(|e| {
+                let path = e.path();
+                if path.extension().and_then(|s| s.to_str()) == Some("toml") {
+                    path.file_stem()
+                        .and_then(|s| s.to_str())
+                        .map(|s| s.to_string())
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    /// Delete a named profile.
+    pub fn delete_profile(config_dir: &Path, name: &str) -> Result<(), CoreError> {
+        let path = config_dir.join("profiles").join(format!("{name}.toml"));
+        if path.exists() {
+            std::fs::remove_file(&path)
+                .map_err(|e| CoreError::IoError(format!("Failed to delete profile: {e}")))?;
+        }
+        Ok(())
+    }
 }
 
 impl Default for Config {
@@ -220,7 +310,10 @@ mod tests {
         let serialized = toml::to_string_pretty(&config).unwrap();
         let deserialized: Config = toml::from_str(&serialized).unwrap();
         assert_eq!(deserialized.general.active_mode, "dictation");
-        assert_eq!(deserialized.stt.active_model, Some("parakeet-tdt-0.6b-v2".to_string()));
+        assert_eq!(
+            deserialized.stt.active_model,
+            Some("parakeet-tdt-0.6b-v2".to_string())
+        );
     }
 
     #[test]

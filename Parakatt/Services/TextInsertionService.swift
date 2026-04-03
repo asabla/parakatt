@@ -11,23 +11,30 @@ import Carbon
 /// Logs which strategy was used for debugging.
 class TextInsertionService {
 
-    func insertText(_ text: String) {
-        guard !text.isEmpty else { return }
+    /// Insert text into the focused application. Returns false if all strategies fail.
+    @discardableResult
+    func insertText(_ text: String) -> Bool {
+        guard !text.isEmpty else { return false }
 
         NSLog("[Parakatt] Inserting text (%d chars), AXIsProcessTrusted=%d", text.count, AXIsProcessTrusted())
 
         if insertViaAccessibility(text) {
             NSLog("[Parakatt] Text inserted via Accessibility API (%d chars)", text.count)
-            return
+            return true
         }
 
         if insertViaPaste(text) {
             NSLog("[Parakatt] Text inserted via CGEvent paste (%d chars)", text.count)
-            return
+            return true
         }
 
-        insertViaAppleScript(text)
-        NSLog("[Parakatt] Text inserted via AppleScript paste (%d chars)", text.count)
+        if insertViaAppleScript(text) {
+            NSLog("[Parakatt] Text inserted via AppleScript paste (%d chars)", text.count)
+            return true
+        }
+
+        NSLog("[Parakatt] All text insertion strategies failed (%d chars)", text.count)
+        return false
     }
 
     // MARK: - Strategy 1: Accessibility API
@@ -90,7 +97,7 @@ class TextInsertionService {
         keyDown.flags = .maskCommand
         keyUp.flags = .maskCommand
         keyDown.post(tap: .cgSessionEventTap)
-        usleep(30_000)
+        usleep(10_000) // 10ms between keyDown/keyUp (was 30ms)
         keyUp.post(tap: .cgSessionEventTap)
 
         scheduleClipboardRestore()
@@ -99,7 +106,7 @@ class TextInsertionService {
 
     // MARK: - Strategy 3: Clipboard + AppleScript System Events
 
-    private func insertViaAppleScript(_ text: String) {
+    private func insertViaAppleScript(_ text: String) -> Bool {
         setClipboard(text)
 
         let script = NSAppleScript(source: """
@@ -111,20 +118,22 @@ class TextInsertionService {
         script?.executeAndReturnError(&error)
         if let error = error {
             NSLog("[Parakatt] AppleScript Strategy: failed - %@", error)
+            return false
         }
 
         scheduleClipboardRestore()
+        return true
     }
 
     // MARK: - Clipboard helpers
 
     private var savedItems: [(NSPasteboard.PasteboardType, Data)]?
-    private var savedChangeCount: Int = 0
+    /// changeCount captured right after we write our transcription to the clipboard.
+    private var changeCountAfterSet: Int = 0
 
     private func setClipboard(_ text: String) {
         let pasteboard = NSPasteboard.general
 
-        savedChangeCount = pasteboard.changeCount
         savedItems = pasteboard.pasteboardItems?.compactMap { item -> (NSPasteboard.PasteboardType, Data)? in
             guard let type = item.types.first,
                   let data = item.data(forType: type) else { return nil }
@@ -133,15 +142,17 @@ class TextInsertionService {
 
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
-        usleep(50_000) // 50ms to ensure pasteboard is ready
+        changeCountAfterSet = pasteboard.changeCount
+        usleep(20_000) // 20ms to ensure pasteboard is ready (was 50ms)
     }
 
     private func scheduleClipboardRestore() {
-        let expectedCount = savedChangeCount + 1
+        let expectedCount = changeCountAfterSet
         let items = savedItems
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             let pasteboard = NSPasteboard.general
+            // Only restore if nothing else has touched the clipboard since we set it.
             if pasteboard.changeCount == expectedCount {
                 pasteboard.clearContents()
                 if let items = items {

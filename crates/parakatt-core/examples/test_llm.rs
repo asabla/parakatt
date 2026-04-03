@@ -4,15 +4,11 @@
 /// Requires LM Studio running at localhost:1234 (or Ollama at localhost:11434).
 ///
 /// Usage: cargo run --example test_llm -p parakatt-core
-
 use parakatt_core::engine::Engine;
 use parakatt_core::*;
 
 fn main() {
-    let models_dir = format!(
-        "{}/Parakatt/models",
-        dirs::data_dir().unwrap().display()
-    );
+    let models_dir = format!("{}/Parakatt/models", dirs::data_dir().unwrap().display());
     let config_dir = format!("{}/parakatt-llm-test", std::env::temp_dir().display());
 
     // Step 1: Create engine
@@ -43,7 +39,13 @@ fn main() {
                 eprintln!("  - {}", m);
             }
             if !models.is_empty() {
-                test_llm_with_provider(&engine, "lmstudio", "http://localhost:1234", &models[0], &models_dir);
+                test_llm_with_provider(
+                    &engine,
+                    "lmstudio",
+                    "http://localhost:1234",
+                    &models[0],
+                    &models_dir,
+                );
             }
         }
         Err(e) => eprintln!("LM Studio not available: {}", e),
@@ -62,7 +64,13 @@ fn main() {
                 eprintln!("  - {}", m);
             }
             if !models.is_empty() {
-                test_llm_with_provider(&engine, "ollama", "http://localhost:11434", &models[0], &models_dir);
+                test_llm_with_provider(
+                    &engine,
+                    "ollama",
+                    "http://localhost:11434",
+                    &models[0],
+                    &models_dir,
+                );
             }
         }
         Err(e) => eprintln!("Ollama not available: {}", e),
@@ -71,7 +79,13 @@ fn main() {
     eprintln!("\n=== Done ===");
 }
 
-fn test_llm_with_provider(engine: &Engine, provider: &str, base_url: &str, model: &str, models_dir: &str) {
+fn test_llm_with_provider(
+    engine: &Engine,
+    provider: &str,
+    base_url: &str,
+    model: &str,
+    models_dir: &str,
+) {
     eprintln!("\n=== Step 3: Configure LLM ({} / {}) ===", provider, model);
     match engine.configure_llm(
         provider.to_string(),
@@ -106,7 +120,9 @@ fn test_llm_with_provider(engine: &Engine, provider: &str, base_url: &str, model
             enabled: true,
         },
     ];
-    engine.set_dictionary_rules(rules).expect("Failed to set dictionary");
+    engine
+        .set_dictionary_rules(rules)
+        .expect("Failed to set dictionary");
     eprintln!("Dictionary set with domain words: Parakatt, eval");
 
     // Load STT model if available
@@ -117,7 +133,9 @@ fn test_llm_with_provider(engine: &Engine, provider: &str, base_url: &str, model
 
     if has_stt {
         eprintln!("\n--- Test A: Full pipeline (STT → LLM) ---");
-        engine.load_model("parakeet-tdt-0.6b-v2").expect("Model load failed");
+        engine
+            .load_model("parakeet-tdt-0.6b-v2")
+            .expect("Model load failed");
 
         // Generate TTS audio for testing
         let test_text = "this is a test of the clean mode with grammar fixing";
@@ -132,19 +150,31 @@ fn test_llm_with_provider(engine: &Engine, provider: &str, base_url: &str, model
             let sox_status = std::process::Command::new("sox")
                 .args([
                     "/tmp/parakatt_llm_test.aiff",
-                    "-r", "16000", "-c", "1", "-b", "32", "-e", "floating-point",
+                    "-r",
+                    "16000",
+                    "-c",
+                    "1",
+                    "-b",
+                    "32",
+                    "-e",
+                    "floating-point",
                     "/tmp/parakatt_llm_test.raw",
                 ])
                 .status();
 
             if sox_status.map(|s| s.success()).unwrap_or(false) {
-                let raw = std::fs::read("/tmp/parakatt_llm_test.raw").expect("Failed to read raw audio");
+                let raw =
+                    std::fs::read("/tmp/parakatt_llm_test.raw").expect("Failed to read raw audio");
                 let samples: Vec<f32> = raw
                     .chunks_exact(4)
                     .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
                     .collect();
 
-                eprintln!("Audio: {} samples ({:.1}s)", samples.len(), samples.len() as f64 / 16000.0);
+                eprintln!(
+                    "Audio: {} samples ({:.1}s)",
+                    samples.len(),
+                    samples.len() as f64 / 16000.0
+                );
 
                 // Test dictation mode (no LLM)
                 eprintln!("\nDictation mode (no LLM):");
@@ -179,7 +209,10 @@ fn test_llm_with_provider(engine: &Engine, provider: &str, base_url: &str, model
     let modes = engine.list_modes();
     let clean_mode = modes.iter().find(|m| m.name == "clean");
     if let Some(mode) = clean_mode {
-        eprintln!("Clean mode prompt: {:?}", mode.system_prompt.as_deref().unwrap_or("none"));
+        eprintln!(
+            "Clean mode prompt: {:?}",
+            mode.system_prompt.as_deref().unwrap_or("none")
+        );
         eprintln!("LLM is configured and will process transcriptions in clean/email/code modes");
     }
 }

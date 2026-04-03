@@ -5,19 +5,200 @@ import ParakattCore
 struct SettingsView: View {
     var body: some View {
         TabView {
-            ModelsSettingsView()
-                .tabItem { Label("Models", systemImage: "arrow.down.circle") }
+            DashboardSettingsView()
+                .tabItem { Label("Dashboard", systemImage: "house") }
 
             GeneralSettingsView()
                 .tabItem { Label("General", systemImage: "gear") }
+
+            ModelsSettingsView()
+                .tabItem { Label("Models", systemImage: "arrow.down.circle") }
 
             LlmSettingsView()
                 .tabItem { Label("LLM", systemImage: "brain") }
 
             DictionarySettingsView()
                 .tabItem { Label("Dictionary", systemImage: "character.book.closed") }
+
+            StatisticsSettingsView()
+                .tabItem { Label("Statistics", systemImage: "chart.bar") }
         }
-        .frame(width: 520, height: 480)
+        .frame(width: 680, height: 500)
+    }
+}
+
+// MARK: - Dashboard
+
+struct DashboardSettingsView: View {
+    @EnvironmentObject var appState: AppState
+    @State private var stats: [(String, String)] = []
+
+    private var appVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+    }
+
+    private var buildNumber: String {
+        Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+
+                // App header
+                HStack(spacing: 14) {
+                    Image("ParakattLogo", bundle: Bundle(for: AppState.self))
+                        .resizable()
+                        .frame(width: 48, height: 48)
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Parakatt")
+                            .font(.system(.title2, weight: .bold))
+                        Text("Version \(appVersion) (\(buildNumber))")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+                }
+
+                Divider()
+
+                // Quick status
+                VStack(alignment: .leading, spacing: 10) {
+                    Label("Status", systemImage: "circle.fill")
+                        .font(.system(.subheadline, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .textCase(.uppercase)
+                        .tracking(0.5)
+
+                    VStack(spacing: 0) {
+                        DashboardStatusRow(
+                            label: "Speech Model",
+                            value: appState.activeModelId ?? "Not loaded",
+                            icon: "cpu",
+                            color: appState.isModelLoaded ? .green : .orange
+                        )
+                        Divider().padding(.leading, 40)
+                        DashboardStatusRow(
+                            label: "Processing Mode",
+                            value: appState.activeMode.capitalized,
+                            icon: "wand.and.stars",
+                            color: .blue
+                        )
+                        Divider().padding(.leading, 40)
+                        DashboardStatusRow(
+                            label: "LLM Provider",
+                            value: appState.llmProvider.isEmpty ? "None" : appState.llmProvider.capitalized,
+                            icon: "brain",
+                            color: appState.llmProvider.isEmpty ? .secondary : .purple
+                        )
+                    }
+                    .background {
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(.background)
+                            .shadow(color: .black.opacity(0.06), radius: 2, y: 1)
+                    }
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 10)
+                            .strokeBorder(.quaternary, lineWidth: 0.5)
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+
+                // Quick stats
+                let overview = stats.filter {
+                    $0.0 == "Total transcriptions" || $0.0 == "Total duration" || $0.0 == "Total words"
+                }
+                if !overview.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label("Activity", systemImage: "chart.bar")
+                            .font(.system(.subheadline, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .textCase(.uppercase)
+                            .tracking(0.5)
+
+                        LazyVGrid(columns: [
+                            GridItem(.flexible()),
+                            GridItem(.flexible()),
+                            GridItem(.flexible()),
+                        ], spacing: 10) {
+                            ForEach(overview, id: \.0) { stat in
+                                StatCard(label: stat.0, value: stat.1)
+                            }
+                        }
+                    }
+                }
+
+                // Permissions
+                VStack(alignment: .leading, spacing: 10) {
+                    Label("Permissions", systemImage: "lock.shield")
+                        .font(.system(.subheadline, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .textCase(.uppercase)
+                        .tracking(0.5)
+
+                    VStack(spacing: 0) {
+                        DashboardStatusRow(
+                            label: "Accessibility",
+                            value: AXIsProcessTrusted() ? "Granted" : "Not granted",
+                            icon: "hand.raised.fill",
+                            color: AXIsProcessTrusted() ? .green : .red
+                        )
+                        Divider().padding(.leading, 40)
+                        DashboardStatusRow(
+                            label: "Microphone",
+                            value: "Granted on first use",
+                            icon: "mic.fill",
+                            color: .green
+                        )
+                    }
+                    .background {
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(.background)
+                            .shadow(color: .black.opacity(0.06), radius: 2, y: 1)
+                    }
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 10)
+                            .strokeBorder(.quaternary, lineWidth: 0.5)
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+            }
+            .padding(20)
+        }
+        .background(.quaternary.opacity(0.5))
+        .onAppear {
+            stats = appState.getStatistics()
+        }
+    }
+}
+
+private struct DashboardStatusRow: View {
+    let label: String
+    let value: String
+    let icon: String
+    let color: Color
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 14))
+                .foregroundStyle(color)
+                .frame(width: 24)
+
+            Text(label)
+                .font(.body)
+
+            Spacer()
+
+            Text(value)
+                .font(.system(.body, design: .rounded))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
     }
 }
 
@@ -166,6 +347,8 @@ struct GeneralSettingsView: View {
     @State private var currentKey: Key = .space
     @State private var currentModifiers: NSEvent.ModifierFlags = [.option]
     @State private var currentMode: String = "hold"
+    @State private var showNewModeSheet = false
+    @State private var loadedModes: [ModeConfig] = []
 
     fileprivate struct ModeOption: Identifiable {
         let id: String
@@ -173,14 +356,64 @@ struct GeneralSettingsView: View {
         let description: String
         let icon: String
         let color: Color
+        let isCustom: Bool
     }
 
-    private let modes: [ModeOption] = [
-        ModeOption(id: "dictation", label: "Dictation", description: "Raw transcription — exactly what you said", icon: "waveform", color: .blue),
-        ModeOption(id: "clean", label: "Clean", description: "Fix grammar, punctuation, and formatting", icon: "text.badge.checkmark", color: .green),
-        ModeOption(id: "email", label: "Email", description: "Structure output as a professional email", icon: "envelope.fill", color: .orange),
-        ModeOption(id: "code", label: "Code", description: "Code-aware — preserves identifiers and syntax", icon: "chevron.left.forwardslash.chevron.right", color: .purple),
-    ]
+    private static let builtinNames = Set(["dictation", "clean", "email", "code"])
+
+    private static func iconForMode(_ name: String) -> String {
+        switch name.lowercased() {
+        case "dictation": return "waveform"
+        case "clean": return "text.badge.checkmark"
+        case "email": return "envelope.fill"
+        case "code": return "chevron.left.forwardslash.chevron.right"
+        default: return "star.fill"
+        }
+    }
+
+    private static func colorForMode(_ name: String) -> Color {
+        switch name.lowercased() {
+        case "dictation": return .blue
+        case "clean": return .green
+        case "email": return .orange
+        case "code": return .purple
+        default: return .pink
+        }
+    }
+
+    private var modes: [ModeOption] {
+        loadedModes.map { m in
+            let isCustom = !Self.builtinNames.contains(m.name.lowercased())
+            let desc: String
+            if isCustom {
+                if let prompt = m.systemPrompt, !prompt.isEmpty {
+                    desc = String(prompt.prefix(60)) + (prompt.count > 60 ? "..." : "")
+                } else {
+                    desc = "Custom mode"
+                }
+            } else {
+                desc = builtinDescription(m.name)
+            }
+            return ModeOption(
+                id: m.name,
+                label: m.name.capitalized,
+                description: desc,
+                icon: Self.iconForMode(m.name),
+                color: Self.colorForMode(m.name),
+                isCustom: isCustom
+            )
+        }
+    }
+
+    private func builtinDescription(_ name: String) -> String {
+        switch name.lowercased() {
+        case "dictation": return "Raw transcription — exactly what you said"
+        case "clean": return "Fix grammar, punctuation, and formatting"
+        case "email": return "Structure output as a professional email"
+        case "code": return "Code-aware — preserves identifiers and syntax"
+        default: return ""
+        }
+    }
 
     var body: some View {
         ScrollView {
@@ -266,25 +499,118 @@ struct GeneralSettingsView: View {
 
                 // MARK: - Processing mode section
                 VStack(alignment: .leading, spacing: 10) {
-                    Label("Processing Mode", systemImage: "wand.and.stars")
+                    HStack {
+                        Label("Processing Mode", systemImage: "wand.and.stars")
+                            .font(.system(.subheadline, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .textCase(.uppercase)
+                            .tracking(0.5)
+
+                        Spacer()
+
+                        Button {
+                            showNewModeSheet = true
+                        } label: {
+                            Label("New Mode", systemImage: "plus")
+                                .font(.caption)
+                        }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(Color.accentColor)
+                    }
+
+                    VStack(spacing: 0) {
+                        ForEach(Array(modes.enumerated()), id: \.element.id) { index, mode in
+                            GeneralModeRow(
+                                mode: mode,
+                                isSelected: appState.activeMode == mode.id,
+                                onSelect: {
+                                    appState.activeMode = mode.id
+                                },
+                                onDelete: mode.isCustom ? {
+                                    appState.deleteMode(mode.id)
+                                    if appState.activeMode == mode.id {
+                                        appState.activeMode = "dictation"
+                                    }
+                                    reloadModes()
+                                } : nil
+                            )
+
+                            if index < modes.count - 1 {
+                                Divider().padding(.leading, 44)
+                            }
+                        }
+                    }
+                    .background {
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(.background)
+                            .shadow(color: .black.opacity(0.06), radius: 2, y: 1)
+                    }
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 10)
+                            .strokeBorder(.quaternary, lineWidth: 0.5)
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+                .onAppear { reloadModes() }
+                .sheet(isPresented: $showNewModeSheet) {
+                    NewModeSheet { name, prompt in
+                        let mode = ModeConfig(
+                            name: name.lowercased(),
+                            sttProvider: nil,
+                            llmProvider: nil,
+                            systemPrompt: prompt.isEmpty ? nil : prompt,
+                            dictionaryEnabled: true
+                        )
+                        appState.saveMode(mode)
+                        reloadModes()
+                    }
+                }
+
+                // MARK: - Behavior section
+                VStack(alignment: .leading, spacing: 10) {
+                    Label("Behavior", systemImage: "slider.horizontal.3")
                         .font(.system(.subheadline, weight: .semibold))
                         .foregroundStyle(.secondary)
                         .textCase(.uppercase)
                         .tracking(0.5)
 
                     VStack(spacing: 0) {
-                        ForEach(Array(modes.enumerated()), id: \.element.id) { index, mode in
-                            GeneralModeRow(
-                                mode: mode,
-                                isSelected: appState.activeMode == mode.id
-                            ) {
-                                appState.activeMode = mode.id
-                            }
+                        BehaviorToggleRow(
+                            icon: "doc.on.clipboard",
+                            color: .blue,
+                            label: "Auto-paste transcription",
+                            description: "Automatically insert text at cursor after recording",
+                            isOn: Binding(
+                                get: { appState.autoPaste },
+                                set: { appState.setAutoPaste($0) }
+                            )
+                        )
 
-                            if index < modes.count - 1 {
-                                Divider().padding(.leading, 44)
-                            }
-                        }
+                        Divider().padding(.leading, 52)
+
+                        BehaviorToggleRow(
+                            icon: "rectangle.on.rectangle",
+                            color: .green,
+                            label: "Show recording overlay",
+                            description: "Display a floating window with live transcription while recording",
+                            isOn: Binding(
+                                get: { appState.showRecordingOverlay },
+                                set: { appState.setShowOverlay($0) }
+                            )
+                        )
+
+                        Divider().padding(.leading, 52)
+
+                        BehaviorToggleRow(
+                            icon: "ant",
+                            color: .orange,
+                            label: "Debug mode",
+                            description: "Enable verbose logging for troubleshooting (visible in Console.app)",
+                            isOn: Binding(
+                                get: { appState.debugMode },
+                                set: { appState.setDebugMode($0) }
+                            )
+                        )
                     }
                     .background {
                         RoundedRectangle(cornerRadius: 10)
@@ -467,6 +793,10 @@ struct GeneralSettingsView: View {
         currentModifiers = config.modifiers
         currentMode = config.mode
     }
+
+    private func reloadModes() {
+        loadedModes = appState.listModes()
+    }
 }
 
 /// NSView wrapper that captures key events for hotkey recording.
@@ -541,33 +871,96 @@ class HotkeyRecorderNSView: NSView {
     }
 }
 
+private struct BehaviorToggleRow: View {
+    let icon: String
+    let color: Color
+    let label: String
+    let description: String
+    @Binding var isOn: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(isOn ? .white : color)
+                .frame(width: 28, height: 28)
+                .background(
+                    isOn ? AnyShapeStyle(color) : AnyShapeStyle(color.opacity(0.15)),
+                    in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+                )
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(label)
+                    .font(.system(.body, weight: .medium))
+                Text(description)
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(2)
+            }
+
+            Spacer()
+
+            Toggle("", isOn: $isOn)
+                .toggleStyle(.switch)
+                .labelsHidden()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .contentShape(Rectangle())
+    }
+}
+
 private struct GeneralModeRow: View {
     let mode: GeneralSettingsView.ModeOption
     let isSelected: Bool
     let onSelect: () -> Void
+    var onDelete: (() -> Void)?
 
     var body: some View {
         Button(action: onSelect) {
             HStack(spacing: 10) {
                 Image(systemName: mode.icon)
                     .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(isSelected ? .white : .secondary)
+                    .foregroundStyle(isSelected ? .white : mode.color)
                     .frame(width: 28, height: 28)
                     .background(
-                        isSelected ? AnyShapeStyle(mode.color) : AnyShapeStyle(.quaternary),
+                        isSelected ? AnyShapeStyle(mode.color) : AnyShapeStyle(mode.color.opacity(0.15)),
                         in: RoundedRectangle(cornerRadius: 6, style: .continuous)
                     )
 
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(mode.label)
-                        .font(.system(.body, weight: .medium))
-                        .foregroundStyle(.primary)
+                    HStack(spacing: 4) {
+                        Text(mode.label)
+                            .font(.system(.body, weight: .medium))
+                            .foregroundStyle(.primary)
+                        if mode.isCustom {
+                            Text("Custom")
+                                .font(.caption2)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1)
+                                .background(mode.color.opacity(0.15), in: Capsule())
+                                .foregroundStyle(mode.color)
+                        }
+                    }
                     Text(mode.description)
                         .font(.caption)
                         .foregroundStyle(.tertiary)
+                        .lineLimit(1)
                 }
 
                 Spacer()
+
+                if let onDelete {
+                    Button {
+                        onDelete()
+                    } label: {
+                        Image(systemName: "trash")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Delete custom mode")
+                }
 
                 if isSelected {
                     Image(systemName: "checkmark")
@@ -581,6 +974,57 @@ private struct GeneralModeRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+}
+
+private struct NewModeSheet: View {
+    var onSave: (String, String) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var name = ""
+    @State private var prompt = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("New Custom Mode")
+                .font(.headline)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Name")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                TextField("e.g., Summary, Translate, Notes", text: $name)
+                    .textFieldStyle(.roundedBorder)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("System Prompt")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                TextEditor(text: $prompt)
+                    .font(.body)
+                    .frame(minHeight: 120)
+                    .scrollContentBackground(.hidden)
+                    .padding(8)
+                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+                Text("This prompt tells the LLM how to process your transcription.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }
+                    .buttonStyle(.bordered)
+                Button("Create") {
+                    onSave(name, prompt)
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(width: 420)
     }
 }
 
@@ -712,14 +1156,16 @@ struct LlmSettingsView: View {
                                 HStack(spacing: 8) {
                                     Button("Apply") { applyConfig() }
 
+                                    Button("Test Connection") { testConnection() }
+
                                     if !statusMessage.isEmpty {
                                         HStack(spacing: 4) {
-                                            Image(systemName: statusMessage.contains("OK") ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                                            Image(systemName: statusMessage.contains("OK") || statusMessage.contains("reachable") ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                                                 .font(.caption)
                                             Text(statusMessage)
                                                 .font(.caption)
                                         }
-                                        .foregroundStyle(statusMessage.contains("OK") ? .green : .orange)
+                                        .foregroundStyle(statusMessage.contains("OK") || statusMessage.contains("reachable") ? .green : .orange)
                                     }
                                 }
                             }
@@ -783,6 +1229,19 @@ struct LlmSettingsView: View {
         appState.configureLlm()
         statusMessage = "OK — \(appState.llmModel)"
     }
+
+    private func testConnection() {
+        // Apply first to ensure current settings are active
+        appState.configureLlm()
+        statusMessage = "Testing..."
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = appState.testLlmConnection()
+            DispatchQueue.main.async {
+                statusMessage = result
+            }
+        }
+    }
 }
 
 private struct LlmProviderRow: View {
@@ -795,7 +1254,7 @@ private struct LlmProviderRow: View {
             HStack(spacing: 10) {
                 Image(systemName: provider.icon)
                     .font(.system(size: 14))
-                    .foregroundStyle(isSelected ? provider.color : .secondary)
+                    .foregroundStyle(provider.color)
                     .frame(width: 22)
 
                 VStack(alignment: .leading, spacing: 1) {
@@ -1059,5 +1518,266 @@ struct FlowLayout: Layout {
         }
 
         return (CGSize(width: maxX, height: y + rowHeight), origins)
+    }
+}
+
+// MARK: - Statistics
+
+struct StatisticsSettingsView: View {
+    @EnvironmentObject var appState: AppState
+    @State private var stats: [(String, String)] = []
+    @State private var isLoading = true
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+
+                // Overview cards
+                let overview = stats.filter { !$0.0.hasPrefix("Mode:") && $0.0 != "Voice notes" && $0.0 != "Meetings" }
+                if !overview.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label("Overview", systemImage: "chart.bar")
+                            .font(.system(.subheadline, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .textCase(.uppercase)
+                            .tracking(0.5)
+
+                        LazyVGrid(columns: [
+                            GridItem(.flexible()),
+                            GridItem(.flexible()),
+                            GridItem(.flexible()),
+                        ], spacing: 10) {
+                            ForEach(overview, id: \.0) { stat in
+                                StatCard(label: stat.0, value: stat.1)
+                            }
+                        }
+                    }
+                }
+
+                // By source
+                let sources = stats.filter { $0.0 == "Voice notes" || $0.0 == "Meetings" }
+                if !sources.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label("By Type", systemImage: "square.stack")
+                            .font(.system(.subheadline, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .textCase(.uppercase)
+                            .tracking(0.5)
+
+                        VStack(spacing: 0) {
+                            ForEach(Array(sources.enumerated()), id: \.element.0) { index, stat in
+                                StatRow(
+                                    label: stat.0,
+                                    value: stat.1,
+                                    icon: stat.0 == "Meetings" ? "person.2.fill" : "mic.fill",
+                                    color: stat.0 == "Meetings" ? .orange : .blue
+                                )
+                                if index < sources.count - 1 {
+                                    Divider().padding(.leading, 40)
+                                }
+                            }
+                        }
+                        .background {
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(.background)
+                                .shadow(color: .black.opacity(0.06), radius: 2, y: 1)
+                        }
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 10)
+                                .strokeBorder(.quaternary, lineWidth: 0.5)
+                        }
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
+                }
+
+                // By mode
+                let modes = stats.filter { $0.0.hasPrefix("Mode: ") }
+                if !modes.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label("By Mode", systemImage: "wand.and.stars")
+                            .font(.system(.subheadline, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .textCase(.uppercase)
+                            .tracking(0.5)
+
+                        VStack(spacing: 0) {
+                            ForEach(Array(modes.enumerated()), id: \.element.0) { index, stat in
+                                let modeName = String(stat.0.dropFirst(6)) // Drop "Mode: "
+                                StatRow(
+                                    label: modeName.capitalized,
+                                    value: stat.1,
+                                    icon: modeIcon(modeName),
+                                    color: modeColor(modeName)
+                                )
+                                if index < modes.count - 1 {
+                                    Divider().padding(.leading, 40)
+                                }
+                            }
+                        }
+                        .background {
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(.background)
+                                .shadow(color: .black.opacity(0.06), radius: 2, y: 1)
+                        }
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 10)
+                                .strokeBorder(.quaternary, lineWidth: 0.5)
+                        }
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
+                }
+
+                // Details section
+                let details = stats.filter {
+                    $0.0 == "Avg duration" || $0.0 == "Longest" || $0.0 == "Total segments" || $0.0 == "Database size"
+                }
+                if !details.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label("Details", systemImage: "info.circle")
+                            .font(.system(.subheadline, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .textCase(.uppercase)
+                            .tracking(0.5)
+
+                        VStack(spacing: 0) {
+                            ForEach(Array(details.enumerated()), id: \.element.0) { index, stat in
+                                StatRow(
+                                    label: stat.0,
+                                    value: stat.1,
+                                    icon: detailIcon(stat.0),
+                                    color: .secondary
+                                )
+                                if index < details.count - 1 {
+                                    Divider().padding(.leading, 40)
+                                }
+                            }
+                        }
+                        .background {
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(.background)
+                                .shadow(color: .black.opacity(0.06), radius: 2, y: 1)
+                        }
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 10)
+                                .strokeBorder(.quaternary, lineWidth: 0.5)
+                        }
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
+                }
+
+                if stats.isEmpty && !isLoading {
+                    VStack(spacing: 8) {
+                        Image(systemName: "chart.bar")
+                            .font(.largeTitle)
+                            .foregroundStyle(.quaternary)
+                        Text("No transcriptions yet")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 40)
+                }
+            }
+            .padding(20)
+        }
+        .background(.quaternary.opacity(0.5))
+        .onAppear { loadStats() }
+    }
+
+    private func loadStats() {
+        isLoading = true
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = appState.getStatistics()
+            DispatchQueue.main.async {
+                stats = result
+                isLoading = false
+            }
+        }
+    }
+
+    private func modeIcon(_ mode: String) -> String {
+        switch mode.lowercased() {
+        case "dictation": return "waveform"
+        case "clean": return "text.badge.checkmark"
+        case "email": return "envelope.fill"
+        case "code": return "chevron.left.forwardslash.chevron.right"
+        default: return "star"
+        }
+    }
+
+    private func modeColor(_ mode: String) -> Color {
+        switch mode.lowercased() {
+        case "dictation": return .blue
+        case "clean": return .green
+        case "email": return .orange
+        case "code": return .purple
+        default: return .secondary
+        }
+    }
+
+    private func detailIcon(_ label: String) -> String {
+        switch label {
+        case "Avg duration": return "timer"
+        case "Longest": return "arrow.up.right"
+        case "Total segments": return "list.bullet"
+        case "Database size": return "externaldrive"
+        default: return "info.circle"
+        }
+    }
+}
+
+private struct StatCard: View {
+    let label: String
+    let value: String
+
+    var body: some View {
+        VStack(spacing: 4) {
+            Text(value)
+                .font(.system(.title2, design: .rounded, weight: .bold))
+                .monospacedDigit()
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 14)
+        .background {
+            RoundedRectangle(cornerRadius: 10)
+                .fill(.background)
+                .shadow(color: .black.opacity(0.06), radius: 2, y: 1)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(.quaternary, lineWidth: 0.5)
+        }
+    }
+}
+
+private struct StatRow: View {
+    let label: String
+    let value: String
+    let icon: String
+    let color: Color
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 14))
+                .foregroundStyle(color)
+                .frame(width: 24)
+
+            Text(label)
+                .font(.body)
+
+            Spacer()
+
+            Text(value)
+                .font(.system(.body, design: .rounded, weight: .medium))
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
     }
 }

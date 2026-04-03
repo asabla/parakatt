@@ -3,7 +3,6 @@
 /// Operates as a post-processing step after STT, before LLM processing.
 /// Rules are applied in order; patterns are matched case-insensitively
 /// as whole words by default, or as regex if the pattern starts with "re:".
-
 use crate::{AppContext, ReplacementRule};
 use regex::Regex;
 
@@ -64,10 +63,24 @@ impl Dictionary {
     }
 }
 
+/// Maximum length for regex patterns to prevent excessive compilation time
+/// or memory usage from adversarially large patterns.
+const MAX_PATTERN_LENGTH: usize = 500;
+
 /// Compile a pattern string into a Regex.
 /// Patterns starting with "re:" are treated as raw regex.
 /// Otherwise, the pattern is treated as a case-insensitive whole-word match.
 fn compile_pattern(pattern: &str) -> Option<Regex> {
+    if pattern.len() > MAX_PATTERN_LENGTH {
+        log::warn!(
+            "Dictionary pattern too long ({} chars, max {}): '{}'",
+            pattern.len(),
+            MAX_PATTERN_LENGTH,
+            &pattern[..50]
+        );
+        return None;
+    }
+
     let regex_str = if let Some(raw) = pattern.strip_prefix("re:") {
         raw.to_string()
     } else {
@@ -209,10 +222,7 @@ mod tests {
     #[test]
     fn test_multiple_rules_applied_in_order() {
         let mut dict = Dictionary::new();
-        dict.set_rules(vec![
-            make_rule("eks", "EKS"),
-            make_rule("aks", "AKS"),
-        ]);
+        dict.set_rules(vec![make_rule("eks", "EKS"), make_rule("aks", "AKS")]);
 
         let result = dict.apply("deploy to eks and aks", &default_ctx(), "dictation");
         assert_eq!(result, "deploy to EKS and AKS");

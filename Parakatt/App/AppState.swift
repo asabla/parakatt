@@ -3,8 +3,10 @@ import Combine
 import HotKey
 import os.log
 import ParakattCore
+import UserNotifications
 
 private let logger = Logger(subsystem: "com.parakatt.app", category: "engine")
+private let signpostLog = OSLog(subsystem: "com.parakatt.app", category: .pointsOfInterest)
 
 /// Observable application state shared across the UI.
 ///
@@ -24,12 +26,19 @@ class AppState: ObservableObject {
     @Published var isDownloading = false
     @Published var downloadProgress: ParakattCore.DownloadProgress?
     @Published var currentAudioLevel: Float = 0
+    @Published var silenceDetected = false
+    @Published var audioClippingDetected = false
 
     // Meeting state
     @Published var isMeetingActive = false
     @Published var meetingElapsedTime: TimeInterval = 0
     @Published var meetingTranscription: String?
     @Published var meetingLatestChunk: String?
+
+    // Behavior settings
+    @Published var autoPaste = true
+    @Published var showRecordingOverlay = true
+    @Published var debugMode = false
 
     // Audio source selection (meeting mode)
     @Published var selectedAudioSourcePID: pid_t?
@@ -69,7 +78,7 @@ class AppState: ObservableObject {
     private var isCaptureDraining = false
 
     /// Seconds before transitioning from single-shot preview to incremental chunking.
-    private let firstChunkDelaySecs: TimeInterval = 5.0
+    private let firstChunkDelaySecs: TimeInterval = 2.0
     /// Chunk dispatch interval after the first chunk (30s chunk - 2s overlap).
     private let pttChunkIntervalSecs: TimeInterval = 28.0
 
@@ -80,10 +89,15 @@ class AppState: ObservableObject {
 
     // MARK: - Lifecycle
 
+    /// Initialize the Rust engine, audio services, and load settings from config.
     func initializeEngine() {
+        // Set up file logging
+        FileLogService.shared.logStartup()
+
         // Set up services
         textInsertionService = TextInsertionService()
         contextService = ContextService()
+        requestNotificationPermission()
 
         // Create audio capture once — reused across all recording sessions
         let capture = AudioCaptureService()
@@ -104,8 +118,16 @@ class AppState: ObservableObject {
             engineReady = true
             NSLog("[Parakatt] Engine created")
 
+            // Load behavior settings from config
+            if let ap = try? bridge?.getAutoPaste() { autoPaste = ap }
+            if let so = try? bridge?.getShowOverlay() { showRecordingOverlay = so }
+            if let dm = try? bridge?.getDebugMode() { debugMode = dm }
+
+            // Load API key from Keychain (not config file)
+            loadLlmApiKeyFromKeychain()
+
             // Load preferred audio source from config
-            if let bundleId = bridge?.getPreferredAudioSource() {
+            if let bundleId = try? bridge?.getPreferredAudioSource() {
                 if let pid = AudioSourceService.pidForBundleId(bundleId) {
                     selectedAudioSourcePID = pid
                     let name = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId)
@@ -152,6 +174,7 @@ class AppState: ObservableObject {
         }
     }
 
+    /// Clean up all running sessions and audio capture on app termination.
     func shutdown() {
         stopRecording()
         if let sessionId = pttSessionId {
@@ -166,17 +189,25 @@ class AppState: ObservableObject {
 
     // MARK: - Recording
 
+    /// Start a push-to-talk recording session via AVAudioEngine.
     func startRecording() {
         guard !isRecording, !isCaptureDraining else {
             NSLog("[Parakatt] startRecording called but already recording or draining — ignoring")
             return
         }
         guard engineReady else {
+            errorMessage = "Cannot record — download and load a model in Settings first"
             NSLog("[Parakatt] Cannot record: engine not ready (modelLoaded=%d)", isModelLoaded ? 1 : 0)
             return
         }
 
+        // Set immediately after guard to prevent race with rapid start/stop.
+        isRecording = true
+
         sampleCount = 0
+        silentCallbackCount = 0
+        silenceDetected = false
+        audioClippingDetected = false
         longRecordingWarned = false
         pttSessionId = nil
         pttChunkIndex = 0
@@ -190,7 +221,6 @@ class AppState: ObservableObject {
 
         do {
             try audioCaptureService?.startCapture()
-            isRecording = true
             currentAudioLevel = 0
             liveTranscription = nil
             errorMessage = nil
@@ -209,6 +239,7 @@ class AppState: ObservableObject {
             NSLog("[Parakatt] Recording STARTED (modelLoaded=%d, incremental after %.0fs)",
                   isModelLoaded ? 1 : 0, firstChunkDelaySecs)
         } catch {
+            isRecording = false
             errorMessage = "Failed to start recording: \(error.localizedDescription)"
             NSLog("[Parakatt] Recording FAILED: %@", error.localizedDescription)
         }
@@ -218,6 +249,7 @@ class AppState: ObservableObject {
     /// Allows the AVAudioEngine tap to deliver remaining buffered samples (~256ms).
     private let captureDrainDelaySecs: TimeInterval = 0.3
 
+    /// Stop recording and process the captured audio through the STT pipeline.
     func stopRecording() {
         guard isRecording else { return }
 
@@ -303,7 +335,12 @@ class AppState: ObservableObject {
                         self.errorMessage = nil
 
                         if !result.text.isEmpty {
-                            self.textInsertionService?.insertText(result.text)
+                            if self.autoPaste {
+                                let inserted = self.textInsertionService?.insertText(result.text) ?? false
+                                if !inserted {
+                                    self.errorMessage = "Could not paste text — transcription copied to clipboard"
+                                }
+                            }
                             NSLog("[Parakatt] PTT session result (%@, %.2fs): %@",
                                   mode, result.durationSecs, result.text)
                         }
@@ -332,7 +369,14 @@ class AppState: ObservableObject {
 
             guard !samples.isEmpty else {
                 NSLog("[Parakatt] stopRecording: NO AUDIO IN BUFFER")
-                errorMessage = "No audio captured"
+                errorMessage = "No audio captured — check microphone permission in System Settings > Privacy & Security"
+                return
+            }
+
+            let durationSecs = Double(samples.count) / Double(sttSampleRate)
+            guard durationSecs >= 0.5 else {
+                NSLog("[Parakatt] Recording too short (%.2fs), discarding", durationSecs)
+                errorMessage = "Recording too short — hold longer to capture audio"
                 return
             }
 
@@ -436,7 +480,18 @@ class AppState: ObservableObject {
     @Published var llmProvider: String = ""
     @Published var llmBaseUrl: String = "http://localhost:11434"
     @Published var llmModel: String = "llama3.2"
-    @Published var llmApiKey: String = ""
+    @Published var llmApiKey: String = "" {
+        didSet {
+            // Persist API key to Keychain instead of config file
+            KeychainService.set(llmApiKey, forKey: "llm-api-key")
+        }
+    }
+
+    func loadLlmApiKeyFromKeychain() {
+        if let key = KeychainService.get("llm-api-key") {
+            llmApiKey = key
+        }
+    }
 
     func configureLlm() {
         do {
@@ -450,6 +505,97 @@ class AppState: ObservableObject {
             NSLog("[Parakatt] LLM configured: provider=%@, model=%@", llmProvider, llmModel)
         } catch {
             NSLog("[Parakatt] LLM config failed: %@", error.localizedDescription)
+        }
+    }
+
+    func testLlmConnection() -> String {
+        do {
+            return try bridge?.testLlmConnection() ?? "No engine"
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    func listModes() -> [ModeConfig] {
+        bridge?.listModes() ?? []
+    }
+
+    func saveMode(_ mode: ModeConfig) {
+        do {
+            try bridge?.saveMode(mode)
+        } catch {
+            errorMessage = "Failed to save mode: \(error.localizedDescription)"
+        }
+    }
+
+    // MARK: - Profiles
+
+    func listProfiles() -> [String] {
+        bridge?.listProfiles() ?? []
+    }
+
+    func saveProfile(_ name: String) {
+        do {
+            try bridge?.saveProfile(name)
+            NSLog("[Parakatt] Saved profile: %@", name)
+        } catch {
+            errorMessage = "Failed to save profile: \(error.localizedDescription)"
+        }
+    }
+
+    func loadProfile(_ name: String) {
+        do {
+            try bridge?.loadProfile(name)
+            // Reload settings from the new config
+            if let ap = try? bridge?.getAutoPaste() { autoPaste = ap }
+            if let so = try? bridge?.getShowOverlay() { showRecordingOverlay = so }
+            if let dm = try? bridge?.getDebugMode() { debugMode = dm }
+            loadLlmApiKeyFromKeychain()
+            NSLog("[Parakatt] Loaded profile: %@", name)
+        } catch {
+            errorMessage = "Failed to load profile: \(error.localizedDescription)"
+        }
+    }
+
+    func deleteProfile(_ name: String) {
+        do {
+            try bridge?.deleteProfile(name)
+        } catch {
+            errorMessage = "Failed to delete profile: \(error.localizedDescription)"
+        }
+    }
+
+    func getAppModeDefaults() -> [(String, String)] {
+        do {
+            return try bridge?.getAppModeDefaults() ?? []
+        } catch {
+            NSLog("[Parakatt] Failed to get app mode defaults: %@", error.localizedDescription)
+            return []
+        }
+    }
+
+    func setAppModeDefault(bundleId: String, mode: String) {
+        do {
+            try bridge?.setAppModeDefault(bundleId: bundleId, mode: mode)
+        } catch {
+            NSLog("[Parakatt] Failed to set app mode default: %@", error.localizedDescription)
+        }
+    }
+
+    func deleteMode(_ name: String) {
+        do {
+            try bridge?.deleteMode(name)
+        } catch {
+            errorMessage = "Failed to delete mode: \(error.localizedDescription)"
+        }
+    }
+
+    func getStatistics() -> [(String, String)] {
+        do {
+            return try bridge?.getStatistics() ?? []
+        } catch {
+            NSLog("[Parakatt] Failed to get statistics: %@", error.localizedDescription)
+            return []
         }
     }
 
@@ -497,7 +643,9 @@ class AppState: ObservableObject {
         guard let bridge else {
             return (.space, [.option], "hold")
         }
-        let config = bridge.getHotkeyConfig()
+        guard let config = try? bridge.getHotkeyConfig() else {
+            return (.space, [.option], "hold")
+        }
         let key = HotkeyService.keyFromString(config.key) ?? .space
         let modifiers = HotkeyService.modifiersFromStrings(config.modifiers)
         let mode = config.mode
@@ -520,6 +668,35 @@ class AppState: ObservableObject {
         NSLog("[Parakatt] Hotkey updated: %@ + %@ (%@)", modStrs.joined(separator: "+"), keyStr, mode)
     }
 
+    // MARK: - Behavior settings
+
+    func setAutoPaste(_ enabled: Bool) {
+        autoPaste = enabled
+        do {
+            try bridge?.setAutoPaste(enabled)
+        } catch {
+            NSLog("[Parakatt] Failed to save auto_paste setting: %@", error.localizedDescription)
+        }
+    }
+
+    func setDebugMode(_ enabled: Bool) {
+        debugMode = enabled
+        do {
+            try bridge?.setDebugMode(enabled)
+        } catch {
+            NSLog("[Parakatt] Failed to save debug_mode setting: %@", error.localizedDescription)
+        }
+    }
+
+    func setShowOverlay(_ enabled: Bool) {
+        showRecordingOverlay = enabled
+        do {
+            try bridge?.setShowOverlay(enabled)
+        } catch {
+            NSLog("[Parakatt] Failed to save show_overlay setting: %@", error.localizedDescription)
+        }
+    }
+
     // MARK: - Audio source preference
 
     /// Persist the preferred audio source bundle ID.
@@ -538,7 +715,7 @@ class AppState: ObservableObject {
     func startMeeting() {
         guard !isMeetingActive else { return }
         guard engineReady, let bridge else {
-            errorMessage = "Engine not ready"
+            errorMessage = "Engine not ready — download and load a model in Settings first"
             return
         }
 
@@ -555,6 +732,7 @@ class AppState: ObservableObject {
             self?.meetingElapsedTimer = nil
             self?.meetingTranscription = result.text
             self?.meetingLatestChunk = nil
+            self?.sendTranscriptionNotification(preview: result.text, source: "meeting")
             NSLog("[Parakatt] Meeting finished: %.0fs, %d chars", result.durationSecs, result.text.count)
         }
 
@@ -690,6 +868,10 @@ class AppState: ObservableObject {
 
     func loadModel(_ modelId: String) {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let signpostID = OSSignpostID(log: signpostLog)
+            os_signpost(.begin, log: signpostLog, name: "LoadModel", signpostID: signpostID, "%{public}s", modelId)
+            defer { os_signpost(.end, log: signpostLog, name: "LoadModel", signpostID: signpostID) }
+
             guard let self else { return }
             do {
                 try self.bridge?.loadModel(modelId)
@@ -764,7 +946,7 @@ class AppState: ObservableObject {
     private func pollDownloadProgress() {
         guard let bridge else { return }
 
-        let progress = bridge.getDownloadProgress()
+        guard let progress = try? bridge.getDownloadProgress() else { return }
         downloadProgress = progress
 
         switch progress.state {
@@ -813,6 +995,10 @@ class AppState: ObservableObject {
               samples.count, Double(samples.count) / 16000.0, maxAmp, activeMode, llmProvider.isEmpty ? "none" : llmProvider)
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let signpostID = OSSignpostID(log: signpostLog)
+            os_signpost(.begin, log: signpostLog, name: "Transcribe", signpostID: signpostID, "samples: %d", samples.count)
+            defer { os_signpost(.end, log: signpostLog, name: "Transcribe", signpostID: signpostID) }
+
             guard let self, let bridge = self.bridge else {
                 DispatchQueue.main.async { self?.isProcessing = false }
                 return
@@ -820,11 +1006,20 @@ class AppState: ObservableObject {
 
             let context = self.contextService?.currentContext()
 
+            // Resolve mode: use per-app default if configured, otherwise global active mode
+            let effectiveMode: String
+            if let bundleId = context?.appBundleId,
+               let resolved = try? bridge.resolveModeForApp(bundleId: bundleId) {
+                effectiveMode = resolved
+            } else {
+                effectiveMode = self.activeMode
+            }
+
             do {
                 let result = try bridge.transcribe(
                     audioSamples: samples,
                     sampleRate: 16000,
-                    mode: self.activeMode,
+                    mode: effectiveMode,
                     context: context
                 )
 
@@ -834,7 +1029,13 @@ class AppState: ObservableObject {
                     self.errorMessage = nil
 
                     if !result.text.isEmpty {
-                        self.textInsertionService?.insertText(result.text)
+                        if self.autoPaste {
+                            let inserted = self.textInsertionService?.insertText(result.text) ?? false
+                            if !inserted {
+                                self.errorMessage = "Could not paste text — transcription copied to clipboard"
+                            }
+                        }
+                        self.sendTranscriptionNotification(preview: result.text, source: "push_to_talk")
                         NSLog("[Parakatt] Result (%@, %.2fs): %@", self.activeMode, result.durationSecs, result.text)
                     } else {
                         NSLog("[Parakatt] Empty transcription (mode=%@, maxAmp=%.4f)", self.activeMode, maxAmp)
@@ -930,9 +1131,14 @@ class AppState: ObservableObject {
                 )
                 DispatchQueue.main.async {
                     if self.isRecording || self.isProcessing {
-                        // Store accumulated text; streaming preview composes the display.
-                        self.pttAccumulatedText = result.accumulatedText.isEmpty
+                        let newAccumulated = result.accumulatedText.isEmpty
                             ? nil : result.accumulatedText
+                        self.pttAccumulatedText = newAccumulated
+                        // Immediately update live display to prevent flash/disappearance
+                        // The streaming preview will append the tail on its next cycle
+                        if let text = newAccumulated {
+                            self.liveTranscription = text
+                        }
                     }
                 }
                 NSLog("[Parakatt] PTT chunk %d: \"%@\"", currentIndex, result.text)
@@ -998,10 +1204,27 @@ class AppState: ObservableObject {
                 )
                 DispatchQueue.main.async {
                     if self.isRecording {
-                        if let prefix = accumulatedPrefix, !prefix.isEmpty {
-                            // Compose: accumulated chunk text + streaming tail preview
-                            let tail = result.text.isEmpty ? "" : " " + result.text
-                            self.liveTranscription = prefix + tail
+                        // Use latest accumulated text (may have changed during transcription)
+                        let currentPrefix = self.pttAccumulatedText
+
+                        if let prefix = currentPrefix, !prefix.isEmpty {
+                            if result.text.isEmpty {
+                                // No streaming tail — just show accumulated
+                                self.liveTranscription = prefix
+                            } else {
+                                // Append tail, but skip if it duplicates the end of accumulated
+                                let tail = result.text
+                                let prefixSuffix = String(prefix.suffix(80)).lowercased()
+                                let tailPrefix = String(tail.prefix(80)).lowercased()
+
+                                // Check for overlap: if the tail starts with text that
+                                // already ends the accumulated, skip it to avoid duplication
+                                if prefixSuffix.hasSuffix(tailPrefix.prefix(30)) && tailPrefix.count > 30 {
+                                    self.liveTranscription = prefix
+                                } else {
+                                    self.liveTranscription = prefix + "\n\n" + tail
+                                }
+                            }
                         } else {
                             self.liveTranscription = result.text.isEmpty ? nil : result.text
                         }
@@ -1013,9 +1236,43 @@ class AppState: ObservableObject {
         }
     }
 
+    // MARK: - Notifications
+
+    func requestNotificationPermission() {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, error in
+            if let error {
+                NSLog("[Parakatt] Notification permission error: %@", error.localizedDescription)
+            } else {
+                NSLog("[Parakatt] Notification permission granted: %d", granted)
+            }
+        }
+    }
+
+    private func sendTranscriptionNotification(preview: String, source: String) {
+        let content = UNMutableNotificationContent()
+        content.title = source == "meeting" ? "Meeting transcription ready" : "Transcription complete"
+        content.body = String(preview.prefix(100))
+        content.sound = .default
+
+        let request = UNNotificationRequest(
+            identifier: UUID().uuidString,
+            content: content,
+            trigger: nil
+        )
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error {
+                NSLog("[Parakatt] Failed to send notification: %@", error.localizedDescription)
+            }
+        }
+    }
+
     // MARK: - Audio buffer
 
     private var sampleCount = 0
+    /// Number of consecutive near-silent audio callbacks.
+    private var silentCallbackCount = 0
+    /// Threshold: callbacks are ~every 100ms, so 50 = ~5 seconds of silence.
+    private let silenceCallbackThreshold = 50
 
     /// Threshold for warning about long push-to-talk recordings (5 minutes).
     private let longRecordingWarningSamples = 5 * 60 * 16000
@@ -1040,8 +1297,19 @@ class AppState: ObservableObject {
         // Normalize: typical speech RMS ~0.01-0.1, scale up for display
         let normalized = min(rms * 10, 1.0)
         let smoothed = 0.3 * currentAudioLevel + 0.7 * normalized
+        // Track silence: if RMS is near zero, count consecutive silent callbacks
+        if rms < 0.001 {
+            silentCallbackCount += 1
+        } else {
+            silentCallbackCount = 0
+        }
+        // Detect clipping: any sample at +/-1.0 means the signal is saturated
+        let maxAmp = samples.lazy.map { abs($0) }.max() ?? 0
+        let clipping = maxAmp >= 0.99
         DispatchQueue.main.async {
             self.currentAudioLevel = smoothed
+            self.silenceDetected = self.silentCallbackCount >= self.silenceCallbackThreshold
+            if clipping { self.audioClippingDetected = true }
         }
 
         sampleCount += 1
