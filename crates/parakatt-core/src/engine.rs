@@ -21,6 +21,19 @@ use crate::{
 };
 
 /// The main engine exposed to Swift via UniFFI.
+///
+/// ## Lock ordering
+///
+/// When acquiring multiple Mutexes, always follow this order to prevent deadlocks:
+///   1. `config`
+///   2. `stt`
+///   3. `llm`
+///   4. `dictionary`
+///   5. `sessions`
+///   6. `storage`
+///   7. `download_progress`
+///
+/// Drop locks as soon as possible — especially before network I/O (e.g., `llm`).
 #[derive(uniffi::Object)]
 pub struct Engine {
     models_dir: PathBuf,
