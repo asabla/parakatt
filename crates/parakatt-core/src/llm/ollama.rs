@@ -1,7 +1,10 @@
-/// Ollama LLM provider.
+/// Ollama LLM provider with streaming support.
 ///
 /// Connects to a locally running Ollama instance via its HTTP API
-/// at localhost:11434 (default).
+/// at localhost:11434 (default). Uses streaming mode to avoid
+/// timeout issues with long-running completions.
+
+use std::io::BufRead;
 
 use crate::CoreError;
 
@@ -18,8 +21,11 @@ impl OllamaProvider {
         Self {
             base_url: base_url.trim_end_matches('/').to_string(),
             model: model.to_string(),
+            // Generous timeout for streaming — individual chunks arrive fast,
+            // but the full completion can take minutes for long text.
             client: reqwest::blocking::Client::builder()
-                .timeout(std::time::Duration::from_secs(60))
+                .connect_timeout(std::time::Duration::from_secs(10))
+                .timeout(std::time::Duration::from_secs(300))
                 .build()
                 .expect("Failed to build HTTP client"),
         }
@@ -60,7 +66,7 @@ impl LlmProvider for OllamaProvider {
         let body = serde_json::json!({
             "model": &self.model,
             "messages": messages,
-            "stream": false,
+            "stream": true,
         });
 
         let url = format!("{}/api/chat", self.base_url);
@@ -72,12 +78,14 @@ impl LlmProvider for OllamaProvider {
             .send()
             .map_err(|e| {
                 if e.is_timeout() {
-                    CoreError::LlmError(format!(
-                        "Ollama request timed out after 60s — the model may be too slow or the text too long"
-                    ))
+                    CoreError::LlmError(
+                        "Ollama request timed out — the model may be too slow or the text too long"
+                            .into(),
+                    )
                 } else if e.is_connect() {
                     CoreError::LlmError(format!(
-                        "Cannot connect to Ollama at {} — is the server running?", self.base_url
+                        "Cannot connect to Ollama at {} — is the server running?",
+                        self.base_url
                     ))
                 } else {
                     CoreError::LlmError(format!("Ollama request failed: {e}"))
@@ -92,14 +100,41 @@ impl LlmProvider for OllamaProvider {
             )));
         }
 
-        let json: serde_json::Value = response
-            .json()
-            .map_err(|e| CoreError::LlmError(format!("Failed to parse Ollama response: {e}")))?;
+        // Read streaming response: newline-delimited JSON objects.
+        // Each object has {"message":{"content":"..."},"done":false/true}
+        let mut accumulated = String::new();
+        let reader = std::io::BufReader::new(response);
 
-        json["message"]["content"]
-            .as_str()
-            .map(|s: &str| s.trim().to_string())
-            .ok_or_else(|| CoreError::LlmError("Missing content in Ollama response".into()))
+        for line in reader.lines() {
+            let line = line.map_err(|e| {
+                CoreError::LlmError(format!("Error reading Ollama stream: {e}"))
+            })?;
+
+            if line.trim().is_empty() {
+                continue;
+            }
+
+            let chunk: serde_json::Value = serde_json::from_str(&line).map_err(|e| {
+                CoreError::LlmError(format!("Failed to parse Ollama stream chunk: {e}"))
+            })?;
+
+            if let Some(content) = chunk["message"]["content"].as_str() {
+                accumulated.push_str(content);
+            }
+
+            if chunk["done"].as_bool() == Some(true) {
+                break;
+            }
+        }
+
+        let result = accumulated.trim().to_string();
+        if result.is_empty() {
+            return Err(CoreError::LlmError(
+                "Ollama returned empty response".into(),
+            ));
+        }
+
+        Ok(result)
     }
 
     fn name(&self) -> &str {
