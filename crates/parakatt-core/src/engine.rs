@@ -204,6 +204,48 @@ impl Engine {
             .unwrap_or_else(|_| modes::default_modes())
     }
 
+    /// Save a custom mode (add or update by name). Built-in modes are preserved.
+    pub fn save_mode(&self, mode: ModeConfig) -> Result<(), CoreError> {
+        let mut cfg = self.config.lock().map_err(|e| {
+            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
+        })?;
+
+        // Initialize from defaults if modes list is empty
+        if cfg.modes.is_empty() {
+            cfg.modes = modes::default_modes();
+        }
+
+        // Update existing or add new
+        if let Some(existing) = cfg.modes.iter_mut().find(|m| m.name == mode.name) {
+            *existing = mode;
+        } else {
+            cfg.modes.push(mode);
+        }
+
+        cfg.save(&self.config_dir)
+    }
+
+    /// Delete a custom mode by name. Built-in modes (dictation, clean, email, code) cannot be deleted.
+    pub fn delete_mode(&self, name: String) -> Result<(), CoreError> {
+        let builtin = ["dictation", "clean", "email", "code"];
+        if builtin.contains(&name.to_lowercase().as_str()) {
+            return Err(CoreError::ConfigError(format!(
+                "Cannot delete built-in mode: {name}"
+            )));
+        }
+
+        let mut cfg = self.config.lock().map_err(|e| {
+            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
+        })?;
+
+        if cfg.modes.is_empty() {
+            cfg.modes = modes::default_modes();
+        }
+
+        cfg.modes.retain(|m| m.name != name);
+        cfg.save(&self.config_dir)
+    }
+
     /// Update the dictionary rules.
     pub fn set_dictionary_rules(&self, rules: Vec<ReplacementRule>) -> Result<(), CoreError> {
         let mut dict_guard = self.dictionary.lock().map_err(|e| {
