@@ -42,6 +42,7 @@ struct RecordingOverlayView: View {
     let liveText: String?
     let audioLevel: Float
     let silenceDetected: Bool
+    let clippingDetected: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -67,6 +68,14 @@ struct RecordingOverlayView: View {
                         Image(systemName: "mic.slash")
                             .font(.caption)
                         Text("No audio detected — check your microphone")
+                            .font(.caption)
+                    }
+                    .foregroundStyle(.orange)
+                } else if clippingDetected {
+                    HStack(spacing: 4) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.caption)
+                        Text("Audio clipping detected — move further from the microphone")
                             .font(.caption)
                     }
                     .foregroundStyle(.orange)
@@ -126,17 +135,19 @@ class RecordingOverlayController {
 
         appState.$isRecording
             .combineLatest(appState.$isProcessing, appState.$liveTranscription, appState.$currentAudioLevel)
-            .combineLatest(appState.$silenceDetected)
+            .combineLatest(appState.$silenceDetected, appState.$audioClippingDetected)
             .throttle(for: .milliseconds(50), scheduler: DispatchQueue.main, latest: true)
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] combined, silenceDetected in
+            .sink { [weak self] combined, alerts in
                 let (isRecording, isProcessing, liveText, audioLevel) = combined
+                let (silenceDetected, clippingDetected) = alerts
                 self?.hostingView?.rootView = RecordingOverlayView(
                     isRecording: isRecording,
                     isProcessing: isProcessing,
                     liveText: liveText,
                     audioLevel: audioLevel,
-                    silenceDetected: silenceDetected
+                    silenceDetected: silenceDetected,
+                    clippingDetected: clippingDetected
                 )
             }
             .store(in: &cancellables)
@@ -156,7 +167,7 @@ class RecordingOverlayController {
     }
 
     private func createPanel() {
-        let view = RecordingOverlayView(isRecording: false, isProcessing: false, liveText: nil, audioLevel: 0, silenceDetected: false)
+        let view = RecordingOverlayView(isRecording: false, isProcessing: false, liveText: nil, audioLevel: 0, silenceDetected: false, clippingDetected: false)
         let hosting = NSHostingView(rootView: view)
         hosting.frame = NSRect(x: 0, y: 0, width: 420, height: 160)
 

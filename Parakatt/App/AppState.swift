@@ -26,6 +26,7 @@ class AppState: ObservableObject {
     @Published var downloadProgress: ParakattCore.DownloadProgress?
     @Published var currentAudioLevel: Float = 0
     @Published var silenceDetected = false
+    @Published var audioClippingDetected = false
 
     // Meeting state
     @Published var isMeetingActive = false
@@ -197,6 +198,7 @@ class AppState: ObservableObject {
         sampleCount = 0
         silentCallbackCount = 0
         silenceDetected = false
+        audioClippingDetected = false
         longRecordingWarned = false
         pttSessionId = nil
         pttChunkIndex = 0
@@ -1160,9 +1162,13 @@ class AppState: ObservableObject {
         } else {
             silentCallbackCount = 0
         }
+        // Detect clipping: any sample at +/-1.0 means the signal is saturated
+        let maxAmp = samples.lazy.map { abs($0) }.max() ?? 0
+        let clipping = maxAmp >= 0.99
         DispatchQueue.main.async {
             self.currentAudioLevel = smoothed
             self.silenceDetected = self.silentCallbackCount >= self.silenceCallbackThreshold
+            if clipping { self.audioClippingDetected = true }
         }
 
         sampleCount += 1
