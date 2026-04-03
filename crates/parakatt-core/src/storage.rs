@@ -154,25 +154,26 @@ impl Storage {
             "SELECT id, created_at, duration_secs, source, mode, audio_source, app_context, title, text
              FROM transcriptions"
         );
-        let mut conditions = Vec::new();
+        let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        let mut param_idx = 1u32;
 
         if let Some(source) = &query.source_filter {
-            conditions.push(format!("source = '{}'", source.replace('\'', "''")));
-        }
-
-        if !conditions.is_empty() {
-            sql.push_str(" WHERE ");
-            sql.push_str(&conditions.join(" AND "));
+            sql.push_str(&format!(" WHERE source = ?{param_idx}"));
+            param_values.push(Box::new(source.clone()));
+            param_idx += 1;
         }
 
         sql.push_str(" ORDER BY created_at DESC");
-        sql.push_str(&format!(" LIMIT {} OFFSET {}", query.limit, query.offset));
+        sql.push_str(&format!(" LIMIT ?{param_idx} OFFSET ?{}", param_idx + 1));
+        param_values.push(Box::new(query.limit));
+        param_values.push(Box::new(query.offset));
 
         let mut stmt = self.conn.prepare(&sql)
             .map_err(|e| CoreError::IoError(format!("Query failed: {e}")))?;
 
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> = param_values.iter().map(|p| p.as_ref()).collect();
         let rows = stmt
-            .query_map([], |row| {
+            .query_map(param_refs.as_slice(), |row| {
                 Ok(StoredTranscription {
                     id: row.get(0)?,
                     created_at: row.get(1)?,
@@ -212,19 +213,27 @@ impl Storage {
              JOIN transcriptions_fts fts ON t.rowid = fts.rowid
              WHERE transcriptions_fts MATCH ?1"
         );
+        let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        param_values.push(Box::new(search_text.to_string()));
+        let mut param_idx = 2u32;
 
         if let Some(source) = source_filter {
-            sql.push_str(&format!(" AND t.source = '{}'", source.replace('\'', "''")));
+            sql.push_str(&format!(" AND t.source = ?{param_idx}"));
+            param_values.push(Box::new(source.clone()));
+            param_idx += 1;
         }
 
         sql.push_str(" ORDER BY rank");
-        sql.push_str(&format!(" LIMIT {} OFFSET {}", limit, offset));
+        sql.push_str(&format!(" LIMIT ?{param_idx} OFFSET ?{}", param_idx + 1));
+        param_values.push(Box::new(limit));
+        param_values.push(Box::new(offset));
 
         let mut stmt = self.conn.prepare(&sql)
             .map_err(|e| CoreError::IoError(format!("FTS query failed: {e}")))?;
 
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> = param_values.iter().map(|p| p.as_ref()).collect();
         let rows = stmt
-            .query_map(params![search_text], |row| {
+            .query_map(param_refs.as_slice(), |row| {
                 Ok(StoredTranscription {
                     id: row.get(0)?,
                     created_at: row.get(1)?,
