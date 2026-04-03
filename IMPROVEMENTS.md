@@ -7,7 +7,7 @@ Tracked improvements and feature ideas for Parakatt.
 ## UX / Quality of Life
 
 - [x] **Completion notifications** — transcription finishes silently; add system notification or sound cue when done
-- [ ] **Onboarding flow** — no first-run guide explaining the hotkey, modes, or permissions; users jump straight to Settings
+- [x] **Onboarding flow** — no first-run guide explaining the hotkey, modes, or permissions; users jump straight to Settings
 - [x] **Expose hidden settings** — `auto_paste` and `show_overlay` exist in config but aren't in the Settings UI
 - [x] **Dictionary editor improvements** — no regex validation or test-before-save functionality
 - [x] **LLM connection test button** — users can't verify Ollama/OpenAI setup without attempting a transcription
@@ -32,7 +32,7 @@ Tracked improvements and feature ideas for Parakatt.
 - [x] **LLM token limit slider** — 4000-token guard is hardcoded; power users may want to tune this
 - [x] **Audio quality indicators** — warn if input is too quiet, clipping, or mic isn't connected
 - [ ] **Resume interrupted model downloads** — add HTTP Range header support for resumable downloads
-- [ ] **Device hot-plug handling** — if user unplugs explicitly-selected headphones mid-recording, no recovery; add AudioObjectPropertyListener
+- [x] **Device hot-plug handling** — if user unplugs explicitly-selected headphones mid-recording, no recovery; add AudioObjectPropertyListener
 - [x] **Cache system audio converter** — SystemAudioCaptureService recreates AVAudioConverter every callback; cache and reuse (already implemented)
 - [ ] **Audio preprocessing enhancements** — no noise reduction, echo cancellation, or pre-emphasis filtering; could improve STT quality
 - [x] **Unnecessary audio copy in STT** — `parakeet.rs` calls `audio.to_vec()` creating ~115MB copy for 30min recordings; investigate zero-copy API (not actionable — parakeet-rs API requires Vec by value)
