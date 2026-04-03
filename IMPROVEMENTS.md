@@ -10,17 +10,17 @@ Tracked improvements and feature ideas for Parakatt.
 - [ ] **Onboarding flow** — no first-run guide explaining the hotkey, modes, or permissions; users jump straight to Settings
 - [x] **Expose hidden settings** — `auto_paste` and `show_overlay` exist in config but aren't in the Settings UI
 - [ ] **Dictionary editor improvements** — no regex validation or test-before-save functionality
-- [ ] **LLM connection test button** — users can't verify Ollama/OpenAI setup without attempting a transcription
-- [ ] **Remember last meeting audio source** — requires manual app selection each time
+- [x] **LLM connection test button** — users can't verify Ollama/OpenAI setup without attempting a transcription
+- [x] **Remember last meeting audio source** — requires manual app selection each time (already implemented)
 - [x] **Short recording feedback** — recordings <1s are silently skipped; show "Recording too short" warning
 - [ ] **Model download progress in menu bar** — menu bar icon shows idle during model download; no visual hint
-- [ ] **"No audio detected" warning** — recording overlay shows "Listening..." forever even if mic produces silence
+- [x] **"No audio detected" warning** — recording overlay shows "Listening..." forever even if mic produces silence
 - [x] **Text insertion failure feedback** — if all 3 paste strategies fail, user sees nothing; show an alert
-- [ ] **Clipboard restore race condition** — if user copies something during the 500ms restore window, their copy gets overwritten
+- [x] **Clipboard restore race condition** — if user copies something during the 500ms restore window, their copy gets overwritten
 
 ## Export & Data
 
-- [ ] **More export formats** — only Markdown today; add CSV/JSON for integrations
+- [x] **More export formats** — only Markdown today; add CSV/JSON for integrations
 - [ ] **Batch export** — can only export one transcription at a time
 - [ ] **Backup/restore** — no way to back up the SQLite DB from within the app
 - [ ] **Auto-cleanup** — configurable retention (e.g., auto-delete transcriptions after N days)
@@ -52,7 +52,7 @@ Tracked improvements and feature ideas for Parakatt.
 
 ## Concurrency & Correctness
 
-- [ ] **Lock ordering not documented** — Engine holds 8 Mutexes with no documented acquisition order; potential deadlock risk
+- [x] **Lock ordering not documented** — Engine holds 8 Mutexes with no documented acquisition order; potential deadlock risk
 - [x] **LLM lock held during network I/O** — `apply_llm()` holds llm_guard through entire HTTP request; blocks config changes
 - [x] **Inconsistent lock error handling** — some locks use `.unwrap()` (panics on poison), others use `.map_err()`; standardize
 - [x] **Recording state race condition** — `startRecording()` guard isn't atomic; rapid start/stop could cause dual recordings
@@ -67,7 +67,7 @@ Tracked improvements and feature ideas for Parakatt.
 - [ ] **LLM timeout handling** — no explicit timeout UI; requests can hang silently
 - [x] **LLM error messages lack detail** — 4xx/5xx responses only show status code, not response body
 - [ ] **LLM streaming support** — both providers hardcode `stream: false`; streaming would give real-time feedback and prevent timeout on long responses
-- [ ] **LLM retry logic** — no retry with backoff for transient network failures
+- [x] **LLM retry logic** — no retry with backoff for transient network failures
 
 ## Database
 
@@ -88,7 +88,7 @@ Tracked improvements and feature ideas for Parakatt.
 
 ## CI/CD & Build
 
-- [ ] **No PR testing workflow** — no CI runs on pull requests (no linting, testing, or build verification)
+- [x] **No PR testing workflow** — no CI runs on pull requests (no linting, testing, or build verification)
 - [ ] **No linting enforcement** — no SwiftLint, rustfmt, or clippy checks in CI
 - [ ] **No code signing / notarization** — self-signed only; users must bypass Gatekeeper with xattr workaround
 - [ ] **No auto-update framework** — no Sparkle integration; users must manually download new releases
