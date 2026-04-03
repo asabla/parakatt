@@ -346,6 +346,8 @@ struct GeneralSettingsView: View {
     @State private var currentKey: Key = .space
     @State private var currentModifiers: NSEvent.ModifierFlags = [.option]
     @State private var currentMode: String = "hold"
+    @State private var showNewModeSheet = false
+    @State private var loadedModes: [ModeConfig] = []
 
     fileprivate struct ModeOption: Identifiable {
         let id: String
@@ -353,14 +355,64 @@ struct GeneralSettingsView: View {
         let description: String
         let icon: String
         let color: Color
+        let isCustom: Bool
     }
 
-    private let modes: [ModeOption] = [
-        ModeOption(id: "dictation", label: "Dictation", description: "Raw transcription — exactly what you said", icon: "waveform", color: .blue),
-        ModeOption(id: "clean", label: "Clean", description: "Fix grammar, punctuation, and formatting", icon: "text.badge.checkmark", color: .green),
-        ModeOption(id: "email", label: "Email", description: "Structure output as a professional email", icon: "envelope.fill", color: .orange),
-        ModeOption(id: "code", label: "Code", description: "Code-aware — preserves identifiers and syntax", icon: "chevron.left.forwardslash.chevron.right", color: .purple),
-    ]
+    private static let builtinNames = Set(["dictation", "clean", "email", "code"])
+
+    private static func iconForMode(_ name: String) -> String {
+        switch name.lowercased() {
+        case "dictation": return "waveform"
+        case "clean": return "text.badge.checkmark"
+        case "email": return "envelope.fill"
+        case "code": return "chevron.left.forwardslash.chevron.right"
+        default: return "star.fill"
+        }
+    }
+
+    private static func colorForMode(_ name: String) -> Color {
+        switch name.lowercased() {
+        case "dictation": return .blue
+        case "clean": return .green
+        case "email": return .orange
+        case "code": return .purple
+        default: return .pink
+        }
+    }
+
+    private var modes: [ModeOption] {
+        loadedModes.map { m in
+            let isCustom = !Self.builtinNames.contains(m.name.lowercased())
+            let desc: String
+            if isCustom {
+                if let prompt = m.systemPrompt, !prompt.isEmpty {
+                    desc = String(prompt.prefix(60)) + (prompt.count > 60 ? "..." : "")
+                } else {
+                    desc = "Custom mode"
+                }
+            } else {
+                desc = builtinDescription(m.name)
+            }
+            return ModeOption(
+                id: m.name,
+                label: m.name.capitalized,
+                description: desc,
+                icon: Self.iconForMode(m.name),
+                color: Self.colorForMode(m.name),
+                isCustom: isCustom
+            )
+        }
+    }
+
+    private func builtinDescription(_ name: String) -> String {
+        switch name.lowercased() {
+        case "dictation": return "Raw transcription — exactly what you said"
+        case "clean": return "Fix grammar, punctuation, and formatting"
+        case "email": return "Structure output as a professional email"
+        case "code": return "Code-aware — preserves identifiers and syntax"
+        default: return ""
+        }
+    }
 
     var body: some View {
         ScrollView {
@@ -446,20 +498,41 @@ struct GeneralSettingsView: View {
 
                 // MARK: - Processing mode section
                 VStack(alignment: .leading, spacing: 10) {
-                    Label("Processing Mode", systemImage: "wand.and.stars")
-                        .font(.system(.subheadline, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .textCase(.uppercase)
-                        .tracking(0.5)
+                    HStack {
+                        Label("Processing Mode", systemImage: "wand.and.stars")
+                            .font(.system(.subheadline, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .textCase(.uppercase)
+                            .tracking(0.5)
+
+                        Spacer()
+
+                        Button {
+                            showNewModeSheet = true
+                        } label: {
+                            Label("New Mode", systemImage: "plus")
+                                .font(.caption)
+                        }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(Color.accentColor)
+                    }
 
                     VStack(spacing: 0) {
                         ForEach(Array(modes.enumerated()), id: \.element.id) { index, mode in
                             GeneralModeRow(
                                 mode: mode,
-                                isSelected: appState.activeMode == mode.id
-                            ) {
-                                appState.activeMode = mode.id
-                            }
+                                isSelected: appState.activeMode == mode.id,
+                                onSelect: {
+                                    appState.activeMode = mode.id
+                                },
+                                onDelete: mode.isCustom ? {
+                                    appState.deleteMode(mode.id)
+                                    if appState.activeMode == mode.id {
+                                        appState.activeMode = "dictation"
+                                    }
+                                    reloadModes()
+                                } : nil
+                            )
 
                             if index < modes.count - 1 {
                                 Divider().padding(.leading, 44)
@@ -476,6 +549,20 @@ struct GeneralSettingsView: View {
                             .strokeBorder(.quaternary, lineWidth: 0.5)
                     }
                     .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+                .onAppear { reloadModes() }
+                .sheet(isPresented: $showNewModeSheet) {
+                    NewModeSheet { name, prompt in
+                        let mode = ModeConfig(
+                            name: name.lowercased(),
+                            sttProvider: nil,
+                            llmProvider: nil,
+                            systemPrompt: prompt.isEmpty ? nil : prompt,
+                            dictionaryEnabled: true
+                        )
+                        appState.saveMode(mode)
+                        reloadModes()
+                    }
                 }
 
                 // MARK: - Behavior section
@@ -705,6 +792,10 @@ struct GeneralSettingsView: View {
         currentModifiers = config.modifiers
         currentMode = config.mode
     }
+
+    private func reloadModes() {
+        loadedModes = appState.listModes()
+    }
 }
 
 /// NSView wrapper that captures key events for hotkey recording.
@@ -822,6 +913,7 @@ private struct GeneralModeRow: View {
     let mode: GeneralSettingsView.ModeOption
     let isSelected: Bool
     let onSelect: () -> Void
+    var onDelete: (() -> Void)?
 
     var body: some View {
         Button(action: onSelect) {
@@ -836,15 +928,38 @@ private struct GeneralModeRow: View {
                     )
 
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(mode.label)
-                        .font(.system(.body, weight: .medium))
-                        .foregroundStyle(.primary)
+                    HStack(spacing: 4) {
+                        Text(mode.label)
+                            .font(.system(.body, weight: .medium))
+                            .foregroundStyle(.primary)
+                        if mode.isCustom {
+                            Text("Custom")
+                                .font(.caption2)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1)
+                                .background(mode.color.opacity(0.15), in: Capsule())
+                                .foregroundStyle(mode.color)
+                        }
+                    }
                     Text(mode.description)
                         .font(.caption)
                         .foregroundStyle(.tertiary)
+                        .lineLimit(1)
                 }
 
                 Spacer()
+
+                if let onDelete {
+                    Button {
+                        onDelete()
+                    } label: {
+                        Image(systemName: "trash")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Delete custom mode")
+                }
 
                 if isSelected {
                     Image(systemName: "checkmark")
@@ -858,6 +973,57 @@ private struct GeneralModeRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+}
+
+private struct NewModeSheet: View {
+    var onSave: (String, String) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var name = ""
+    @State private var prompt = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("New Custom Mode")
+                .font(.headline)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Name")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                TextField("e.g., Summary, Translate, Notes", text: $name)
+                    .textFieldStyle(.roundedBorder)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("System Prompt")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                TextEditor(text: $prompt)
+                    .font(.body)
+                    .frame(minHeight: 120)
+                    .scrollContentBackground(.hidden)
+                    .padding(8)
+                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+                Text("This prompt tells the LLM how to process your transcription.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }
+                    .buttonStyle(.bordered)
+                Button("Create") {
+                    onSave(name, prompt)
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(width: 420)
     }
 }
 

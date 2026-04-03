@@ -509,6 +509,26 @@ class AppState: ObservableObject {
         }
     }
 
+    func listModes() -> [ModeConfig] {
+        bridge?.listModes() ?? []
+    }
+
+    func saveMode(_ mode: ModeConfig) {
+        do {
+            try bridge?.saveMode(mode)
+        } catch {
+            errorMessage = "Failed to save mode: \(error.localizedDescription)"
+        }
+    }
+
+    func deleteMode(_ name: String) {
+        do {
+            try bridge?.deleteMode(name)
+        } catch {
+            errorMessage = "Failed to delete mode: \(error.localizedDescription)"
+        }
+    }
+
     func getStatistics() -> [(String, String)] {
         do {
             return try bridge?.getStatistics() ?? []

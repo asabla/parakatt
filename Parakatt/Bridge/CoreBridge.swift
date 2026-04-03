@@ -139,6 +139,16 @@ class CoreBridge {
         try engine.testLlmConnection()
     }
 
+    // MARK: - Modes
+
+    func saveMode(_ mode: ModeConfig) throws {
+        try engine.saveMode(mode: mode)
+    }
+
+    func deleteMode(_ name: String) throws {
+        try engine.deleteMode(name: name)
+    }
+
     // MARK: - Statistics
 
     func getStatistics() throws -> [(String, String)] {
