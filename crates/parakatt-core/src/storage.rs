@@ -117,6 +117,8 @@ impl Storage {
                     ON transcriptions(created_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_transcriptions_source
                     ON transcriptions(source);
+                CREATE INDEX IF NOT EXISTS idx_transcriptions_source_created_at
+                    ON transcriptions(source, created_at DESC);
                 ",
             )
             .map_err(|e| CoreError::IoError(format!("Database migration failed: {e}")))?;
