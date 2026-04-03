@@ -1109,7 +1109,8 @@ impl Engine {
             context: Some(ctx.clone()),
         };
 
-        // Retry with exponential backoff for transient failures.
+        // Retry only transient failures (timeout, connection) with backoff.
+        // Non-transient errors (bad API key, model not found) fail immediately.
         let max_retries = 2;
         let mut last_error = None;
         for attempt in 0..=max_retries {
@@ -1120,21 +1121,31 @@ impl Engine {
                     break;
                 }
                 Err(e) => {
-                    last_error = Some(e);
-                    if attempt < max_retries {
+                    let msg = e.to_string();
+                    let is_transient = msg.contains("timed out")
+                        || msg.contains("connect")
+                        || msg.contains("Connection")
+                        || msg.contains("stream");
+
+                    if is_transient && attempt < max_retries {
                         let delay = std::time::Duration::from_millis(500 * (1 << attempt));
                         log::warn!(
-                            "LLM attempt {} failed, retrying in {}ms",
+                            "LLM attempt {} failed (transient), retrying in {}ms: {e}",
                             attempt + 1,
                             delay.as_millis()
                         );
+                        last_error = Some(e);
                         std::thread::sleep(delay);
+                    } else {
+                        // Non-transient error or final attempt — don't retry
+                        last_error = Some(e);
+                        break;
                     }
                 }
             }
         }
         if let Some(e) = last_error {
-            log::warn!("LLM processing failed after {} attempts, using raw transcription: {e}", max_retries + 1);
+            log::warn!("LLM processing failed, using raw transcription: {e}");
         }
 
         Ok(())
