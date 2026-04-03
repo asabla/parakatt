@@ -183,6 +183,7 @@ class AppState: ObservableObject {
             return
         }
         guard engineReady else {
+            errorMessage = "Cannot record — download and load a model in Settings first"
             NSLog("[Parakatt] Cannot record: engine not ready (modelLoaded=%d)", isModelLoaded ? 1 : 0)
             return
         }
@@ -353,7 +354,7 @@ class AppState: ObservableObject {
 
             guard !samples.isEmpty else {
                 NSLog("[Parakatt] stopRecording: NO AUDIO IN BUFFER")
-                errorMessage = "No audio captured"
+                errorMessage = "No audio captured — check microphone permission in System Settings > Privacy & Security"
                 return
             }
 
@@ -596,7 +597,7 @@ class AppState: ObservableObject {
     func startMeeting() {
         guard !isMeetingActive else { return }
         guard engineReady, let bridge else {
-            errorMessage = "Engine not ready"
+            errorMessage = "Engine not ready — download and load a model in Settings first"
             return
         }
 
