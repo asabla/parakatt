@@ -8,7 +8,7 @@ Tracked improvements and feature ideas for Parakatt.
 
 - [ ] **Completion notifications** — transcription finishes silently; add system notification or sound cue when done
 - [ ] **Onboarding flow** — no first-run guide explaining the hotkey, modes, or permissions; users jump straight to Settings
-- [ ] **Expose hidden settings** — `auto_paste` and `show_overlay` exist in config but aren't in the Settings UI
+- [x] **Expose hidden settings** — `auto_paste` and `show_overlay` exist in config but aren't in the Settings UI
 - [ ] **Dictionary editor improvements** — no regex validation or test-before-save functionality
 - [ ] **LLM connection test button** — users can't verify Ollama/OpenAI setup without attempting a transcription
 - [ ] **Remember last meeting audio source** — requires manual app selection each time
@@ -45,7 +45,7 @@ Tracked improvements and feature ideas for Parakatt.
 
 ## Security
 
-- [ ] **SQL injection in storage.rs** — `list()` and `search_fts()` use string concatenation for source filter; switch to parameterized queries
+- [x] **SQL injection in storage.rs** — `list()` and `search_fts()` use string concatenation for source filter; switch to parameterized queries
 - [ ] **API keys stored in plaintext** — config.toml stores OpenAI/Anthropic keys unencrypted; use macOS Keychain instead
 - [ ] **Model download checksum verification** — downloaded ONNX files aren't validated against known hashes
 - [ ] **ReDoS risk in dictionary** — user-supplied regex patterns (via `re:` prefix) have no complexity limits or timeout
@@ -53,11 +53,11 @@ Tracked improvements and feature ideas for Parakatt.
 ## Concurrency & Correctness
 
 - [ ] **Lock ordering not documented** — Engine holds 8 Mutexes with no documented acquisition order; potential deadlock risk
-- [ ] **LLM lock held during network I/O** — `apply_llm()` holds llm_guard through entire HTTP request; blocks config changes
-- [ ] **Inconsistent lock error handling** — some locks use `.unwrap()` (panics on poison), others use `.map_err()`; standardize
-- [ ] **Recording state race condition** — `startRecording()` guard isn't atomic; rapid start/stop could cause dual recordings
-- [ ] **Meeting state consistency** — `isMeetingActive` set before verifying session actually started
-- [ ] **Overlap dedup punctuation bug** — words like "brown." won't match "brown" across chunk boundaries; strip punctuation before comparing
+- [x] **LLM lock held during network I/O** — `apply_llm()` holds llm_guard through entire HTTP request; blocks config changes
+- [x] **Inconsistent lock error handling** — some locks use `.unwrap()` (panics on poison), others use `.map_err()`; standardize
+- [x] **Recording state race condition** — `startRecording()` guard isn't atomic; rapid start/stop could cause dual recordings
+- [x] **Meeting state consistency** — `isMeetingActive` set before verifying session actually started (already correctly implemented)
+- [x] **Overlap dedup punctuation bug** — words like "brown." won't match "brown" across chunk boundaries; strip punctuation before comparing
 - [ ] **LLM truncation is lossy** — 4000-word truncation splits mid-sentence with no user notification; truncate at sentence boundary and warn
 
 ## Robustness
@@ -71,7 +71,7 @@ Tracked improvements and feature ideas for Parakatt.
 
 ## Database
 
-- [ ] **Missing indexes** — no index on `created_at` or `source` columns; `ORDER BY created_at DESC` and source filtering do full table scans
+- [x] **Missing indexes** — no index on `created_at` or `source` columns; `ORDER BY created_at DESC` and source filtering do full table scans
 - [ ] **Add composite index** — `(source, created_at DESC)` for the common filtered+sorted query pattern
 
 ## macOS Integration
