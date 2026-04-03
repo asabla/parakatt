@@ -113,10 +113,10 @@ impl SessionManager {
             .cloned()
             .collect();
 
-        // Append to accumulated text.
+        // Append to accumulated text with paragraph breaks between chunks.
         if !new_text.is_empty() {
             if !state.accumulated_text.is_empty() {
-                state.accumulated_text.push(' ');
+                state.accumulated_text.push_str("\n\n");
             }
             state.accumulated_text.push_str(&new_text);
         }
@@ -307,13 +307,13 @@ mod tests {
         assert_eq!(r2.text, "and here is chunk two");
         assert_eq!(
             r2.accumulated_text,
-            "hello world this is chunk one and here is chunk two"
+            "hello world this is chunk one\n\nand here is chunk two"
         );
         assert!((r2.chunk_offset_secs - 30.0).abs() < 0.01);
 
         // Finish
         let (text, duration, segments) = mgr.finish("test-1").unwrap();
-        assert_eq!(text, "hello world this is chunk one and here is chunk two");
+        assert_eq!(text, "hello world this is chunk one\n\nand here is chunk two");
         assert!((duration - 60.0).abs() < 0.01);
         assert!(segments.is_empty()); // No segments passed in this test
         assert!(!mgr.has_session("test-1"));
@@ -365,7 +365,7 @@ mod tests {
         let (text, duration, _segments) = mgr.finish("long").unwrap();
         assert_eq!(
             text,
-            "the meeting started with introductions and then we discussed the budget was reviewed by the finance team next steps were assigned to everyone"
+            "the meeting started with introductions\n\nand then we discussed the budget\n\nwas reviewed by the finance team\n\nnext steps were assigned to everyone"
         );
         assert!((duration - 120.0).abs() < 0.01);
     }
