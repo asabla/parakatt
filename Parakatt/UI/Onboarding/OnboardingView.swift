@@ -69,7 +69,7 @@ struct OnboardingView: View {
 
             Image(systemName: "waveform.circle.fill")
                 .font(.system(size: 64))
-                .foregroundStyle(.accent)
+                .foregroundStyle(.blue)
 
             Text("Welcome to Parakatt")
                 .font(.title)

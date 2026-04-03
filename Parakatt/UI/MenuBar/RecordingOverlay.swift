@@ -135,12 +135,13 @@ class RecordingOverlayController {
 
         appState.$isRecording
             .combineLatest(appState.$isProcessing, appState.$liveTranscription, appState.$currentAudioLevel)
-            .combineLatest(appState.$silenceDetected, appState.$audioClippingDetected)
+            .combineLatest(appState.$silenceDetected)
+            .combineLatest(appState.$audioClippingDetected)
             .throttle(for: .milliseconds(50), scheduler: DispatchQueue.main, latest: true)
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] combined, alerts in
-                let (isRecording, isProcessing, liveText, audioLevel) = combined
-                let (silenceDetected, clippingDetected) = alerts
+            .sink { [weak self] nested, clippingDetected in
+                let (inner, silenceDetected) = nested
+                let (isRecording, isProcessing, liveText, audioLevel) = inner
                 self?.hostingView?.rootView = RecordingOverlayView(
                     isRecording: isRecording,
                     isProcessing: isProcessing,

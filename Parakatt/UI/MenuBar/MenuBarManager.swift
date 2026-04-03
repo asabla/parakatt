@@ -166,15 +166,12 @@ class MenuBarManager: NSObject {
     private func observeState() {
         appState.$isRecording
             .combineLatest(appState.$isProcessing, appState.$isModelLoaded)
-            .combineLatest(appState.$isMeetingActive, appState.$isDownloading, appState.$downloadProgress)
-            .removeDuplicates { a, b in
-                a.0.0 == b.0.0 && a.0.1 == b.0.1 && a.0.2 == b.0.2
-                && a.1 == b.1 && a.2 == b.2
-            }
+            .combineLatest(appState.$isMeetingActive)
+            .combineLatest(appState.$isDownloading)
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] combined, state in
-                let (isRecording, isProcessing, isModelLoaded) = combined
-                let (isMeetingActive, isDownloading, _) = state
+            .sink { [weak self] nested, isDownloading in
+                let (inner, isMeetingActive) = nested
+                let (isRecording, isProcessing, isModelLoaded) = inner
                 guard let self else { return }
 
                 let newState: IconState
