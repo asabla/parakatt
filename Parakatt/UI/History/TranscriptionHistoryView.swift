@@ -61,55 +61,66 @@ struct TranscriptionHistoryView: View {
     private var sidebarContent: some View {
         VStack(spacing: 0) {
             // Filter + selection mode toolbar
-            HStack(spacing: 8) {
-                if isSelectionMode {
-                    // Selection mode toolbar
-                    Text("\(selectedIds.count) selected")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
+            Group {
+            if isSelectionMode {
+                // Selection mode toolbar — two rows for breathing room
+                VStack(spacing: 8) {
+                    // Row 1: Selection count + management
+                    HStack {
+                        Text("\(selectedIds.count)")
+                            .font(.system(.title3, design: .rounded, weight: .semibold))
+                            .monospacedDigit()
+                        + Text(" selected")
+                            .font(.system(.body))
+                            .foregroundColor(.secondary)
 
-                    Spacer()
+                        Spacer()
 
-                    Button {
-                        if selectedIds.count == transcriptions.count {
-                            selectedIds.removeAll()
-                        } else {
-                            selectedIds = Set(transcriptions.map(\.id))
+                        Button {
+                            if selectedIds.count == transcriptions.count {
+                                selectedIds.removeAll()
+                            } else {
+                                selectedIds = Set(transcriptions.map(\.id))
+                            }
+                        } label: {
+                            Text(selectedIds.count == transcriptions.count ? "Deselect All" : "Select All")
                         }
-                    } label: {
-                        Text(selectedIds.count == transcriptions.count ? "Deselect All" : "Select All")
-                            .font(.caption)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(Color.accentColor)
 
-                    Button {
-                        exportSelected()
-                    } label: {
-                        Label("Export", systemImage: "square.and.arrow.up")
-                            .font(.caption)
+                        Button("Done") {
+                            isSelectionMode = false
+                            selectedIds.removeAll()
+                        }
+                        .buttonStyle(.bordered)
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .disabled(selectedIds.isEmpty)
 
-                    Button(role: .destructive) {
-                        showDeleteConfirmation = true
-                    } label: {
-                        Label("Delete", systemImage: "trash")
-                            .font(.caption)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .disabled(selectedIds.isEmpty)
+                    // Row 2: Actions
+                    HStack(spacing: 8) {
+                        Button {
+                            exportSelected()
+                        } label: {
+                            Label("Export", systemImage: "square.and.arrow.up")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(selectedIds.isEmpty)
 
-                    Button("Done") {
-                        isSelectionMode = false
-                        selectedIds.removeAll()
+                        Button(role: .destructive) {
+                            showDeleteConfirmation = true
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(.red)
+                        .disabled(selectedIds.isEmpty)
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                } else {
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+            } else {
+                HStack(spacing: 8) {
                     Picker("Filter", selection: Binding(
                         get: { activeFilter },
                         set: { option in
@@ -137,10 +148,11 @@ struct TranscriptionHistoryView: View {
                         .help("Select multiple items")
                     }
                 }
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
+                .padding(.bottom, 6)
             }
-            .padding(.horizontal, 12)
-            .padding(.top, 8)
-            .padding(.bottom, 6)
+            }
             .animation(
                 NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
                     ? nil
