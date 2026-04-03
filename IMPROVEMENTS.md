@@ -35,6 +35,7 @@ Tracked improvements and feature ideas for Parakatt.
 - [x] **Device hot-plug handling** — if user unplugs explicitly-selected headphones mid-recording, no recovery; add AudioObjectPropertyListener
 - [x] **Cache system audio converter** — SystemAudioCaptureService recreates AVAudioConverter every callback; cache and reuse (already implemented)
 - [x] **Audio preprocessing enhancements** — no noise reduction, echo cancellation, or pre-emphasis filtering; could improve STT quality
+- [ ] **Filler word removal** — strip "uh", "um", "mmm", "ah" and similar filler sounds from transcription output
 - [x] **Unnecessary audio copy in STT** — `parakeet.rs` calls `audio.to_vec()` creating ~115MB copy for 30min recordings; investigate zero-copy API (not actionable — parakeet-rs API requires Vec by value)
 
 ## Customization
