@@ -221,6 +221,66 @@ impl Config {
 
         Ok(())
     }
+
+    // --- Profile management ---
+
+    /// Save the current config as a named profile.
+    pub fn save_profile(&self, config_dir: &Path, name: &str) -> Result<(), CoreError> {
+        let profiles_dir = config_dir.join("profiles");
+        std::fs::create_dir_all(&profiles_dir)
+            .map_err(|e| CoreError::IoError(format!("Failed to create profiles dir: {e}")))?;
+
+        let content = toml::to_string_pretty(self)
+            .map_err(|e| CoreError::ConfigError(format!("Failed to serialize profile: {e}")))?;
+
+        let path = profiles_dir.join(format!("{name}.toml"));
+        std::fs::write(&path, content)
+            .map_err(|e| CoreError::IoError(format!("Failed to write profile: {e}")))?;
+
+        log::info!("Saved profile: {name}");
+        Ok(())
+    }
+
+    /// Load a named profile, replacing the current config.
+    pub fn load_profile(config_dir: &Path, name: &str) -> Result<Self, CoreError> {
+        let path = config_dir.join("profiles").join(format!("{name}.toml"));
+        if !path.exists() {
+            return Err(CoreError::ConfigError(format!("Profile not found: {name}")));
+        }
+        let content = std::fs::read_to_string(&path)
+            .map_err(|e| CoreError::ConfigError(format!("Failed to read profile: {e}")))?;
+        toml::from_str(&content)
+            .map_err(|e| CoreError::ConfigError(format!("Failed to parse profile: {e}")))
+    }
+
+    /// List available profile names.
+    pub fn list_profiles(config_dir: &Path) -> Vec<String> {
+        let profiles_dir = config_dir.join("profiles");
+        let Ok(entries) = std::fs::read_dir(profiles_dir) else {
+            return Vec::new();
+        };
+        entries
+            .flatten()
+            .filter_map(|e| {
+                let path = e.path();
+                if path.extension().and_then(|s| s.to_str()) == Some("toml") {
+                    path.file_stem().and_then(|s| s.to_str()).map(|s| s.to_string())
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    /// Delete a named profile.
+    pub fn delete_profile(config_dir: &Path, name: &str) -> Result<(), CoreError> {
+        let path = config_dir.join("profiles").join(format!("{name}.toml"));
+        if path.exists() {
+            std::fs::remove_file(&path)
+                .map_err(|e| CoreError::IoError(format!("Failed to delete profile: {e}")))?;
+        }
+        Ok(())
+    }
 }
 
 impl Default for Config {

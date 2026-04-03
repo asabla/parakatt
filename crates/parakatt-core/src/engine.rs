@@ -308,6 +308,49 @@ impl Engine {
             .unwrap_or_default()
     }
 
+    // --- Profile management ---
+
+    /// List available profile names.
+    pub fn list_profiles(&self) -> Vec<String> {
+        Config::list_profiles(&self.config_dir)
+    }
+
+    /// Save the current config as a named profile.
+    pub fn save_profile(&self, name: String) -> Result<(), CoreError> {
+        let config = self.config.lock().map_err(|e| {
+            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
+        })?;
+        config.save_profile(&self.config_dir, &name)
+    }
+
+    /// Load a named profile, replacing the current config and reconfiguring the engine.
+    pub fn load_profile(&self, name: String) -> Result<(), CoreError> {
+        let new_config = Config::load_profile(&self.config_dir, &name)?;
+
+        // Update dictionary
+        {
+            let mut dict_guard = self.dictionary.lock().map_err(|e| {
+                CoreError::ConfigError(format!("Dictionary lock poisoned: {e}"))
+            })?;
+            dict_guard.set_rules(new_config.dictionary.clone());
+        }
+
+        // Save as active config and update state
+        new_config.save(&self.config_dir)?;
+        let mut cfg = self.config.lock().map_err(|e| {
+            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
+        })?;
+        *cfg = new_config;
+
+        log::info!("Loaded profile: {name}");
+        Ok(())
+    }
+
+    /// Delete a named profile.
+    pub fn delete_profile(&self, name: String) -> Result<(), CoreError> {
+        Config::delete_profile(&self.config_dir, &name)
+    }
+
     /// Validate a dictionary pattern without saving it.
     /// Returns an error message if the pattern is invalid, or empty string if valid.
     pub fn validate_dictionary_pattern(&self, pattern: String) -> String {
