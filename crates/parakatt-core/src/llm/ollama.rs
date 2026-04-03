@@ -73,9 +73,10 @@ impl LlmProvider for OllamaProvider {
             .map_err(|e| CoreError::LlmError(format!("Ollama request failed: {e}")))?;
 
         if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().unwrap_or_default();
             return Err(CoreError::LlmError(format!(
-                "Ollama returned status {}",
-                response.status()
+                "Ollama returned status {status}: {body}"
             )));
         }
 
