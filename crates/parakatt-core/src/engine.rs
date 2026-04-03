@@ -27,7 +27,7 @@ pub struct Engine {
     config_dir: PathBuf,
     config: Mutex<Config>,
     stt: Mutex<Option<Box<dyn SttProvider>>>,
-    llm: Mutex<Option<Box<dyn LlmProvider>>>,
+    llm: Mutex<Option<Arc<dyn LlmProvider>>>,
     dictionary: Mutex<Dictionary>,
     download_progress: Arc<Mutex<DownloadProgress>>,
     download_cancel: Arc<AtomicBool>,
@@ -268,18 +268,18 @@ impl Engine {
         model: String,
         api_key: Option<String>,
     ) -> Result<(), CoreError> {
-        let llm: Option<Box<dyn LlmProvider>> = match provider.as_str() {
-            "ollama" => Some(Box::new(crate::llm::ollama::OllamaProvider::new(
+        let llm: Option<Arc<dyn LlmProvider>> = match provider.as_str() {
+            "ollama" => Some(Arc::new(crate::llm::ollama::OllamaProvider::new(
                 &base_url, &model,
             ))),
-            "lmstudio" => Some(Box::new(
+            "lmstudio" => Some(Arc::new(
                 crate::llm::openai::OpenAiCompatibleProvider::lmstudio(&base_url, &model),
             )),
             "openai" => {
                 let key = api_key.clone().ok_or_else(|| {
                     CoreError::ConfigError("OpenAI requires an API key".into())
                 })?;
-                Some(Box::new(
+                Some(Arc::new(
                     crate::llm::openai::OpenAiCompatibleProvider::openai(&key, &model),
                 ))
             }
@@ -691,18 +691,19 @@ impl Engine {
             None => return Ok(()),
         };
 
-        let llm_guard = self.llm.lock().map_err(|e| {
-            CoreError::LlmError(format!("LLM lock poisoned: {e}"))
-        })?;
-
-        let llm = match llm_guard.as_ref() {
-            Some(l) => l,
-            None => {
-                log::debug!(
-                    "Mode '{}' has a system prompt but no LLM provider is configured",
-                    mode
-                );
-                return Ok(());
+        let llm = {
+            let llm_guard = self.llm.lock().map_err(|e| {
+                CoreError::LlmError(format!("LLM lock poisoned: {e}"))
+            })?;
+            match llm_guard.as_ref() {
+                Some(l) => Arc::clone(l),
+                None => {
+                    log::debug!(
+                        "Mode '{}' has a system prompt but no LLM provider is configured",
+                        mode
+                    );
+                    return Ok(());
+                }
             }
         };
 
@@ -819,12 +820,12 @@ impl Engine {
             CoreError::ConfigError(format!("Config lock poisoned: {e}"))
         })?;
 
-        let provider: Option<Box<dyn LlmProvider>> = match config_guard
+        let provider: Option<Arc<dyn LlmProvider>> = match config_guard
             .llm
             .active_provider
             .as_deref()
         {
-            Some("ollama") => Some(Box::new(crate::llm::ollama::OllamaProvider::new(
+            Some("ollama") => Some(Arc::new(crate::llm::ollama::OllamaProvider::new(
                 &config_guard.llm.ollama.base_url,
                 &config_guard.llm.ollama.model,
             ))),
@@ -835,7 +836,7 @@ impl Engine {
                     .model
                     .as_deref()
                     .unwrap_or("default");
-                Some(Box::new(
+                Some(Arc::new(
                     crate::llm::openai::OpenAiCompatibleProvider::lmstudio(
                         &config_guard.llm.lmstudio.base_url,
                         model,
@@ -850,7 +851,7 @@ impl Engine {
                         .model
                         .as_deref()
                         .unwrap_or("gpt-4o-mini");
-                    Some(Box::new(
+                    Some(Arc::new(
                         crate::llm::openai::OpenAiCompatibleProvider::openai(key, model),
                     ))
                 } else {
