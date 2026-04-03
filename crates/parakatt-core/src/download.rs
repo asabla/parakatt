@@ -212,6 +212,18 @@ pub fn download_model(
             }
         }
 
+        // Verify downloaded size matches Content-Length if available
+        if content_length > 0 && downloaded != content_length {
+            drop(file);
+            cleanup_part_files(&model_dir, file_set.files);
+            let msg = format!(
+                "Size mismatch for {filename}: expected {content_length} bytes, got {downloaded}"
+            );
+            let mut p = progress.lock().unwrap();
+            p.state = DownloadState::Failed { message: msg.clone() };
+            return Err(CoreError::IoError(msg));
+        }
+
         // Rename .part to final name
         fs::rename(&part_path, &dest).map_err(|e| {
             let mut p = progress.lock().unwrap();
@@ -221,7 +233,7 @@ pub fn download_model(
             CoreError::IoError(format!("Rename failed: {e}"))
         })?;
 
-        log::info!("Downloaded {filename} ({downloaded} bytes)");
+        log::info!("Downloaded {filename} ({downloaded} bytes, verified)");
     }
 
     // All files done
