@@ -229,6 +229,23 @@ impl Engine {
             .unwrap_or_default()
     }
 
+    /// Validate a dictionary pattern without saving it.
+    /// Returns an error message if the pattern is invalid, or empty string if valid.
+    pub fn validate_dictionary_pattern(&self, pattern: String) -> String {
+        if pattern.len() > 500 {
+            return format!("Pattern too long ({} chars, max 500)", pattern.len());
+        }
+        let regex_str = if let Some(raw) = pattern.strip_prefix("re:") {
+            raw.to_string()
+        } else {
+            format!(r"(?i)\b{}\b", regex::escape(&pattern))
+        };
+        match regex::Regex::new(&regex_str) {
+            Ok(_) => String::new(),
+            Err(e) => format!("Invalid regex: {e}"),
+        }
+    }
+
     /// Get current hotkey configuration.
     pub fn get_hotkey_config(&self) -> Result<HotkeyConfig, CoreError> {
         let config = self.config.lock().map_err(|e| {
