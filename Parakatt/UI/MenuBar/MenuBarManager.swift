@@ -144,15 +144,30 @@ class MenuBarManager: NSObject {
         settingsItem.target = self
         menu.addItem(settingsItem)
 
-        let diagItem = NSMenuItem(title: "Run Diagnostic", action: #selector(runDiagnostic), keyEquivalent: "d")
+        // Help & Diagnostics submenu
+        let helpMenu = NSMenu()
+
+        let diagItem = NSMenuItem(title: "Run Audio Diagnostic", action: #selector(runDiagnostic), keyEquivalent: "")
         diagItem.target = self
-        menu.addItem(diagItem)
+        helpMenu.addItem(diagItem)
 
         if #available(macOS 14.2, *) {
             let sysDiagItem = NSMenuItem(title: "Run System Audio Diagnostic", action: #selector(runSystemAudioDiagnostic), keyEquivalent: "")
             sysDiagItem.target = self
-            menu.addItem(sysDiagItem)
+            helpMenu.addItem(sysDiagItem)
         }
+
+        helpMenu.addItem(.separator())
+
+        let openLogsItem = NSMenuItem(title: "Open Log File", action: #selector(openLogFile), keyEquivalent: "")
+        openLogsItem.target = self
+        helpMenu.addItem(openLogsItem)
+
+        let helpMenuItem = NSMenuItem(title: "Help & Diagnostics", action: nil, keyEquivalent: "")
+        helpMenuItem.submenu = helpMenu
+        menu.addItem(helpMenuItem)
+
+        menu.addItem(.separator())
 
         let quitItem = NSMenuItem(title: "Quit Parakatt", action: #selector(quit), keyEquivalent: "q")
         quitItem.target = self
@@ -444,6 +459,15 @@ class MenuBarManager: NSObject {
     @available(macOS 14.2, *)
     @objc private func runSystemAudioDiagnostic() {
         appState.runSystemAudioDiagnostic()
+    }
+
+    @objc private func openLogFile() {
+        let logDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("Parakatt/logs")
+        if let logDir {
+            // Open the log directory in Finder
+            NSWorkspace.shared.open(logDir)
+        }
     }
 
     @objc private func quit() {
