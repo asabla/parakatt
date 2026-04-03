@@ -5,6 +5,9 @@ import ParakattCore
 struct SettingsView: View {
     var body: some View {
         TabView {
+            DashboardSettingsView()
+                .tabItem { Label("Dashboard", systemImage: "house") }
+
             ModelsSettingsView()
                 .tabItem { Label("Models", systemImage: "arrow.down.circle") }
 
@@ -20,7 +23,181 @@ struct SettingsView: View {
             StatisticsSettingsView()
                 .tabItem { Label("Statistics", systemImage: "chart.bar") }
         }
-        .frame(width: 600, height: 480)
+        .frame(width: 680, height: 500)
+    }
+}
+
+// MARK: - Dashboard
+
+struct DashboardSettingsView: View {
+    @EnvironmentObject var appState: AppState
+    @State private var stats: [(String, String)] = []
+
+    private var appVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+    }
+
+    private var buildNumber: String {
+        Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+
+                // App header
+                HStack(spacing: 14) {
+                    Image(systemName: "waveform.circle.fill")
+                        .font(.system(size: 40))
+                        .foregroundStyle(.blue)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Parakatt")
+                            .font(.system(.title2, weight: .bold))
+                        Text("Version \(appVersion) (\(buildNumber))")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+                }
+
+                Divider()
+
+                // Quick status
+                VStack(alignment: .leading, spacing: 10) {
+                    Label("Status", systemImage: "circle.fill")
+                        .font(.system(.subheadline, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .textCase(.uppercase)
+                        .tracking(0.5)
+
+                    VStack(spacing: 0) {
+                        DashboardStatusRow(
+                            label: "Speech Model",
+                            value: appState.activeModelId ?? "Not loaded",
+                            icon: "cpu",
+                            color: appState.isModelLoaded ? .green : .orange
+                        )
+                        Divider().padding(.leading, 40)
+                        DashboardStatusRow(
+                            label: "Processing Mode",
+                            value: appState.activeMode.capitalized,
+                            icon: "wand.and.stars",
+                            color: .blue
+                        )
+                        Divider().padding(.leading, 40)
+                        DashboardStatusRow(
+                            label: "LLM Provider",
+                            value: appState.llmProvider.isEmpty ? "None" : appState.llmProvider.capitalized,
+                            icon: "brain",
+                            color: appState.llmProvider.isEmpty ? .secondary : .purple
+                        )
+                    }
+                    .background {
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(.background)
+                            .shadow(color: .black.opacity(0.06), radius: 2, y: 1)
+                    }
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 10)
+                            .strokeBorder(.quaternary, lineWidth: 0.5)
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+
+                // Quick stats
+                let overview = stats.filter {
+                    $0.0 == "Total transcriptions" || $0.0 == "Total duration" || $0.0 == "Total words"
+                }
+                if !overview.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label("Activity", systemImage: "chart.bar")
+                            .font(.system(.subheadline, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .textCase(.uppercase)
+                            .tracking(0.5)
+
+                        LazyVGrid(columns: [
+                            GridItem(.flexible()),
+                            GridItem(.flexible()),
+                            GridItem(.flexible()),
+                        ], spacing: 10) {
+                            ForEach(overview, id: \.0) { stat in
+                                StatCard(label: stat.0, value: stat.1)
+                            }
+                        }
+                    }
+                }
+
+                // Permissions
+                VStack(alignment: .leading, spacing: 10) {
+                    Label("Permissions", systemImage: "lock.shield")
+                        .font(.system(.subheadline, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .textCase(.uppercase)
+                        .tracking(0.5)
+
+                    VStack(spacing: 0) {
+                        DashboardStatusRow(
+                            label: "Accessibility",
+                            value: AXIsProcessTrusted() ? "Granted" : "Not granted",
+                            icon: "hand.raised.fill",
+                            color: AXIsProcessTrusted() ? .green : .red
+                        )
+                        Divider().padding(.leading, 40)
+                        DashboardStatusRow(
+                            label: "Microphone",
+                            value: "Granted on first use",
+                            icon: "mic.fill",
+                            color: .green
+                        )
+                    }
+                    .background {
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(.background)
+                            .shadow(color: .black.opacity(0.06), radius: 2, y: 1)
+                    }
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 10)
+                            .strokeBorder(.quaternary, lineWidth: 0.5)
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+            }
+            .padding(20)
+        }
+        .background(.quaternary.opacity(0.5))
+        .onAppear {
+            stats = appState.getStatistics()
+        }
+    }
+}
+
+private struct DashboardStatusRow: View {
+    let label: String
+    let value: String
+    let icon: String
+    let color: Color
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 14))
+                .foregroundStyle(color)
+                .frame(width: 24)
+
+            Text(label)
+                .font(.body)
+
+            Spacer()
+
+            Text(value)
+                .font(.system(.body, design: .rounded))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
     }
 }
 
@@ -1259,6 +1436,44 @@ struct StatisticsSettingsView: View {
                     }
                 }
 
+                // Details section
+                let details = stats.filter {
+                    $0.0 == "Avg duration" || $0.0 == "Longest" || $0.0 == "Total segments" || $0.0 == "Database size"
+                }
+                if !details.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label("Details", systemImage: "info.circle")
+                            .font(.system(.subheadline, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .textCase(.uppercase)
+                            .tracking(0.5)
+
+                        VStack(spacing: 0) {
+                            ForEach(Array(details.enumerated()), id: \.element.0) { index, stat in
+                                StatRow(
+                                    label: stat.0,
+                                    value: stat.1,
+                                    icon: detailIcon(stat.0),
+                                    color: .secondary
+                                )
+                                if index < details.count - 1 {
+                                    Divider().padding(.leading, 40)
+                                }
+                            }
+                        }
+                        .background {
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(.background)
+                                .shadow(color: .black.opacity(0.06), radius: 2, y: 1)
+                        }
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 10)
+                                .strokeBorder(.quaternary, lineWidth: 0.5)
+                        }
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
+                }
+
                 if stats.isEmpty && !isLoading {
                     VStack(spacing: 8) {
                         Image(systemName: "chart.bar")
@@ -1306,6 +1521,16 @@ struct StatisticsSettingsView: View {
         case "email": return .orange
         case "code": return .purple
         default: return .secondary
+        }
+    }
+
+    private func detailIcon(_ label: String) -> String {
+        switch label {
+        case "Avg duration": return "timer"
+        case "Longest": return "arrow.up.right"
+        case "Total segments": return "list.bullet"
+        case "Database size": return "externaldrive"
+        default: return "info.circle"
         }
     }
 }

@@ -445,6 +445,51 @@ impl Storage {
             stats.push((format!("Mode: {mode}"), count.to_string()));
         }
 
+        // Average duration
+        if total_count > 0 {
+            let avg_secs = total_duration / total_count as f64;
+            let avg_formatted = if avg_secs >= 60.0 {
+                format!("{:.0}m {:.0}s", avg_secs / 60.0, avg_secs % 60.0)
+            } else {
+                format!("{:.1}s", avg_secs)
+            };
+            stats.push(("Avg duration".into(), avg_formatted));
+        }
+
+        // Longest transcription
+        let longest: Option<(String, f64)> = self.conn.query_row(
+            "SELECT COALESCE(title, 'Untitled'), duration_secs FROM transcriptions ORDER BY duration_secs DESC LIMIT 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        ).ok();
+        if let Some((title, dur)) = longest {
+            let dur_fmt = if dur >= 3600.0 {
+                format!("{:.0}h {:.0}m", dur / 3600.0, (dur % 3600.0) / 60.0)
+            } else if dur >= 60.0 {
+                format!("{:.0}m {:.0}s", dur / 60.0, dur % 60.0)
+            } else {
+                format!("{:.0}s", dur)
+            };
+            stats.push(("Longest".into(), format!("{} ({})", title, dur_fmt)));
+        }
+
+        // Total segments (timeline entries)
+        let segment_count: u32 = self.conn.query_row(
+            "SELECT COUNT(*) FROM transcript_segments",
+            [],
+            |row| row.get(0),
+        ).unwrap_or(0);
+        stats.push(("Total segments".into(), segment_count.to_string()));
+
+        // Database size
+        let db_size: u64 = self.conn.query_row(
+            "SELECT page_count * page_size FROM pragma_page_count, pragma_page_size",
+            [],
+            |row| row.get(0),
+        ).unwrap_or(0);
+        let size_mb = db_size as f64 / (1024.0 * 1024.0);
+        stats.push(("Database size".into(), format!("{:.1} MB", size_mb)));
+
         Ok(stats)
     }
 

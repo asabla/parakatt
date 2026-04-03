@@ -423,7 +423,7 @@ class MenuBarManager: NSObject {
 
         let view = SettingsView().environmentObject(appState)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 620, height: 480),
+            contentRect: NSRect(x: 0, y: 0, width: 700, height: 500),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
