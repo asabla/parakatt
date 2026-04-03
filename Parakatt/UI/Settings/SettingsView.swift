@@ -47,9 +47,10 @@ struct DashboardSettingsView: View {
 
                 // App header
                 HStack(spacing: 14) {
-                    Image(systemName: "waveform.circle.fill")
-                        .font(.system(size: 40))
-                        .foregroundStyle(.blue)
+                    Image(nsImage: NSApp.applicationIconImage)
+                        .resizable()
+                        .frame(width: 48, height: 48)
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Parakatt")
