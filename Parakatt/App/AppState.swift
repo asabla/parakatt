@@ -65,6 +65,8 @@ class AppState: ObservableObject {
     private let pttChunkLock = NSLock()  // serializes chunk processing
     /// Accumulated text from processed chunks (used to compose live display).
     private var pttAccumulatedText: String?
+    /// True while the audio engine is still running for a brief grace period after hotkey release.
+    private var isCaptureDraining = false
 
     /// Seconds before transitioning from single-shot preview to incremental chunking.
     private let firstChunkDelaySecs: TimeInterval = 5.0
@@ -165,8 +167,8 @@ class AppState: ObservableObject {
     // MARK: - Recording
 
     func startRecording() {
-        guard !isRecording else {
-            NSLog("[Parakatt] startRecording called but already recording — ignoring")
+        guard !isRecording, !isCaptureDraining else {
+            NSLog("[Parakatt] startRecording called but already recording or draining — ignoring")
             return
         }
         guard engineReady else {
@@ -212,15 +214,31 @@ class AppState: ObservableObject {
         }
     }
 
+    /// Grace period (seconds) after hotkey release before stopping audio capture.
+    /// Allows the AVAudioEngine tap to deliver remaining buffered samples (~256ms).
+    private let captureDrainDelaySecs: TimeInterval = 0.3
+
     func stopRecording() {
         guard isRecording else { return }
 
         pttChunkTimer?.invalidate()
         pttChunkTimer = nil
         stopStreamingUpdates()
-        audioCaptureService?.stopCapture()
         isRecording = false
         currentAudioLevel = 0
+        isCaptureDraining = true
+
+        // Keep audio capture running briefly so the hardware buffer can drain,
+        // then stop capture and process the tail.
+        DispatchQueue.main.asyncAfter(deadline: .now() + captureDrainDelaySecs) { [weak self] in
+            self?.finishStopRecording()
+        }
+    }
+
+    /// Called after the capture drain grace period to stop capture and process remaining audio.
+    private func finishStopRecording() {
+        audioCaptureService?.stopCapture()
+        isCaptureDraining = false
 
         if let sessionId = pttSessionId {
             // Path B: incremental session was active — only process the tail.
@@ -246,8 +264,8 @@ class AppState: ObservableObject {
                 // Wait for any in-flight chunk to complete.
                 self.pttChunkLock.lock()
 
-                // Process remaining tail (if >= 1s of audio).
-                if remainingSamples.count >= Int(self.sttSampleRate) {
+                // Process remaining tail (if >= 0.1s of audio).
+                if remainingSamples.count >= Int(self.sttSampleRate / 10) {
                     do {
                         let result = try bridge.processChunk(
                             sessionId: sessionId,
@@ -878,7 +896,7 @@ class AppState: ObservableObject {
         let overlapSamples = Int(overlapDurationSecs * Double(sttSampleRate))
 
         audioBufferLock.lock()
-        guard audioBuffer.count >= Int(sttSampleRate) else {
+        guard audioBuffer.count >= Int(sttSampleRate / 10) else {
             // Less than 1 second of audio — skip this dispatch.
             audioBufferLock.unlock()
             return
