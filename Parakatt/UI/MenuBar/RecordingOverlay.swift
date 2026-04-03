@@ -36,6 +36,7 @@ struct RecordingOverlayView: View {
     let isProcessing: Bool
     let liveText: String?
     let audioLevel: Float
+    let silenceDetected: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -56,6 +57,14 @@ struct RecordingOverlayView: View {
                             .multilineTextAlignment(.leading)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
+                } else if silenceDetected {
+                    HStack(spacing: 4) {
+                        Image(systemName: "mic.slash")
+                            .font(.caption)
+                        Text("No audio detected — check your microphone")
+                            .font(.caption)
+                    }
+                    .foregroundStyle(.orange)
                 } else {
                     Text("Listening...")
                         .font(.caption)
@@ -112,14 +121,17 @@ class RecordingOverlayController {
 
         appState.$isRecording
             .combineLatest(appState.$isProcessing, appState.$liveTranscription, appState.$currentAudioLevel)
+            .combineLatest(appState.$silenceDetected)
             .throttle(for: .milliseconds(50), scheduler: DispatchQueue.main, latest: true)
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] isRecording, isProcessing, liveText, audioLevel in
+            .sink { [weak self] combined, silenceDetected in
+                let (isRecording, isProcessing, liveText, audioLevel) = combined
                 self?.hostingView?.rootView = RecordingOverlayView(
                     isRecording: isRecording,
                     isProcessing: isProcessing,
                     liveText: liveText,
-                    audioLevel: audioLevel
+                    audioLevel: audioLevel,
+                    silenceDetected: silenceDetected
                 )
             }
             .store(in: &cancellables)
@@ -139,7 +151,7 @@ class RecordingOverlayController {
     }
 
     private func createPanel() {
-        let view = RecordingOverlayView(isRecording: false, isProcessing: false, liveText: nil, audioLevel: 0)
+        let view = RecordingOverlayView(isRecording: false, isProcessing: false, liveText: nil, audioLevel: 0, silenceDetected: false)
         let hosting = NSHostingView(rootView: view)
         hosting.frame = NSRect(x: 0, y: 0, width: 420, height: 160)
 

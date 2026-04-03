@@ -25,6 +25,7 @@ class AppState: ObservableObject {
     @Published var isDownloading = false
     @Published var downloadProgress: ParakattCore.DownloadProgress?
     @Published var currentAudioLevel: Float = 0
+    @Published var silenceDetected = false
 
     // Meeting state
     @Published var isMeetingActive = false
@@ -190,6 +191,8 @@ class AppState: ObservableObject {
         isRecording = true
 
         sampleCount = 0
+        silentCallbackCount = 0
+        silenceDetected = false
         longRecordingWarned = false
         pttSessionId = nil
         pttChunkIndex = 0
@@ -1108,6 +1111,10 @@ class AppState: ObservableObject {
     // MARK: - Audio buffer
 
     private var sampleCount = 0
+    /// Number of consecutive near-silent audio callbacks.
+    private var silentCallbackCount = 0
+    /// Threshold: callbacks are ~every 100ms, so 50 = ~5 seconds of silence.
+    private let silenceCallbackThreshold = 50
 
     /// Threshold for warning about long push-to-talk recordings (5 minutes).
     private let longRecordingWarningSamples = 5 * 60 * 16000
@@ -1132,8 +1139,15 @@ class AppState: ObservableObject {
         // Normalize: typical speech RMS ~0.01-0.1, scale up for display
         let normalized = min(rms * 10, 1.0)
         let smoothed = 0.3 * currentAudioLevel + 0.7 * normalized
+        // Track silence: if RMS is near zero, count consecutive silent callbacks
+        if rms < 0.001 {
+            silentCallbackCount += 1
+        } else {
+            silentCallbackCount = 0
+        }
         DispatchQueue.main.async {
             self.currentAudioLevel = smoothed
+            self.silenceDetected = self.silentCallbackCount >= self.silenceCallbackThreshold
         }
 
         sampleCount += 1
