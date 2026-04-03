@@ -97,7 +97,7 @@ class TextInsertionService {
         keyDown.flags = .maskCommand
         keyUp.flags = .maskCommand
         keyDown.post(tap: .cgSessionEventTap)
-        usleep(30_000)
+        usleep(10_000) // 10ms between keyDown/keyUp (was 30ms)
         keyUp.post(tap: .cgSessionEventTap)
 
         scheduleClipboardRestore()
@@ -143,7 +143,7 @@ class TextInsertionService {
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
         changeCountAfterSet = pasteboard.changeCount
-        usleep(50_000) // 50ms to ensure pasteboard is ready
+        usleep(20_000) // 20ms to ensure pasteboard is ready (was 50ms)
     }
 
     private func scheduleClipboardRestore() {
