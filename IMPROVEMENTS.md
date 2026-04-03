@@ -9,7 +9,7 @@ Tracked improvements and feature ideas for Parakatt.
 - [x] **Completion notifications** — transcription finishes silently; add system notification or sound cue when done
 - [ ] **Onboarding flow** — no first-run guide explaining the hotkey, modes, or permissions; users jump straight to Settings
 - [x] **Expose hidden settings** — `auto_paste` and `show_overlay` exist in config but aren't in the Settings UI
-- [ ] **Dictionary editor improvements** — no regex validation or test-before-save functionality
+- [x] **Dictionary editor improvements** — no regex validation or test-before-save functionality
 - [x] **LLM connection test button** — users can't verify Ollama/OpenAI setup without attempting a transcription
 - [x] **Remember last meeting audio source** — requires manual app selection each time (already implemented)
 - [x] **Short recording feedback** — recordings <1s are silently skipped; show "Recording too short" warning
@@ -28,9 +28,9 @@ Tracked improvements and feature ideas for Parakatt.
 
 ## Audio & Performance
 
-- [ ] **Configurable chunk size** — hardcoded at 30s; shorter = faster feedback, longer = better context
-- [ ] **LLM token limit slider** — 4000-token guard is hardcoded; power users may want to tune this
-- [ ] **Audio quality indicators** — warn if input is too quiet, clipping, or mic isn't connected
+- [x] **Configurable chunk size** — hardcoded at 30s; shorter = faster feedback, longer = better context
+- [x] **LLM token limit slider** — 4000-token guard is hardcoded; power users may want to tune this
+- [x] **Audio quality indicators** — warn if input is too quiet, clipping, or mic isn't connected
 - [ ] **Resume interrupted model downloads** — add HTTP Range header support for resumable downloads
 - [ ] **Device hot-plug handling** — if user unplugs explicitly-selected headphones mid-recording, no recovery; add AudioObjectPropertyListener
 - [x] **Cache system audio converter** — SystemAudioCaptureService recreates AVAudioConverter every callback; cache and reuse (already implemented)
@@ -93,8 +93,8 @@ Tracked improvements and feature ideas for Parakatt.
 - [ ] **No code signing / notarization** — self-signed only; users must bypass Gatekeeper with xattr workaround
 - [ ] **No auto-update framework** — no Sparkle integration; users must manually download new releases
 - [x] **Manual version bumping** — version hardcoded in 4+ places (Makefile, project.yml, Info.plist, homebrew template); needs single source of truth
-- [ ] **No changelog generation** — manual CHANGELOG.md edits; consider git-cliff or conventional commits
-- [ ] **swift-package always regenerates** — `make swift-package` deletes and recreates ParakattCore/ even for minor changes; add incremental check
+- [x] **No changelog generation** — manual CHANGELOG.md edits; consider git-cliff or conventional commits
+- [x] **swift-package always regenerates** — `make swift-package` deletes and recreates ParakattCore/ even for minor changes; add incremental check
 - [x] **No Cargo release profile optimization** — missing LTO, codegen-units, strip settings in `[profile.release]`
 
 ## Logging & Observability
@@ -102,8 +102,8 @@ Tracked improvements and feature ideas for Parakatt.
 - [ ] **Dual logging systems** — NSLog (Swift) and env_logger (Rust) without coordination; consolidate
 - [ ] **No file-based logging** — all logs go to console only; add persistent log files with rotation
 - [ ] **No crash reporting** — no Sentry/Bugsnag or lightweight error tracking
-- [ ] **No performance metrics** — no os.signpost markers; can't profile STT latency, LLM response time, or text insertion delay in Instruments
-- [ ] **No debug mode toggle** — users can't enable verbose logging from Settings
+- [x] **No performance metrics** — no os.signpost markers; can't profile STT latency, LLM response time, or text insertion delay in Instruments
+- [x] **No debug mode toggle** — users can't enable verbose logging from Settings
 
 ## Accessibility
 
