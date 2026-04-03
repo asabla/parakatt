@@ -806,13 +806,32 @@ impl Engine {
             context: Some(ctx.clone()),
         };
 
-        match llm.process(&llm_request) {
-            Ok(processed_text) => {
-                *text = processed_text;
+        // Retry with exponential backoff for transient failures.
+        let max_retries = 2;
+        let mut last_error = None;
+        for attempt in 0..=max_retries {
+            match llm.process(&llm_request) {
+                Ok(processed_text) => {
+                    *text = processed_text;
+                    last_error = None;
+                    break;
+                }
+                Err(e) => {
+                    last_error = Some(e);
+                    if attempt < max_retries {
+                        let delay = std::time::Duration::from_millis(500 * (1 << attempt));
+                        log::warn!(
+                            "LLM attempt {} failed, retrying in {}ms",
+                            attempt + 1,
+                            delay.as_millis()
+                        );
+                        std::thread::sleep(delay);
+                    }
+                }
             }
-            Err(e) => {
-                log::warn!("LLM processing failed, using raw transcription: {e}");
-            }
+        }
+        if let Some(e) = last_error {
+            log::warn!("LLM processing failed after {} attempts, using raw transcription: {e}", max_retries + 1);
         }
 
         Ok(())
