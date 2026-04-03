@@ -74,9 +74,11 @@ struct TranscriptionDetailView: View {
                 Button {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(item.text, forType: .string)
-                    withAnimation(.easeInOut(duration: 0.2)) { copied = true }
+                    let anim: Animation? = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+                        ? nil : .easeInOut(duration: 0.2)
+                    withAnimation(anim) { copied = true }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                        withAnimation(.easeInOut(duration: 0.2)) { copied = false }
+                        withAnimation(anim) { copied = false }
                     }
                 } label: {
                     Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")

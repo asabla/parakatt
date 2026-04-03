@@ -130,7 +130,12 @@ struct TranscriptionHistoryView: View {
             .padding(.horizontal, 12)
             .padding(.top, 8)
             .padding(.bottom, 6)
-            .animation(.easeInOut(duration: 0.15), value: isSelectionMode)
+            .animation(
+                NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+                    ? nil
+                    : .easeInOut(duration: 0.15),
+                value: isSelectionMode
+            )
 
             Divider()
 

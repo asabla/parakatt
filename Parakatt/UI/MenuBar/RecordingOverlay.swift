@@ -26,7 +26,12 @@ struct AudioLevelBarsView: View {
             }
         }
         .frame(height: maxHeight)
-        .animation(.easeOut(duration: 0.1), value: level)
+        .animation(
+            NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+                ? nil
+                : .easeOut(duration: 0.1),
+            value: level
+        )
     }
 }
 
