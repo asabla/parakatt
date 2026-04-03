@@ -8,11 +8,14 @@ import Foundation
 /// falls back to the built-in microphone if the default produces silence.
 class AudioCaptureService {
     var onAudioSamples: (([Float]) -> Void)?
+    /// Called when the audio device list changes (device plugged/unplugged).
+    var onDeviceChanged: (() -> Void)?
 
     private var audioEngine: AVAudioEngine?
     private var converter: AVAudioConverter?
     private let targetSampleRate: Double = 16_000
     private let engineLock = NSLock()
+    private var deviceListenerInstalled = false
 
     /// Currently selected device ID (nil = system default).
     private var selectedDeviceUID: String?
@@ -85,6 +88,7 @@ class AudioCaptureService {
         self.audioEngine = engine
         engineLock.unlock()
 
+        installDeviceChangeListener()
         NSLog("[Parakatt] Audio capture STARTED")
     }
 
@@ -190,9 +194,85 @@ class AudioCaptureService {
         return results
     }
 
+    // MARK: - Device change listener
+
+    private func installDeviceChangeListener() {
+        guard !deviceListenerInstalled else { return }
+
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDevices,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+
+        // Use Unmanaged to pass self as the client data pointer for the C callback.
+        let selfPtr = Unmanaged.passUnretained(self).toOpaque()
+        let status = AudioObjectAddPropertyListener(
+            AudioObjectID(kAudioObjectSystemObject),
+            &address,
+            deviceChangeCallback,
+            selfPtr
+        )
+
+        if status == noErr {
+            deviceListenerInstalled = true
+            NSLog("[Parakatt] Device change listener installed")
+        } else {
+            NSLog("[Parakatt] Failed to install device change listener: %d", status)
+        }
+    }
+
+    private func removeDeviceChangeListener() {
+        guard deviceListenerInstalled else { return }
+
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDevices,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+
+        let selfPtr = Unmanaged.passUnretained(self).toOpaque()
+        AudioObjectRemovePropertyListener(
+            AudioObjectID(kAudioObjectSystemObject),
+            &address,
+            deviceChangeCallback,
+            selfPtr
+        )
+        deviceListenerInstalled = false
+    }
+
+    /// Handle device list changes: if an explicitly-selected device was removed,
+    /// fall back to system default and restart capture.
+    fileprivate func handleDeviceChange() {
+        guard let uid = selectedDeviceUID else { return }
+
+        let devices = Self.listInputDevices()
+        let stillAvailable = devices.contains { $0.uid == uid }
+        if !stillAvailable {
+            NSLog("[Parakatt] Selected device %@ was disconnected — falling back to system default", uid)
+            selectedDeviceUID = nil
+            onDeviceChanged?()
+
+            engineLock.lock()
+            let isActive = audioEngine != nil
+            engineLock.unlock()
+            if isActive {
+                do {
+                    try startCapture()
+                    NSLog("[Parakatt] Restarted capture with system default after device disconnect")
+                } catch {
+                    NSLog("[Parakatt] Failed to restart capture after device disconnect: %@",
+                          error.localizedDescription)
+                }
+            }
+        }
+    }
+
     // MARK: - Private
 
     private func teardown() {
+        removeDeviceChangeListener()
+
         // Nil out state under lock FIRST so in-flight tap callbacks exit early
         engineLock.lock()
         let engine = audioEngine
@@ -421,6 +501,21 @@ class AudioCaptureService {
         guard nameStatus == noErr else { return nil }
         return name as String
     }
+}
+
+/// C callback for AudioObjectAddPropertyListener — dispatches to the instance method.
+private func deviceChangeCallback(
+    _: AudioObjectID,
+    _: UInt32,
+    _: UnsafePointer<AudioObjectPropertyAddress>,
+    clientData: UnsafeMutableRawPointer?
+) -> OSStatus {
+    guard let clientData else { return noErr }
+    let service = Unmanaged<AudioCaptureService>.fromOpaque(clientData).takeUnretainedValue()
+    DispatchQueue.main.async {
+        service.handleDeviceChange()
+    }
+    return noErr
 }
 
 enum AudioCaptureError: Error, LocalizedError {
