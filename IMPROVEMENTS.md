@@ -62,11 +62,11 @@ Tracked improvements and feature ideas for Parakatt.
 
 ## Robustness
 
-- [ ] **Swift test coverage** — Rust has ~17 unit tests, Swift has essentially none
+- [ ] **Swift test coverage** — Rust has ~43 unit tests, Swift has essentially none
 - [x] **Better error surfacing** — some failures only log to console; users see generic "No audio captured"
 - [x] **LLM timeout handling** — no explicit timeout UI; requests can hang silently
 - [x] **LLM error messages lack detail** — 4xx/5xx responses only show status code, not response body
-- [ ] **LLM streaming support** — both providers hardcode `stream: false`; streaming would give real-time feedback and prevent timeout on long responses
+- [x] **LLM streaming support** — both providers hardcode `stream: false`; streaming would give real-time feedback and prevent timeout on long responses
 - [x] **LLM retry logic** — no retry with backoff for transient network failures
 
 ## Database
@@ -114,4 +114,4 @@ Tracked improvements and feature ideas for Parakatt.
 
 - [x] **No troubleshooting section** — README lacks guidance for common issues (permissions, model downloads, LLM timeouts)
 - [x] **No contribution guide** — no CONTRIBUTING.md with code style expectations
-- [ ] **Minimal Swift doc comments** — Rust types have doc comments; Swift services/views have almost none
+- [x] **Minimal Swift doc comments** — Rust types have doc comments; Swift services/views have almost none
