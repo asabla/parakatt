@@ -768,6 +768,50 @@ impl Engine {
         })?;
         storage.get_segments(&id)
     }
+
+    /// Export (backup) the database to the given file path.
+    pub fn export_database(&self, dest_path: String) -> Result<(), CoreError> {
+        let db_path = self.config_dir.join("transcriptions.db");
+        if !db_path.exists() {
+            return Err(CoreError::IoError("Database file not found".into()));
+        }
+        // Checkpoint WAL to ensure all data is in the main file before copying.
+        {
+            let storage = self.storage.lock().map_err(|e| {
+                CoreError::IoError(format!("Storage lock poisoned: {e}"))
+            })?;
+            let _ = storage.checkpoint();
+        }
+        std::fs::copy(&db_path, &dest_path).map_err(|e| {
+            CoreError::IoError(format!("Failed to export database: {e}"))
+        })?;
+        log::info!("Database exported to {}", dest_path);
+        Ok(())
+    }
+
+    /// Import (restore) a database from the given file path.
+    /// Replaces the current database — existing data will be lost.
+    pub fn import_database(&self, source_path: String) -> Result<(), CoreError> {
+        let source = std::path::Path::new(&source_path);
+        if !source.exists() {
+            return Err(CoreError::IoError(format!("Import file not found: {source_path}")));
+        }
+        let db_path = self.config_dir.join("transcriptions.db");
+        // Close current storage connection by replacing it.
+        {
+            let mut storage = self.storage.lock().map_err(|e| {
+                CoreError::IoError(format!("Storage lock poisoned: {e}"))
+            })?;
+            // Copy import file over the database
+            std::fs::copy(source, &db_path).map_err(|e| {
+                CoreError::IoError(format!("Failed to import database: {e}"))
+            })?;
+            // Reopen the storage with the new database
+            *storage = Storage::open(&self.config_dir)?;
+        }
+        log::info!("Database imported from {}", source_path);
+        Ok(())
+    }
 }
 
 /// Maximum word count to send to LLM. Beyond this, the text is truncated

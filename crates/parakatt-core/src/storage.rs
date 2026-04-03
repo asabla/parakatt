@@ -464,6 +464,15 @@ impl Storage {
 
         Ok(count as u32)
     }
+
+    /// Force a WAL checkpoint so all data is written to the main database file.
+    /// Useful before copying the database file for backup.
+    pub fn checkpoint(&self) -> Result<(), CoreError> {
+        self.conn
+            .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+            .map_err(|e| CoreError::IoError(format!("WAL checkpoint failed: {e}")))?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
