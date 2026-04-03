@@ -698,6 +698,15 @@ impl Engine {
         storage.save(&transcription)
     }
 
+    /// Get usage statistics as key-value pairs.
+    pub fn get_statistics(&self) -> Result<Vec<Vec<String>>, CoreError> {
+        let storage = self.storage.lock().map_err(|e| {
+            CoreError::IoError(format!("Storage lock poisoned: {e}"))
+        })?;
+        let stats = storage.get_statistics()?;
+        Ok(stats.into_iter().map(|(k, v)| vec![k, v]).collect())
+    }
+
     /// List transcriptions with optional filtering and search.
     pub fn list_transcriptions(&self, query: TranscriptionQuery) -> Result<Vec<StoredTranscription>, CoreError> {
         let storage = self.storage.lock().map_err(|e| {

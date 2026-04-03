@@ -389,6 +389,65 @@ impl Storage {
         Ok(count)
     }
 
+    /// Get usage statistics: total transcriptions, total duration, word count, and per-mode counts.
+    pub fn get_statistics(&self) -> Result<Vec<(String, String)>, CoreError> {
+        let mut stats = Vec::new();
+
+        // Total count and duration
+        let (total_count, total_duration): (u32, f64) = self.conn.query_row(
+            "SELECT COUNT(*), COALESCE(SUM(duration_secs), 0) FROM transcriptions",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        ).map_err(|e| CoreError::IoError(format!("Stats query failed: {e}")))?;
+
+        let hours = total_duration / 3600.0;
+        stats.push(("Total transcriptions".into(), total_count.to_string()));
+        stats.push(("Total duration".into(), format!("{:.1}h", hours)));
+
+        // Word count
+        let word_count: u32 = self.conn.query_row(
+            "SELECT COALESCE(SUM(LENGTH(text) - LENGTH(REPLACE(text, ' ', '')) + 1), 0) FROM transcriptions WHERE text != ''",
+            [],
+            |row| row.get(0),
+        ).map_err(|e| CoreError::IoError(format!("Word count query failed: {e}")))?;
+        stats.push(("Total words".into(), word_count.to_string()));
+
+        // Per-source counts
+        let mut stmt = self.conn.prepare(
+            "SELECT source, COUNT(*) FROM transcriptions GROUP BY source ORDER BY source"
+        ).map_err(|e| CoreError::IoError(format!("Source stats query failed: {e}")))?;
+
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, u32>(1)?))
+        }).map_err(|e| CoreError::IoError(format!("Source stats query failed: {e}")))?;
+
+        for row in rows {
+            let (source, count) = row.map_err(|e| CoreError::IoError(format!("Row read failed: {e}")))?;
+            let label = match source.as_str() {
+                "push_to_talk" => "Voice notes".into(),
+                "meeting" => "Meetings".into(),
+                other => other.to_string(),
+            };
+            stats.push((label, count.to_string()));
+        }
+
+        // Per-mode counts
+        let mut stmt = self.conn.prepare(
+            "SELECT mode, COUNT(*) FROM transcriptions GROUP BY mode ORDER BY COUNT(*) DESC"
+        ).map_err(|e| CoreError::IoError(format!("Mode stats query failed: {e}")))?;
+
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, u32>(1)?))
+        }).map_err(|e| CoreError::IoError(format!("Mode stats query failed: {e}")))?;
+
+        for row in rows {
+            let (mode, count) = row.map_err(|e| CoreError::IoError(format!("Row read failed: {e}")))?;
+            stats.push((format!("Mode: {mode}"), count.to_string()));
+        }
+
+        Ok(stats)
+    }
+
     /// Delete transcriptions older than the given number of days.
     /// Returns the number of transcriptions deleted.
     pub fn delete_older_than(&self, days: u32) -> Result<u32, CoreError> {
