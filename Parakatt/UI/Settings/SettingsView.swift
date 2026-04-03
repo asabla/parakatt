@@ -765,14 +765,16 @@ struct LlmSettingsView: View {
                                 HStack(spacing: 8) {
                                     Button("Apply") { applyConfig() }
 
+                                    Button("Test Connection") { testConnection() }
+
                                     if !statusMessage.isEmpty {
                                         HStack(spacing: 4) {
-                                            Image(systemName: statusMessage.contains("OK") ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                                            Image(systemName: statusMessage.contains("OK") || statusMessage.contains("reachable") ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                                                 .font(.caption)
                                             Text(statusMessage)
                                                 .font(.caption)
                                         }
-                                        .foregroundStyle(statusMessage.contains("OK") ? .green : .orange)
+                                        .foregroundStyle(statusMessage.contains("OK") || statusMessage.contains("reachable") ? .green : .orange)
                                     }
                                 }
                             }
@@ -835,6 +837,19 @@ struct LlmSettingsView: View {
     private func applyConfig() {
         appState.configureLlm()
         statusMessage = "OK — \(appState.llmModel)"
+    }
+
+    private func testConnection() {
+        // Apply first to ensure current settings are active
+        appState.configureLlm()
+        statusMessage = "Testing..."
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = appState.testLlmConnection()
+            DispatchQueue.main.async {
+                statusMessage = result
+            }
+        }
     }
 }
 

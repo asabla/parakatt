@@ -126,6 +126,11 @@ class CoreBridge {
         try engine.listLlmModels(provider: provider, baseUrl: baseUrl, apiKey: apiKey)
     }
 
+    /// Test the current LLM connection.
+    func testLlmConnection() throws -> String {
+        try engine.testLlmConnection()
+    }
+
     // MARK: - Model downloading
 
     /// Start downloading a model in the background.

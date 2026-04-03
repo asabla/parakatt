@@ -478,6 +478,14 @@ class AppState: ObservableObject {
         }
     }
 
+    func testLlmConnection() -> String {
+        do {
+            return try bridge?.testLlmConnection() ?? "No engine"
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
     func fetchLlmModels() -> [String] {
         guard !llmProvider.isEmpty else { return [] }
         do {

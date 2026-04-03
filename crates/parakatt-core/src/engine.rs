@@ -440,6 +440,26 @@ impl Engine {
         }
     }
 
+    /// Test the currently configured LLM connection. Returns the provider name
+    /// on success or an error message on failure.
+    pub fn test_llm_connection(&self) -> Result<String, CoreError> {
+        let llm_guard = self.llm.lock().map_err(|e| {
+            CoreError::LlmError(format!("LLM lock poisoned: {e}"))
+        })?;
+        let llm = llm_guard.as_ref().ok_or_else(|| {
+            CoreError::LlmError("No LLM provider configured".into())
+        })?;
+
+        if llm.is_available() {
+            Ok(format!("{} is reachable", llm.name()))
+        } else {
+            Err(CoreError::LlmError(format!(
+                "Cannot reach {} — check that the server is running",
+                llm.name()
+            )))
+        }
+    }
+
     /// Start downloading a model in the background. Returns immediately.
     /// Poll `get_download_progress()` to track status.
     pub fn start_download(&self, model_id: String) -> Result<(), CoreError> {
