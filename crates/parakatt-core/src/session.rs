@@ -529,7 +529,8 @@ mod tests {
 
         // The overlap segment should be skipped — no duplication.
         assert!(
-            !r2.accumulated_text.contains("As you can see with the\n\nAs you can see with the"),
+            !r2.accumulated_text
+                .contains("As you can see with the\n\nAs you can see with the"),
             "Accumulated text should not contain duplicated overlap: {}",
             r2.accumulated_text
         );
