@@ -23,6 +23,9 @@ pub struct ChunkResult {
     pub chunk_offset_secs: f64,
 }
 
+/// Number of sentences per paragraph in accumulated text.
+const SENTENCES_PER_PARAGRAPH: usize = 3;
+
 /// Internal state for a running transcription session.
 struct SessionState {
     /// Full accumulated transcript text.
@@ -35,6 +38,8 @@ struct SessionState {
     total_duration_secs: f64,
     /// All segments accumulated across chunks, with absolute timestamps.
     accumulated_segments: Vec<TimestampedSegment>,
+    /// Sentence count for paragraph breaking.
+    sentence_count: usize,
 }
 
 /// Manages multiple concurrent transcription sessions.
@@ -68,6 +73,7 @@ impl SessionManager {
                 chunk_count: 0,
                 total_duration_secs: 0.0,
                 accumulated_segments: Vec::new(),
+                sentence_count: 0,
             },
         );
 
@@ -113,21 +119,40 @@ impl SessionManager {
             .cloned()
             .collect();
 
-        // Append to accumulated text with paragraph breaks between chunks.
-        if !new_text.is_empty() {
+        // Accumulate segments with absolute timestamps and build text
+        // with paragraph breaks every SENTENCES_PER_PARAGRAPH sentences.
+        if !segments.is_empty() {
+            for seg in &segments {
+                state.accumulated_segments.push(TimestampedSegment {
+                    text: seg.text.clone(),
+                    start_secs: chunk_offset_secs + seg.start_secs,
+                    end_secs: chunk_offset_secs + seg.end_secs,
+                });
+
+                let trimmed = seg.text.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+
+                if !state.accumulated_text.is_empty() {
+                    // Insert paragraph break every N sentences
+                    if state.sentence_count > 0
+                        && state.sentence_count % SENTENCES_PER_PARAGRAPH == 0
+                    {
+                        state.accumulated_text.push_str("\n\n");
+                    } else {
+                        state.accumulated_text.push(' ');
+                    }
+                }
+                state.accumulated_text.push_str(trimmed);
+                state.sentence_count += 1;
+            }
+        } else if !new_text.is_empty() {
+            // Fallback: no segments available, use raw text with chunk breaks
             if !state.accumulated_text.is_empty() {
                 state.accumulated_text.push_str("\n\n");
             }
             state.accumulated_text.push_str(&new_text);
-        }
-
-        // Accumulate segments with absolute timestamps (offset by chunk start).
-        for seg in &segments {
-            state.accumulated_segments.push(TimestampedSegment {
-                text: seg.text.clone(),
-                start_secs: chunk_offset_secs + seg.start_secs,
-                end_secs: chunk_offset_secs + seg.end_secs,
-            });
         }
 
         state.chunk_count += 1;

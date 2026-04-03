@@ -1201,7 +1201,7 @@ class AppState: ObservableObject {
                     if self.isRecording {
                         if let prefix = accumulatedPrefix, !prefix.isEmpty {
                             // Compose: accumulated chunk text + streaming tail preview
-                            let tail = result.text.isEmpty ? "" : " " + result.text
+                            let tail = result.text.isEmpty ? "" : "\n\n" + result.text
                             self.liveTranscription = prefix + tail
                         } else {
                             self.liveTranscription = result.text.isEmpty ? nil : result.text
