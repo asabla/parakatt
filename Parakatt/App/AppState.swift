@@ -115,6 +115,9 @@ class AppState: ObservableObject {
             if let ap = try? bridge?.getAutoPaste() { autoPaste = ap }
             if let so = try? bridge?.getShowOverlay() { showRecordingOverlay = so }
 
+            // Load API key from Keychain (not config file)
+            loadLlmApiKeyFromKeychain()
+
             // Load preferred audio source from config
             if let bundleId = try? bridge?.getPreferredAudioSource() {
                 if let pid = AudioSourceService.pidForBundleId(bundleId) {
@@ -465,7 +468,18 @@ class AppState: ObservableObject {
     @Published var llmProvider: String = ""
     @Published var llmBaseUrl: String = "http://localhost:11434"
     @Published var llmModel: String = "llama3.2"
-    @Published var llmApiKey: String = ""
+    @Published var llmApiKey: String = "" {
+        didSet {
+            // Persist API key to Keychain instead of config file
+            KeychainService.set(llmApiKey, forKey: "llm-api-key")
+        }
+    }
+
+    func loadLlmApiKeyFromKeychain() {
+        if let key = KeychainService.get("llm-api-key") {
+            llmApiKey = key
+        }
+    }
 
     func configureLlm() {
         do {
