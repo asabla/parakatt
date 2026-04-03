@@ -521,6 +521,43 @@ class AppState: ObservableObject {
         }
     }
 
+    // MARK: - Profiles
+
+    func listProfiles() -> [String] {
+        bridge?.listProfiles() ?? []
+    }
+
+    func saveProfile(_ name: String) {
+        do {
+            try bridge?.saveProfile(name)
+            NSLog("[Parakatt] Saved profile: %@", name)
+        } catch {
+            errorMessage = "Failed to save profile: \(error.localizedDescription)"
+        }
+    }
+
+    func loadProfile(_ name: String) {
+        do {
+            try bridge?.loadProfile(name)
+            // Reload settings from the new config
+            if let ap = try? bridge?.getAutoPaste() { autoPaste = ap }
+            if let so = try? bridge?.getShowOverlay() { showRecordingOverlay = so }
+            if let dm = try? bridge?.getDebugMode() { debugMode = dm }
+            loadLlmApiKeyFromKeychain()
+            NSLog("[Parakatt] Loaded profile: %@", name)
+        } catch {
+            errorMessage = "Failed to load profile: \(error.localizedDescription)"
+        }
+    }
+
+    func deleteProfile(_ name: String) {
+        do {
+            try bridge?.deleteProfile(name)
+        } catch {
+            errorMessage = "Failed to delete profile: \(error.localizedDescription)"
+        }
+    }
+
     func getAppModeDefaults() -> [(String, String)] {
         do {
             return try bridge?.getAppModeDefaults() ?? []

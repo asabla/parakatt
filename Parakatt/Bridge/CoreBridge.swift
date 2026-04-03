@@ -157,6 +157,24 @@ class CoreBridge {
         try engine.resolveModeForApp(bundleId: bundleId)
     }
 
+    // MARK: - Profiles
+
+    func listProfiles() -> [String] {
+        engine.listProfiles()
+    }
+
+    func saveProfile(_ name: String) throws {
+        try engine.saveProfile(name: name)
+    }
+
+    func loadProfile(_ name: String) throws {
+        try engine.loadProfile(name: name)
+    }
+
+    func deleteProfile(_ name: String) throws {
+        try engine.deleteProfile(name: name)
+    }
+
     func saveMode(_ mode: ModeConfig) throws {
         try engine.saveMode(mode: mode)
     }
