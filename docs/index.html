@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Parakatt — Local Voice-to-Text for macOS</title>
+  <meta name="description" content="On-device speech-to-text that lives in your menu bar. Push to talk, release to transcribe. No cloud, no subscriptions.">
+
+  <!-- Open Graph -->
+  <meta property="og:title" content="Parakatt — Local Voice-to-Text for macOS">
+  <meta property="og:description" content="On-device speech-to-text that lives in your menu bar. Push to talk, release to transcribe.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://asabla.github.io/parakatt/">
+  <meta property="og:image" content="https://asabla.github.io/parakatt/og-image.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Reusable SVG symbols -->
+  <svg xmlns="http://www.w3.org/2000/svg" style="display:none">
+    <symbol id="parakatt-icon" viewBox="0 0 1024 1024">
+      <defs><linearGradient id="icon-bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#1a1a2e"/><stop offset="100%" stop-color="#16213e"/></linearGradient></defs>
+      <rect width="1024" height="1024" fill="url(#icon-bg)"/>
+      <g transform="translate(512, 488) scale(19) translate(-22, -24)">
+        <path d="M10 33 Q9 39 22 39 Q35 39 34 33 L34 22 Q34 17 31 14 Q29 9 26 13 Q24 16 22 16 Q20 16 18 13 Q15 9 13 14 Q10 17 10 22 Z" fill="rgba(255,255,255,0.15)" stroke="rgba(255,255,255,0.92)" stroke-width="1.6" stroke-linejoin="round"/>
+        <path d="M13 14 Q14.5 16 17 15" fill="none" stroke="rgba(255,255,255,0.30)" stroke-width="1.0" stroke-linecap="round"/>
+        <path d="M31 14 Q29.5 16 27 15" fill="none" stroke="rgba(255,255,255,0.30)" stroke-width="1.0" stroke-linecap="round"/>
+        <path d="M14 24.5 Q16.5 22 19 24.5" fill="none" stroke="rgba(255,255,255,0.85)" stroke-width="1.4" stroke-linecap="round"/>
+        <path d="M25 24.5 Q27.5 22 30 24.5" fill="none" stroke="rgba(255,255,255,0.85)" stroke-width="1.4" stroke-linecap="round"/>
+        <path d="M20.5 28.5 L22 26.5 L23.5 28.5 Z" fill="rgba(255,255,255,0.50)"/>
+      </g>
+    </symbol>
+  </svg>
+
+  <!-- Navigation -->
+  <nav class="nav" id="nav">
+    <div class="nav-inner">
+      <a href="#top" class="nav-brand">
+        <div class="nav-icon"><svg><use href="#parakatt-icon"/></svg></div>
+        Parakatt
+      </a>
+
+      <!-- Mobile hamburger -->
+      <button class="nav-hamburger" id="nav-hamburger" aria-label="Toggle navigation">
+        <span></span><span></span><span></span>
+      </button>
+
+      <div class="nav-links" id="nav-links">
+        <a href="#how-it-works">How it works</a>
+        <a href="#features">Features</a>
+        <a href="#modes">Modes</a>
+        <a href="#install">Install</a>
+        <a href="https://github.com/asabla/parakatt" class="nav-cta">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg>
+          GitHub
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <section class="hero" id="top">
+    <div class="hero-glow"></div>
+    <div class="hero-grid"></div>
+    <div class="hero-content">
+      <div class="hero-icon-wrap stagger-1">
+        <div class="hero-icon-rings">
+          <div class="ring ring-1"></div>
+          <div class="ring ring-2"></div>
+          <div class="ring ring-3"></div>
+        </div>
+        <div class="hero-icon">
+          <svg><use href="#parakatt-icon"/></svg>
+          <!-- Animated ear twitch overlays -->
+          <svg class="icon-overlay" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+            <g transform="translate(512, 488) scale(19) translate(-22, -24)">
+              <!-- Left ear inner highlight -->
+              <path class="ear-left" d="M13 14 Q14.5 16 17 15" fill="none" stroke="rgba(48,209,88,0.35)" stroke-width="1.2" stroke-linecap="round"/>
+              <!-- Right ear inner highlight -->
+              <path class="ear-right" d="M31 14 Q29.5 16 27 15" fill="none" stroke="rgba(48,209,88,0.35)" stroke-width="1.2" stroke-linecap="round"/>
+              <!-- Eye blink left -->
+              <path class="eye-blink" d="M14 24.5 Q16.5 23.8 19 24.5" fill="none" stroke="rgba(255,255,255,0.6)" stroke-width="1.6" stroke-linecap="round"/>
+              <!-- Eye blink right -->
+              <path class="eye-blink" d="M25 24.5 Q27.5 23.8 30 24.5" fill="none" stroke="rgba(255,255,255,0.6)" stroke-width="1.6" stroke-linecap="round"/>
+            </g>
+          </svg>
+        </div>
+      </div>
+
+      <div class="hero-badge stagger-2">
+        <span class="dot"></span>
+        Open source &middot; 100% on-device
+      </div>
+
+      <h1 class="stagger-3">Voice to text,<br><span class="gradient-text">without the cloud</span></h1>
+
+      <p class="subtitle stagger-4">On-device speech recognition that lives in your menu bar. Hold a hotkey, speak, release. Your words appear wherever you're typing.</p>
+
+      <div class="hero-hotkey stagger-5">
+        <span class="key">&#8997; Option</span>
+        <span class="key-plus">+</span>
+        <span class="key">Space</span>
+      </div>
+
+      <div class="hero-ctas stagger-6">
+        <a href="https://github.com/asabla/parakatt/releases/latest" class="btn btn-primary">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Download for Mac
+        </a>
+        <a href="https://github.com/asabla/parakatt" class="btn btn-ghost">
+          View source
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- How it works -->
+  <section class="how-it-works" id="how-it-works">
+    <div class="container">
+      <div class="section-label section-label--cyan fade-in">How it works</div>
+      <h2 class="section-title fade-in">Three seconds from thought to text</h2>
+      <p class="section-subtitle fade-in">No apps to switch. No windows to open. Just your voice.</p>
+
+      <div class="steps-timeline">
+        <div class="step fade-in">
+          <div class="step-marker-wrap">
+            <div class="step-marker hold">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M7 16h10"/></svg>
+            </div>
+          </div>
+          <div class="step-content">
+            <div class="step-number">01</div>
+            <h3>Hold the hotkey</h3>
+            <p>Press Option+Space from anywhere on your Mac. A subtle overlay confirms you're recording.</p>
+          </div>
+        </div>
+
+        <div class="step fade-in">
+          <div class="step-marker-wrap">
+            <div class="step-marker speak">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
+            </div>
+          </div>
+          <div class="step-content">
+            <div class="step-number">02</div>
+            <h3>Speak naturally</h3>
+            <p>Talk at your normal pace. Parakeet STT runs on Apple Silicon with sentence-level timestamps.</p>
+          </div>
+        </div>
+
+        <div class="step fade-in">
+          <div class="step-marker-wrap">
+            <div class="step-marker done">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            </div>
+          </div>
+          <div class="step-content">
+            <div class="step-number">03</div>
+            <h3>Release to paste</h3>
+            <p>Let go and your transcription appears in the active text field. Optionally cleaned up by a local LLM.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Features (merged with tech section) -->
+  <section class="features" id="features">
+    <div class="container">
+      <div class="section-label section-label--green fade-in">Features</div>
+      <h2 class="section-title fade-in">Built for privacy and speed</h2>
+      <p class="section-subtitle fade-in">Everything runs locally. No accounts, no API keys required.</p>
+
+      <div class="features-grid">
+        <div class="feature-card fade-in" data-accent="green">
+          <div class="feature-icon privacy">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          </div>
+          <h3>Fully on-device</h3>
+          <p>NVIDIA Parakeet runs through ONNX Runtime on your Mac. Audio never leaves your machine.</p>
+        </div>
+
+        <div class="feature-card fade-in" data-accent="red">
+          <div class="feature-icon meeting">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          </div>
+          <h3>Meeting transcription</h3>
+          <p>Dual audio capture grabs both microphone and system audio for full meeting transcripts.</p>
+        </div>
+
+        <div class="feature-card fade-in" data-accent="purple">
+          <div class="feature-icon llm">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 1.98-3A2.5 2.5 0 0 1 9.5 2z"/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96.44 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-1.98-3A2.5 2.5 0 0 0 14.5 2z"/></svg>
+          </div>
+          <h3>LLM post-processing</h3>
+          <p>Optionally clean grammar, reformat, or restructure via Ollama, LM Studio, or OpenAI.</p>
+        </div>
+
+        <div class="feature-card fade-in" data-accent="orange">
+          <div class="feature-icon timeline">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          </div>
+          <h3>Sentence timestamps</h3>
+          <p>Navigate long transcriptions with a visual timeline. Every sentence is anchored in time.</p>
+        </div>
+
+        <div class="feature-card fade-in" data-accent="cyan">
+          <div class="feature-icon dictionary">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+          </div>
+          <h3>Custom dictionary</h3>
+          <p>Regex-based rules to auto-correct names, jargon, and acronyms that trip up the model.</p>
+        </div>
+
+        <div class="feature-card fade-in" data-accent="blue">
+          <div class="feature-icon search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          </div>
+          <h3>Full-text search</h3>
+          <p>FTS5-powered search across your entire transcription history. Find anything you've ever said.</p>
+        </div>
+
+        <div class="feature-card fade-in" data-accent="orange">
+          <div class="feature-icon rust">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+          </div>
+          <h3>Rust + Swift</h3>
+          <p>Compute-heavy STT in Rust via UniFFI. Native macOS UI in SwiftUI. Best of both worlds.</p>
+        </div>
+
+        <div class="feature-card fade-in" data-accent="green">
+          <div class="feature-icon telemetry">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/><path d="M2 20h20"/><line x1="2" y1="4" x2="22" y2="4" stroke-dasharray="2 3" opacity="0.4"/></svg>
+          </div>
+          <h3>Zero telemetry</h3>
+          <p>No analytics, no tracking, no phone-home. Not even crash reports. Your data stays yours.</p>
+        </div>
+
+        <div class="feature-card fade-in" data-accent="cyan">
+          <div class="feature-icon offline">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          </div>
+          <h3>Works offline</h3>
+          <p>Once the model is downloaded, everything works without internet. Airplane mode friendly.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Modes — interactive showcase -->
+  <section class="modes-section" id="modes">
+    <div class="container">
+      <div class="section-label section-label--purple fade-in">Modes</div>
+      <h2 class="section-title fade-in">One voice, four outputs</h2>
+      <p class="section-subtitle fade-in">The same speech, reshaped for different contexts.</p>
+
+      <div class="modes-demo fade-in">
+        <div class="modes-input">
+          <div class="modes-input-label">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
+            You said
+          </div>
+          <p>&ldquo;hey can you check if the API endpoint is returning the right status codes I think theres an issue with the error handling&rdquo;</p>
+        </div>
+
+        <div class="modes-tabs">
+          <button class="mode-tab active" data-mode="dictation" data-color="blue">
+            <span class="mode-tab-dot dictation"></span>Dictation
+          </button>
+          <button class="mode-tab" data-mode="clean" data-color="green">
+            <span class="mode-tab-dot clean"></span>Clean
+          </button>
+          <button class="mode-tab" data-mode="email" data-color="orange">
+            <span class="mode-tab-dot email"></span>Email
+          </button>
+          <button class="mode-tab" data-mode="code" data-color="purple">
+            <span class="mode-tab-dot code"></span>Code
+          </button>
+        </div>
+
+        <div class="modes-output">
+          <div class="modes-output-label">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            Output
+          </div>
+          <div class="mode-output-content" id="mode-output">
+            <div class="mode-panel active" data-mode="dictation">
+              <p>hey can you check if the API endpoint is returning the right status codes I think theres an issue with the error handling</p>
+            </div>
+            <div class="mode-panel" data-mode="clean">
+              <p>Hey, can you check if the API endpoint is returning the right status codes? I think there's an issue with the error handling.</p>
+            </div>
+            <div class="mode-panel" data-mode="email">
+              <p>Hi,</p>
+              <p>Could you take a look at the API endpoint? I believe the status codes being returned may be incorrect — there seems to be an issue with the error handling.</p>
+              <p>Thanks!</p>
+            </div>
+            <div class="mode-panel mode-panel--code" data-mode="code">
+              <pre><code>// TODO: Check API endpoint status codes
+// Issue: Error handling may be returning
+//        incorrect status codes
+// Verify: Response codes match expected
+//         error states</code></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Screenshots -->
+  <section class="screenshots" id="screenshots">
+    <div class="container">
+      <div class="section-label section-label--red fade-in">Interface</div>
+      <h2 class="section-title fade-in">Native macOS, no Electron</h2>
+      <p class="section-subtitle fade-in">Built with SwiftUI. Feels like it belongs on your Mac.</p>
+
+      <!-- Hero screenshot -->
+      <div class="screenshot-hero fade-in">
+        <div class="screenshot-frame large">
+          <div class="screenshot-titlebar">
+            <div class="screenshot-dots">
+              <span class="dot-red"></span><span class="dot-yellow"></span><span class="dot-green"></span>
+            </div>
+            <span class="screenshot-titlebar-text">Transcription History</span>
+          </div>
+          <div class="screenshot-body">
+            <!-- <img src="assets/screenshots/transcription-history.png" alt="Transcription History" loading="lazy"> -->
+            <div class="screenshot-placeholder wireframe">
+              <svg width="180" height="100" viewBox="0 0 180 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect x="0" y="0" width="55" height="100" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.06)" rx="2"/>
+                <rect x="6" y="8" width="43" height="6" rx="1" fill="rgba(255,255,255,0.06)"/>
+                <rect x="6" y="20" width="43" height="16" rx="2" fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.06)"/>
+                <rect x="6" y="40" width="43" height="16" rx="2" fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.06)"/>
+                <rect x="6" y="60" width="43" height="16" rx="2" fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.06)"/>
+                <rect x="65" y="8" width="80" height="6" rx="1" fill="rgba(255,255,255,0.08)"/>
+                <rect x="65" y="22" width="105" height="3" rx="1" fill="rgba(255,255,255,0.04)"/>
+                <rect x="65" y="28" width="100" height="3" rx="1" fill="rgba(255,255,255,0.04)"/>
+                <rect x="65" y="34" width="90" height="3" rx="1" fill="rgba(255,255,255,0.04)"/>
+                <rect x="65" y="40" width="95" height="3" rx="1" fill="rgba(255,255,255,0.04)"/>
+              </svg>
+              <span>Transcription History</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Secondary screenshots -->
+      <div class="screenshot-row">
+        <div class="screenshot-frame fade-in">
+          <div class="screenshot-titlebar">
+            <div class="screenshot-dots">
+              <span class="dot-red"></span><span class="dot-yellow"></span><span class="dot-green"></span>
+            </div>
+            <span class="screenshot-titlebar-text">Settings</span>
+          </div>
+          <div class="screenshot-body">
+            <!-- <img src="assets/screenshots/settings-dashboard.png" alt="Settings Dashboard" loading="lazy"> -->
+            <div class="screenshot-placeholder wireframe">
+              <svg width="100" height="70" viewBox="0 0 100 70" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect x="5" y="4" width="14" height="3" rx="1" fill="rgba(255,255,255,0.06)"/>
+                <rect x="22" y="4" width="14" height="3" rx="1" fill="rgba(255,255,255,0.06)"/>
+                <rect x="39" y="4" width="14" height="3" rx="1" fill="rgba(255,255,255,0.08)"/>
+                <line x1="39" y1="9" x2="53" y2="9" stroke="rgba(48,209,88,0.3)" stroke-width="1"/>
+                <circle cx="18" cy="22" r="8" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.06)"/>
+                <rect x="5" y="36" width="40" height="3" rx="1" fill="rgba(48,209,88,0.15)"/>
+                <rect x="5" y="42" width="30" height="3" rx="1" fill="rgba(10,132,255,0.15)"/>
+                <rect x="60" y="14" width="35" height="8" rx="2" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.06)"/>
+                <rect x="60" y="26" width="35" height="8" rx="2" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.06)"/>
+                <rect x="60" y="38" width="35" height="8" rx="2" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.06)"/>
+              </svg>
+              <span>Settings</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="screenshot-frame fade-in">
+          <div class="screenshot-titlebar">
+            <div class="screenshot-dots">
+              <span class="dot-red"></span><span class="dot-yellow"></span><span class="dot-green"></span>
+            </div>
+            <span class="screenshot-titlebar-text">Recording</span>
+          </div>
+          <div class="screenshot-body">
+            <!-- <img src="assets/screenshots/recording-overlay.png" alt="Recording Overlay" loading="lazy"> -->
+            <div class="screenshot-placeholder wireframe">
+              <svg width="100" height="70" viewBox="0 0 100 70" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect x="15" y="10" width="70" height="50" rx="8" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.06)"/>
+                <line x1="15" y1="13" x2="85" y2="13" stroke="rgba(255,69,58,0.3)" stroke-width="2" stroke-linecap="round"/>
+                <circle cx="26" cy="24" r="3" fill="rgba(255,69,58,0.25)"/>
+                <rect x="33" y="21" width="3" height="6" rx="1" fill="rgba(255,69,58,0.15)"/>
+                <rect x="38" y="19" width="3" height="10" rx="1" fill="rgba(255,69,58,0.2)"/>
+                <rect x="43" y="22" width="3" height="4" rx="1" fill="rgba(255,69,58,0.12)"/>
+                <rect x="48" y="20" width="3" height="8" rx="1" fill="rgba(255,69,58,0.18)"/>
+                <rect x="53" y="21" width="3" height="6" rx="1" fill="rgba(255,69,58,0.15)"/>
+                <rect x="22" y="36" width="56" height="3" rx="1" fill="rgba(255,255,255,0.05)"/>
+                <rect x="22" y="42" width="40" height="3" rx="1" fill="rgba(255,255,255,0.04)"/>
+              </svg>
+              <span>Recording Overlay</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="screenshot-frame fade-in">
+          <div class="screenshot-titlebar">
+            <div class="screenshot-dots">
+              <span class="dot-red"></span><span class="dot-yellow"></span><span class="dot-green"></span>
+            </div>
+            <span class="screenshot-titlebar-text">Menu Bar</span>
+          </div>
+          <div class="screenshot-body">
+            <!-- <img src="assets/screenshots/menu-bar.png" alt="Menu Bar" loading="lazy"> -->
+            <div class="screenshot-placeholder wireframe">
+              <svg width="100" height="70" viewBox="0 0 100 70" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect x="0" y="0" width="100" height="10" fill="rgba(255,255,255,0.03)"/>
+                <circle cx="85" cy="5" r="3" fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.08)"/>
+                <rect x="25" y="12" width="50" height="54" rx="4" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.06)"/>
+                <rect x="30" y="18" width="40" height="4" rx="1" fill="rgba(255,255,255,0.06)"/>
+                <line x1="30" y1="26" x2="70" y2="26" stroke="rgba(255,255,255,0.04)"/>
+                <circle cx="34" cy="32" r="2" fill="rgba(48,209,88,0.2)"/>
+                <rect x="39" y="31" width="24" height="3" rx="1" fill="rgba(255,255,255,0.05)"/>
+                <circle cx="34" cy="40" r="2" fill="rgba(255,255,255,0.06)"/>
+                <rect x="39" y="39" width="20" height="3" rx="1" fill="rgba(255,255,255,0.05)"/>
+                <line x1="30" y1="47" x2="70" y2="47" stroke="rgba(255,255,255,0.04)"/>
+                <rect x="30" y="52" width="28" height="3" rx="1" fill="rgba(255,255,255,0.05)"/>
+                <rect x="30" y="58" width="18" height="3" rx="1" fill="rgba(255,255,255,0.05)"/>
+              </svg>
+              <span>Menu Bar</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Install -->
+  <section class="install" id="install">
+    <div class="container">
+      <div class="install-glow"></div>
+      <h2 class="section-title fade-in">Get started</h2>
+      <p class="section-subtitle fade-in">The 2.5 GB speech model downloads automatically on first launch.</p>
+
+      <div class="install-methods">
+        <div class="install-card fade-in">
+          <h3>Download</h3>
+          <p>Grab the latest release.</p>
+          <a href="https://github.com/asabla/parakatt/releases/latest" class="btn btn-primary" style="width: 100%; justify-content: center;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Download DMG
+          </a>
+        </div>
+
+        <div class="install-card fade-in">
+          <h3>Homebrew</h3>
+          <p>Install from the terminal.</p>
+          <div class="install-code">
+            <button class="copy-btn" aria-label="Copy brew command to clipboard">Copy</button>
+            <code><span class="cmd">brew tap</span> asabla/tap <span class="dim">&amp;&amp;</span> <span class="cmd">brew install</span> <span class="dim">--cask</span> parakatt</code>
+          </div>
+        </div>
+      </div>
+
+      <p class="install-requirements fade-in">macOS 14 (Sonoma) or later &middot; Apple Silicon &middot; ~2.5 GB for the speech model</p>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="footer-inner">
+      <div class="footer-left">
+        <div class="footer-brand">
+          <div class="footer-icon"><svg><use href="#parakatt-icon"/></svg></div>
+          Parakatt
+        </div>
+        <p class="footer-tagline">Local voice-to-text for macOS.<br>Built with Rust and Swift.</p>
+      </div>
+      <div class="footer-right">
+        <div class="footer-col">
+          <div class="footer-col-title">Product</div>
+          <a href="#features">Features</a>
+          <a href="#install">Install</a>
+          <a href="https://github.com/asabla/parakatt/releases">Releases</a>
+        </div>
+        <div class="footer-col">
+          <div class="footer-col-title">Project</div>
+          <a href="https://github.com/asabla/parakatt">GitHub</a>
+          <a href="https://github.com/asabla/parakatt/blob/main/CONTRIBUTING.md">Contributing</a>
+          <a href="https://github.com/asabla/parakatt/blob/main/LICENSE">MIT License</a>
+        </div>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>&copy; <span id="footer-year">2025</span> Parakatt</span>
+    </div>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
