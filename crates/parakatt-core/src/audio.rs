@@ -14,6 +14,14 @@ const SILENCE_THRESHOLD: f32 = 0.01;
 /// Frame size in samples for silence detection (20ms at 16kHz).
 const FRAME_SIZE: usize = 320;
 
+/// Pre-emphasis coefficient for boosting high frequencies.
+/// Standard value for speech processing (0.95-0.97).
+const PRE_EMPHASIS_COEFF: f32 = 0.97;
+
+/// Noise gate threshold — samples below this RMS are zeroed.
+/// Slightly below the silence threshold to catch faint background noise.
+const NOISE_GATE_THRESHOLD: f32 = 0.005;
+
 /// Validate that audio is in the expected format and return it ready for processing.
 pub fn preprocess(samples: &[f32], sample_rate: u32) -> Result<Vec<f32>, CoreError> {
     if sample_rate != TARGET_SAMPLE_RATE {
@@ -32,8 +40,41 @@ pub fn preprocess(samples: &[f32], sample_rate: u32) -> Result<Vec<f32>, CoreErr
         return Err(CoreError::AudioError("Audio contains only silence".into()));
     }
 
-    let normalized = normalize(trimmed);
+    let gated = noise_gate(trimmed);
+    let emphasized = pre_emphasis(&gated);
+    let normalized = normalize(&emphasized);
     Ok(normalized)
+}
+
+/// Apply a noise gate: zero out frames with RMS below the threshold.
+/// This removes faint background noise between speech segments while
+/// preserving the actual speech signal.
+fn noise_gate(samples: &[f32]) -> Vec<f32> {
+    let mut result = Vec::with_capacity(samples.len());
+    for frame in samples.chunks(FRAME_SIZE) {
+        if rms(frame) > NOISE_GATE_THRESHOLD {
+            result.extend_from_slice(frame);
+        } else {
+            result.extend(std::iter::repeat(0.0f32).take(frame.len()));
+        }
+    }
+    result
+}
+
+/// Apply a pre-emphasis filter to boost high frequencies.
+/// This is a standard first step in speech processing pipelines,
+/// compensating for the natural roll-off of speech at higher frequencies.
+/// Formula: y[n] = x[n] - coeff * x[n-1]
+fn pre_emphasis(samples: &[f32]) -> Vec<f32> {
+    if samples.is_empty() {
+        return Vec::new();
+    }
+    let mut result = Vec::with_capacity(samples.len());
+    result.push(samples[0]);
+    for i in 1..samples.len() {
+        result.push(samples[i] - PRE_EMPHASIS_COEFF * samples[i - 1]);
+    }
+    result
 }
 
 /// Trim leading and trailing silence from audio samples.
@@ -136,5 +177,31 @@ mod tests {
         let trimmed = trim_silence(&samples);
         // Signal (320) + 3 trailing padding frames (960), capped by available samples
         assert_eq!(trimmed.len(), 320 + FRAME_SIZE * 3);
+    }
+
+    #[test]
+    fn test_pre_emphasis() {
+        let samples = vec![0.0, 1.0, 1.0, 1.0];
+        let result = pre_emphasis(&samples);
+        assert_eq!(result[0], 0.0);
+        // y[1] = 1.0 - 0.97 * 0.0 = 1.0
+        assert!((result[1] - 1.0).abs() < 1e-6);
+        // y[2] = 1.0 - 0.97 * 1.0 = 0.03
+        assert!((result[2] - 0.03).abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_noise_gate_passes_signal() {
+        let signal = vec![0.5f32; FRAME_SIZE];
+        let result = noise_gate(&signal);
+        assert_eq!(result, signal);
+    }
+
+    #[test]
+    fn test_noise_gate_silences_noise() {
+        // Very quiet noise below threshold
+        let noise: Vec<f32> = vec![0.001f32; FRAME_SIZE];
+        let result = noise_gate(&noise);
+        assert!(result.iter().all(|&s| s == 0.0));
     }
 }
