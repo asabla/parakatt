@@ -509,6 +509,15 @@ class AppState: ObservableObject {
         }
     }
 
+    func getStatistics() -> [(String, String)] {
+        do {
+            return try bridge?.getStatistics() ?? []
+        } catch {
+            NSLog("[Parakatt] Failed to get statistics: %@", error.localizedDescription)
+            return []
+        }
+    }
+
     func fetchLlmModels() -> [String] {
         guard !llmProvider.isEmpty else { return [] }
         do {

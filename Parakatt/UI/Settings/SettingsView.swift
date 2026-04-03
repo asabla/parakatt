@@ -16,6 +16,9 @@ struct SettingsView: View {
 
             DictionarySettingsView()
                 .tabItem { Label("Dictionary", systemImage: "character.book.closed") }
+
+            StatisticsSettingsView()
+                .tabItem { Label("Statistics", systemImage: "chart.bar") }
         }
         .frame(width: 520, height: 480)
     }
@@ -1144,5 +1147,218 @@ struct FlowLayout: Layout {
         }
 
         return (CGSize(width: maxX, height: y + rowHeight), origins)
+    }
+}
+
+// MARK: - Statistics
+
+struct StatisticsSettingsView: View {
+    @EnvironmentObject var appState: AppState
+    @State private var stats: [(String, String)] = []
+    @State private var isLoading = true
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+
+                // Overview cards
+                let overview = stats.filter { !$0.0.hasPrefix("Mode:") && $0.0 != "Voice notes" && $0.0 != "Meetings" }
+                if !overview.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label("Overview", systemImage: "chart.bar")
+                            .font(.system(.subheadline, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .textCase(.uppercase)
+                            .tracking(0.5)
+
+                        LazyVGrid(columns: [
+                            GridItem(.flexible()),
+                            GridItem(.flexible()),
+                            GridItem(.flexible()),
+                        ], spacing: 10) {
+                            ForEach(overview, id: \.0) { stat in
+                                StatCard(label: stat.0, value: stat.1)
+                            }
+                        }
+                    }
+                }
+
+                // By source
+                let sources = stats.filter { $0.0 == "Voice notes" || $0.0 == "Meetings" }
+                if !sources.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label("By Type", systemImage: "square.stack")
+                            .font(.system(.subheadline, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .textCase(.uppercase)
+                            .tracking(0.5)
+
+                        VStack(spacing: 0) {
+                            ForEach(Array(sources.enumerated()), id: \.element.0) { index, stat in
+                                StatRow(
+                                    label: stat.0,
+                                    value: stat.1,
+                                    icon: stat.0 == "Meetings" ? "person.2.fill" : "mic.fill",
+                                    color: stat.0 == "Meetings" ? .orange : .blue
+                                )
+                                if index < sources.count - 1 {
+                                    Divider().padding(.leading, 40)
+                                }
+                            }
+                        }
+                        .background {
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(.background)
+                                .shadow(color: .black.opacity(0.06), radius: 2, y: 1)
+                        }
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 10)
+                                .strokeBorder(.quaternary, lineWidth: 0.5)
+                        }
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
+                }
+
+                // By mode
+                let modes = stats.filter { $0.0.hasPrefix("Mode: ") }
+                if !modes.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label("By Mode", systemImage: "wand.and.stars")
+                            .font(.system(.subheadline, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .textCase(.uppercase)
+                            .tracking(0.5)
+
+                        VStack(spacing: 0) {
+                            ForEach(Array(modes.enumerated()), id: \.element.0) { index, stat in
+                                let modeName = String(stat.0.dropFirst(6)) // Drop "Mode: "
+                                StatRow(
+                                    label: modeName.capitalized,
+                                    value: stat.1,
+                                    icon: modeIcon(modeName),
+                                    color: modeColor(modeName)
+                                )
+                                if index < modes.count - 1 {
+                                    Divider().padding(.leading, 40)
+                                }
+                            }
+                        }
+                        .background {
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(.background)
+                                .shadow(color: .black.opacity(0.06), radius: 2, y: 1)
+                        }
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 10)
+                                .strokeBorder(.quaternary, lineWidth: 0.5)
+                        }
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
+                }
+
+                if stats.isEmpty && !isLoading {
+                    VStack(spacing: 8) {
+                        Image(systemName: "chart.bar")
+                            .font(.largeTitle)
+                            .foregroundStyle(.quaternary)
+                        Text("No transcriptions yet")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 40)
+                }
+            }
+            .padding(20)
+        }
+        .background(.quaternary.opacity(0.5))
+        .onAppear { loadStats() }
+    }
+
+    private func loadStats() {
+        isLoading = true
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = appState.getStatistics()
+            DispatchQueue.main.async {
+                stats = result
+                isLoading = false
+            }
+        }
+    }
+
+    private func modeIcon(_ mode: String) -> String {
+        switch mode.lowercased() {
+        case "dictation": return "waveform"
+        case "clean": return "text.badge.checkmark"
+        case "email": return "envelope.fill"
+        case "code": return "chevron.left.forwardslash.chevron.right"
+        default: return "star"
+        }
+    }
+
+    private func modeColor(_ mode: String) -> Color {
+        switch mode.lowercased() {
+        case "dictation": return .blue
+        case "clean": return .green
+        case "email": return .orange
+        case "code": return .purple
+        default: return .secondary
+        }
+    }
+}
+
+private struct StatCard: View {
+    let label: String
+    let value: String
+
+    var body: some View {
+        VStack(spacing: 4) {
+            Text(value)
+                .font(.system(.title2, design: .rounded, weight: .bold))
+                .monospacedDigit()
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 14)
+        .background {
+            RoundedRectangle(cornerRadius: 10)
+                .fill(.background)
+                .shadow(color: .black.opacity(0.06), radius: 2, y: 1)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(.quaternary, lineWidth: 0.5)
+        }
+    }
+}
+
+private struct StatRow: View {
+    let label: String
+    let value: String
+    let icon: String
+    let color: Color
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 14))
+                .foregroundStyle(color)
+                .frame(width: 24)
+
+            Text(label)
+                .font(.body)
+
+            Spacer()
+
+            Text(value)
+                .font(.system(.body, design: .rounded, weight: .medium))
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
     }
 }

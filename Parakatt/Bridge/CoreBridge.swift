@@ -139,6 +139,16 @@ class CoreBridge {
         try engine.testLlmConnection()
     }
 
+    // MARK: - Statistics
+
+    func getStatistics() throws -> [(String, String)] {
+        let raw = try engine.getStatistics()
+        return raw.compactMap { pair in
+            guard pair.count == 2 else { return nil }
+            return (pair[0], pair[1])
+        }
+    }
+
     // MARK: - Model downloading
 
     /// Start downloading a model in the background.
