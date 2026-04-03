@@ -180,11 +180,17 @@ impl SessionManager {
     }
 }
 
+/// Strip leading/trailing punctuation from a word for comparison purposes.
+fn strip_punctuation(word: &str) -> &str {
+    word.trim_matches(|c: char| c.is_ascii_punctuation())
+}
+
 /// Remove overlapping words between the end of the previous chunk and the
 /// start of the current chunk's STT output.
 ///
 /// Finds the longest suffix of `prev_trailing` that matches a prefix of
-/// `current_text` (word-level, case-insensitive), then strips that prefix.
+/// `current_text` (word-level, case-insensitive, punctuation-insensitive),
+/// then strips that prefix.
 fn deduplicate_overlap(prev_trailing: &[String], current_text: &str) -> String {
     if prev_trailing.is_empty() || current_text.is_empty() {
         return current_text.to_string();
@@ -203,11 +209,9 @@ fn deduplicate_overlap(prev_trailing: &[String], current_text: &str) -> String {
         let suffix = &prev_trailing[prev_trailing.len() - suffix_len..];
         let prefix = &current_words[..suffix_len];
 
-        if suffix
-            .iter()
-            .zip(prefix.iter())
-            .all(|(a, b)| a.to_lowercase() == b.to_lowercase())
-        {
+        if suffix.iter().zip(prefix.iter()).all(|(a, b)| {
+            strip_punctuation(a).to_lowercase() == strip_punctuation(b).to_lowercase()
+        }) {
             best_overlap = suffix_len;
             break;
         }
@@ -268,6 +272,20 @@ mod tests {
     fn test_deduplicate_overlap_empty_current() {
         let prev = vec!["hello".into()];
         assert_eq!(deduplicate_overlap(&prev, ""), "");
+    }
+
+    #[test]
+    fn test_deduplicate_overlap_with_punctuation() {
+        let prev = vec!["the".into(), "quick".into(), "brown.".into()];
+        let current = "brown jumps over";
+        assert_eq!(deduplicate_overlap(&prev, current), "jumps over");
+    }
+
+    #[test]
+    fn test_deduplicate_overlap_punctuation_both_sides() {
+        let prev = vec!["hello,".into(), "world.".into()];
+        let current = "hello, world! and more";
+        assert_eq!(deduplicate_overlap(&prev, current), "and more");
     }
 
     #[test]
