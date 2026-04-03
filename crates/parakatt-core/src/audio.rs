@@ -39,7 +39,9 @@ pub fn preprocess(samples: &[f32], sample_rate: u32) -> Result<Vec<f32>, CoreErr
 /// Trim leading and trailing silence from audio samples.
 fn trim_silence(samples: &[f32]) -> &[f32] {
     let start = find_first_voiced_frame(samples).unwrap_or(0);
-    let end = find_last_voiced_frame(samples).unwrap_or(samples.len());
+    let raw_end = find_last_voiced_frame(samples).unwrap_or(samples.len());
+    // Keep 3 extra frames (60ms) after last voiced frame to preserve speech fade-outs
+    let end = (raw_end + FRAME_SIZE * 3).min(samples.len());
     &samples[start..end]
 }
 
@@ -130,8 +132,9 @@ mod tests {
     fn test_trim_silence() {
         let mut samples = vec![0.0f32; 640]; // silence
         samples.extend(vec![0.5f32; 320]); // signal
-        samples.extend(vec![0.0f32; 640]); // silence
+        samples.extend(vec![0.0f32; 960]); // trailing silence (enough for padding)
         let trimmed = trim_silence(&samples);
-        assert_eq!(trimmed.len(), 320);
+        // Signal (320) + 3 trailing padding frames (960), capped by available samples
+        assert_eq!(trimmed.len(), 320 + FRAME_SIZE * 3);
     }
 }

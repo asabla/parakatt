@@ -155,7 +155,7 @@ class MeetingSessionService {
         let samplesPerChunk = Int(chunkDurationSecs * Double(sampleRate))
 
         bufferLock.lock()
-        guard mixBuffer.count >= Int(Double(sampleRate) * 1.0) else {
+        guard mixBuffer.count >= Int(Double(sampleRate) * 0.1) else {
             bufferLock.unlock()
             NSLog("[Parakatt] Final chunk: not enough audio (%.1fs), skipping",
                   Double(mixBuffer.count) / Double(sampleRate))
@@ -284,7 +284,7 @@ class MeetingSessionService {
         let overlapSamples = Int(overlapDurationSecs * Double(sampleRate))
 
         bufferLock.lock()
-        guard mixBuffer.count >= Int(Double(sampleRate) * 1.0) else {
+        guard mixBuffer.count >= Int(Double(sampleRate) * 0.1) else {
             // Less than 1 second of audio — skip this chunk.
             bufferLock.unlock()
             return
