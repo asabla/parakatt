@@ -194,7 +194,7 @@ pub fn download_model(
         let mut file = if existing_bytes > 0 && status.as_u16() == 206 {
             fs::OpenOptions::new().append(true).open(&part_path)
         } else {
-            fs::File::create(&part_path).map(|f| f)
+            fs::File::create(&part_path)
         }
         .map_err(|e| {
             let mut p = progress.lock().unwrap();

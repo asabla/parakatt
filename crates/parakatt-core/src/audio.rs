@@ -58,7 +58,7 @@ fn noise_gate(samples: &[f32]) -> Vec<f32> {
         if rms(frame) > NOISE_GATE_THRESHOLD {
             result.extend_from_slice(frame);
         } else {
-            result.extend(std::iter::repeat(0.0f32).take(frame.len()));
+            result.extend(std::iter::repeat_n(0.0f32, frame.len()));
         }
     }
     result
@@ -101,7 +101,7 @@ fn find_first_voiced_frame(samples: &[f32]) -> Option<usize> {
 
 /// Find the sample index where the last voiced frame ends.
 fn find_last_voiced_frame(samples: &[f32]) -> Option<usize> {
-    let num_frames = (samples.len() + FRAME_SIZE - 1) / FRAME_SIZE;
+    let num_frames = samples.len().div_ceil(FRAME_SIZE);
     for i in (0..num_frames).rev() {
         let start = i * FRAME_SIZE;
         let end = (start + FRAME_SIZE).min(samples.len());

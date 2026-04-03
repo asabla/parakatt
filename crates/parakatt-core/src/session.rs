@@ -49,11 +49,17 @@ pub struct SessionManager {
 /// Number of words to compare for overlap deduplication.
 const OVERLAP_WORD_COUNT: usize = 8;
 
-impl SessionManager {
-    pub fn new() -> Self {
+impl Default for SessionManager {
+    fn default() -> Self {
         Self {
             sessions: HashMap::new(),
         }
+    }
+}
+
+impl SessionManager {
+    pub fn new() -> Self {
+        Self::default()
     }
 
     /// Start a new transcription session.
@@ -137,7 +143,7 @@ impl SessionManager {
                     // Paragraph break at chunk boundary (first sentence of new chunk)
                     // or every N sentences within a chunk
                     if chunk_sentence_count == 0
-                        || chunk_sentence_count % SENTENCES_PER_PARAGRAPH == 0
+                        || chunk_sentence_count.is_multiple_of(SENTENCES_PER_PARAGRAPH)
                     {
                         state.accumulated_text.push_str("\n\n");
                     } else {

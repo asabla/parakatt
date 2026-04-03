@@ -1152,7 +1152,7 @@ impl Engine {
                 .collect::<Vec<_>>()
                 .join(" ");
             // Find the last sentence-ending punctuation to avoid mid-sentence cuts.
-            if let Some(pos) = rough_cut.rfind(|c| c == '.' || c == '!' || c == '?') {
+            if let Some(pos) = rough_cut.rfind(['.', '!', '?']) {
                 rough_cut[..=pos].to_string()
             } else {
                 rough_cut
