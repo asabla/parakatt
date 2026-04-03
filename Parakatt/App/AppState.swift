@@ -176,6 +176,9 @@ class AppState: ObservableObject {
             return
         }
 
+        // Set immediately after guard to prevent race with rapid start/stop.
+        isRecording = true
+
         sampleCount = 0
         longRecordingWarned = false
         pttSessionId = nil
@@ -190,7 +193,6 @@ class AppState: ObservableObject {
 
         do {
             try audioCaptureService?.startCapture()
-            isRecording = true
             currentAudioLevel = 0
             liveTranscription = nil
             errorMessage = nil
@@ -209,6 +211,7 @@ class AppState: ObservableObject {
             NSLog("[Parakatt] Recording STARTED (modelLoaded=%d, incremental after %.0fs)",
                   isModelLoaded ? 1 : 0, firstChunkDelaySecs)
         } catch {
+            isRecording = false
             errorMessage = "Failed to start recording: \(error.localizedDescription)"
             NSLog("[Parakatt] Recording FAILED: %@", error.localizedDescription)
         }
