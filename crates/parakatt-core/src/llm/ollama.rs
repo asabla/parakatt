@@ -70,7 +70,19 @@ impl LlmProvider for OllamaProvider {
             .post(&url)
             .json(&body)
             .send()
-            .map_err(|e| CoreError::LlmError(format!("Ollama request failed: {e}")))?;
+            .map_err(|e| {
+                if e.is_timeout() {
+                    CoreError::LlmError(format!(
+                        "Ollama request timed out after 60s — the model may be too slow or the text too long"
+                    ))
+                } else if e.is_connect() {
+                    CoreError::LlmError(format!(
+                        "Cannot connect to Ollama at {} — is the server running?", self.base_url
+                    ))
+                } else {
+                    CoreError::LlmError(format!("Ollama request failed: {e}"))
+                }
+            })?;
 
         if !response.status().is_success() {
             let status = response.status();

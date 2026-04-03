@@ -101,7 +101,20 @@ impl LlmProvider for OpenAiCompatibleProvider {
 
         let response = req
             .send()
-            .map_err(|e| CoreError::LlmError(format!("{} request failed: {e}", self.display_name)))?;
+            .map_err(|e| {
+                if e.is_timeout() {
+                    CoreError::LlmError(format!(
+                        "{} request timed out after 60s — the model may be too slow or the text too long",
+                        self.display_name
+                    ))
+                } else if e.is_connect() {
+                    CoreError::LlmError(format!(
+                        "Cannot connect to {} — is the server running?", self.display_name
+                    ))
+                } else {
+                    CoreError::LlmError(format!("{} request failed: {e}", self.display_name))
+                }
+            })?;
 
         if !response.status().is_success() {
             let status = response.status();
