@@ -347,6 +347,13 @@ class AppState: ObservableObject {
                 return
             }
 
+            let durationSecs = Double(samples.count) / Double(sttSampleRate)
+            guard durationSecs >= 0.5 else {
+                NSLog("[Parakatt] Recording too short (%.2fs), discarding", durationSecs)
+                errorMessage = "Recording too short — hold longer to capture audio"
+                return
+            }
+
             processAudio(samples)
         }
     }
