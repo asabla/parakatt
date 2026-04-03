@@ -190,7 +190,7 @@ struct RecordingOverlayView: View {
         .shadow(color: .black.opacity(0.25), radius: 12, y: 4)
         .shadow(color: .red.opacity(showEntranceGlow ? 0.5 : 0), radius: 20, y: 0)
         // Entrance animation: scale up + fade in
-        .scaleEffect(isAppeared ? 1.0 : 0.92)
+        .scaleEffect(isAppeared ? 1.0 : 0.75)
         .opacity(isAppeared ? 1.0 : 0.0)
         .onAppear {
             if reduceMotion {
