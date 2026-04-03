@@ -1,5 +1,6 @@
 import SwiftUI
 import ParakattCore
+import UniformTypeIdentifiers
 
 /// Main history window — master-detail split inspired by Notes.app.
 struct TranscriptionHistoryView: View {
@@ -81,6 +82,16 @@ struct TranscriptionHistoryView: View {
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
+
+                    Button {
+                        exportSelected()
+                    } label: {
+                        Label("Export", systemImage: "square.and.arrow.up")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(selectedIds.isEmpty)
 
                     Button(role: .destructive) {
                         showDeleteConfirmation = true
@@ -286,6 +297,35 @@ struct TranscriptionHistoryView: View {
     private func copyText(_ text: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    private func exportSelected() {
+        let selected = transcriptions.filter { selectedIds.contains($0.id) }
+        guard !selected.isEmpty else { return }
+
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [UTType.json]
+        panel.nameFieldStringValue = "parakatt-export-\(selected.count).json"
+
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+
+            let items: [[String: Any]] = selected.map { item in
+                [
+                    "id": item.id,
+                    "title": item.title ?? "",
+                    "created_at": item.createdAt,
+                    "duration_secs": item.durationSecs,
+                    "source": item.source,
+                    "mode": item.mode,
+                    "text": item.text,
+                ]
+            }
+
+            if let data = try? JSONSerialization.data(withJSONObject: items, options: [.prettyPrinted, .sortedKeys]) {
+                try? data.write(to: url)
+            }
+        }
     }
 }
 
