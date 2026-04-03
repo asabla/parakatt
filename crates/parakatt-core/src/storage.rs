@@ -388,6 +388,23 @@ impl Storage {
         }
         Ok(count)
     }
+
+    /// Delete transcriptions older than the given number of days.
+    /// Returns the number of transcriptions deleted.
+    pub fn delete_older_than(&self, days: u32) -> Result<u32, CoreError> {
+        let cutoff = chrono::Utc::now() - chrono::Duration::days(days as i64);
+        let cutoff_str = cutoff.to_rfc3339();
+
+        let count = self
+            .conn
+            .execute(
+                "DELETE FROM transcriptions WHERE created_at < ?1",
+                params![cutoff_str],
+            )
+            .map_err(|e| CoreError::IoError(format!("Failed to delete old transcriptions: {e}")))?;
+
+        Ok(count as u32)
+    }
 }
 
 #[cfg(test)]

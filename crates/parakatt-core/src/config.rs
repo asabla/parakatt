@@ -43,6 +43,9 @@ pub struct GeneralConfig {
     /// Preferred bundle ID for meeting audio source capture (e.g. "com.microsoft.teams2").
     #[serde(default)]
     pub preferred_audio_source_bundle_id: Option<String>,
+    /// Auto-delete transcriptions older than this many days (0 = disabled).
+    #[serde(default)]
+    pub retention_days: u32,
 }
 
 impl Default for GeneralConfig {
@@ -55,6 +58,7 @@ impl Default for GeneralConfig {
             hotkey_modifiers: default_hotkey_modifiers(),
             hotkey_mode: default_hotkey_mode(),
             preferred_audio_source_bundle_id: None,
+            retention_days: 0,
         }
     }
 }

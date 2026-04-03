@@ -303,6 +303,47 @@ impl Engine {
         cfg.save(&self.config_dir)
     }
 
+    /// Get the retention period in days (0 = disabled).
+    pub fn get_retention_days(&self) -> Result<u32, CoreError> {
+        let config = self.config.lock().map_err(|e| {
+            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
+        })?;
+        Ok(config.general.retention_days)
+    }
+
+    /// Set and persist the retention period in days (0 = disabled).
+    pub fn set_retention_days(&self, days: u32) -> Result<(), CoreError> {
+        let mut cfg = self.config.lock().map_err(|e| {
+            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
+        })?;
+        cfg.general.retention_days = days;
+        cfg.save(&self.config_dir)
+    }
+
+    /// Run retention cleanup: delete transcriptions older than the configured period.
+    /// Returns the number of deleted transcriptions, or 0 if retention is disabled.
+    pub fn run_retention_cleanup(&self) -> Result<u32, CoreError> {
+        let days = {
+            let config = self.config.lock().map_err(|e| {
+                CoreError::ConfigError(format!("Config lock poisoned: {e}"))
+            })?;
+            config.general.retention_days
+        };
+
+        if days == 0 {
+            return Ok(0);
+        }
+
+        let storage = self.storage.lock().map_err(|e| {
+            CoreError::IoError(format!("Storage lock poisoned: {e}"))
+        })?;
+        let count = storage.delete_older_than(days)?;
+        if count > 0 {
+            log::info!("Retention cleanup: deleted {} transcriptions older than {} days", count, days);
+        }
+        Ok(count)
+    }
+
     /// Configure the LLM provider at runtime.
     /// provider: "ollama", "lmstudio", "openai", or "" to disable.
     /// base_url: server URL (e.g. "http://localhost:11434").
