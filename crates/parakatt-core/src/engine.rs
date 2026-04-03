@@ -125,7 +125,10 @@ impl Engine {
 
         let mut result = stt.transcribe(&processed, sample_rate)?;
 
-        // 3. Apply dictionary replacements
+        // 3. Remove filler words (uh, um, mmm, etc.)
+        result.text = crate::filler::remove_fillers(&result.text);
+
+        // 4. Apply dictionary replacements
         let ctx = context.unwrap_or_default();
         let dict_guard = self.dictionary.lock().map_err(|e| {
             CoreError::TranscriptionFailed(format!("Dictionary lock poisoned: {e}"))
@@ -810,9 +813,9 @@ impl Engine {
         let stt_result = stt.transcribe(&processed, sample_rate)?;
         drop(stt_guard);
 
-        // Apply dictionary replacements per-chunk.
+        // Remove filler words and apply dictionary replacements per-chunk.
         let ctx = context.unwrap_or_default();
-        let mut chunk_text = stt_result.text.clone();
+        let mut chunk_text = crate::filler::remove_fillers(&stt_result.text);
         let dict_guard = self.dictionary.lock().map_err(|e| {
             CoreError::TranscriptionFailed(format!("Dictionary lock poisoned: {e}"))
         })?;
