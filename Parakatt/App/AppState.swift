@@ -3,6 +3,7 @@ import Combine
 import HotKey
 import os.log
 import ParakattCore
+import UserNotifications
 
 private let logger = Logger(subsystem: "com.parakatt.app", category: "engine")
 
@@ -88,6 +89,7 @@ class AppState: ObservableObject {
         // Set up services
         textInsertionService = TextInsertionService()
         contextService = ContextService()
+        requestNotificationPermission()
 
         // Create audio capture once — reused across all recording sessions
         let capture = AudioCaptureService()
@@ -600,6 +602,7 @@ class AppState: ObservableObject {
             self?.meetingElapsedTimer = nil
             self?.meetingTranscription = result.text
             self?.meetingLatestChunk = nil
+            self?.sendTranscriptionNotification(preview: result.text, source: "meeting")
             NSLog("[Parakatt] Meeting finished: %.0fs, %d chars", result.durationSecs, result.text.count)
         }
 
@@ -885,6 +888,7 @@ class AppState: ObservableObject {
                                 self.errorMessage = "Could not paste text — transcription copied to clipboard"
                             }
                         }
+                        self.sendTranscriptionNotification(preview: result.text, source: "push_to_talk")
                         NSLog("[Parakatt] Result (%@, %.2fs): %@", self.activeMode, result.durationSecs, result.text)
                     } else {
                         NSLog("[Parakatt] Empty transcription (mode=%@, maxAmp=%.4f)", self.activeMode, maxAmp)
@@ -1059,6 +1063,36 @@ class AppState: ObservableObject {
                 }
             } catch {
                 // Silently ignore streaming errors
+            }
+        }
+    }
+
+    // MARK: - Notifications
+
+    func requestNotificationPermission() {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, error in
+            if let error {
+                NSLog("[Parakatt] Notification permission error: %@", error.localizedDescription)
+            } else {
+                NSLog("[Parakatt] Notification permission granted: %d", granted)
+            }
+        }
+    }
+
+    private func sendTranscriptionNotification(preview: String, source: String) {
+        let content = UNMutableNotificationContent()
+        content.title = source == "meeting" ? "Meeting transcription ready" : "Transcription complete"
+        content.body = String(preview.prefix(100))
+        content.sound = .default
+
+        let request = UNNotificationRequest(
+            identifier: UUID().uuidString,
+            content: content,
+            trigger: nil
+        )
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error {
+                NSLog("[Parakatt] Failed to send notification: %@", error.localizedDescription)
             }
         }
     }
