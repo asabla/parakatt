@@ -742,17 +742,26 @@ impl Engine {
         };
 
         // Token guard: truncate excessively long text to avoid LLM timeouts.
+        // Truncates at the last sentence boundary within the word limit
+        // to avoid cutting mid-sentence.
         let word_count = text.split_whitespace().count();
         let llm_text = if word_count > LLM_MAX_WORD_COUNT {
             log::warn!(
-                "Text has {} words, truncating to {} for LLM processing",
+                "Text has {} words, truncating to ~{} for LLM processing",
                 word_count,
                 LLM_MAX_WORD_COUNT
             );
-            text.split_whitespace()
+            let rough_cut: String = text
+                .split_whitespace()
                 .take(LLM_MAX_WORD_COUNT)
                 .collect::<Vec<_>>()
-                .join(" ")
+                .join(" ");
+            // Find the last sentence-ending punctuation to avoid mid-sentence cuts.
+            if let Some(pos) = rough_cut.rfind(|c| c == '.' || c == '!' || c == '?') {
+                rough_cut[..=pos].to_string()
+            } else {
+                rough_cut
+            }
         } else {
             text.clone()
         };
