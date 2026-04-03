@@ -20,7 +20,7 @@ struct SettingsView: View {
             StatisticsSettingsView()
                 .tabItem { Label("Statistics", systemImage: "chart.bar") }
         }
-        .frame(width: 520, height: 480)
+        .frame(width: 600, height: 480)
     }
 }
 
