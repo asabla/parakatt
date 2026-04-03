@@ -217,18 +217,22 @@ impl Engine {
     }
 
     /// Get current hotkey configuration.
-    pub fn get_hotkey_config(&self) -> HotkeyConfig {
-        let config = self.config.lock().unwrap();
-        HotkeyConfig {
+    pub fn get_hotkey_config(&self) -> Result<HotkeyConfig, CoreError> {
+        let config = self.config.lock().map_err(|e| {
+            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
+        })?;
+        Ok(HotkeyConfig {
             key: config.general.hotkey_key.clone(),
             modifiers: config.general.hotkey_modifiers.clone(),
             mode: config.general.hotkey_mode.clone(),
-        }
+        })
     }
 
     /// Set and persist hotkey configuration.
     pub fn set_hotkey_config(&self, config: HotkeyConfig) -> Result<(), CoreError> {
-        let mut cfg = self.config.lock().unwrap();
+        let mut cfg = self.config.lock().map_err(|e| {
+            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
+        })?;
         cfg.general.hotkey_key = config.key;
         cfg.general.hotkey_modifiers = config.modifiers;
         cfg.general.hotkey_mode = config.mode;
@@ -236,13 +240,18 @@ impl Engine {
     }
 
     /// Get the preferred audio source bundle ID for meeting capture.
-    pub fn get_preferred_audio_source(&self) -> Option<String> {
-        self.config.lock().unwrap().general.preferred_audio_source_bundle_id.clone()
+    pub fn get_preferred_audio_source(&self) -> Result<Option<String>, CoreError> {
+        let config = self.config.lock().map_err(|e| {
+            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
+        })?;
+        Ok(config.general.preferred_audio_source_bundle_id.clone())
     }
 
     /// Set and persist the preferred audio source bundle ID.
     pub fn set_preferred_audio_source(&self, bundle_id: Option<String>) -> Result<(), CoreError> {
-        let mut cfg = self.config.lock().unwrap();
+        let mut cfg = self.config.lock().map_err(|e| {
+            CoreError::ConfigError(format!("Config lock poisoned: {e}"))
+        })?;
         cfg.general.preferred_audio_source_bundle_id = bundle_id;
         cfg.save(&self.config_dir)
     }
@@ -396,7 +405,9 @@ impl Engine {
 
         // Check not already downloading
         {
-            let p = self.download_progress.lock().unwrap();
+            let p = self.download_progress.lock().map_err(|e| {
+                CoreError::IoError(format!("Download progress lock poisoned: {e}"))
+            })?;
             if p.state == DownloadState::Downloading {
                 return Err(CoreError::IoError(
                     "A download is already in progress".into(),
@@ -427,8 +438,11 @@ impl Engine {
     }
 
     /// Get current download progress. Poll this from Swift on a timer.
-    pub fn get_download_progress(&self) -> DownloadProgress {
-        self.download_progress.lock().unwrap().clone()
+    pub fn get_download_progress(&self) -> Result<DownloadProgress, CoreError> {
+        let p = self.download_progress.lock().map_err(|e| {
+            CoreError::IoError(format!("Download progress lock poisoned: {e}"))
+        })?;
+        Ok(p.clone())
     }
 
     /// Delete a downloaded model's files.

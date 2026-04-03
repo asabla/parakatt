@@ -105,7 +105,7 @@ class AppState: ObservableObject {
             NSLog("[Parakatt] Engine created")
 
             // Load preferred audio source from config
-            if let bundleId = bridge?.getPreferredAudioSource() {
+            if let bundleId = try? bridge?.getPreferredAudioSource() {
                 if let pid = AudioSourceService.pidForBundleId(bundleId) {
                     selectedAudioSourcePID = pid
                     let name = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId)
@@ -497,7 +497,9 @@ class AppState: ObservableObject {
         guard let bridge else {
             return (.space, [.option], "hold")
         }
-        let config = bridge.getHotkeyConfig()
+        guard let config = try? bridge.getHotkeyConfig() else {
+            return (.space, [.option], "hold")
+        }
         let key = HotkeyService.keyFromString(config.key) ?? .space
         let modifiers = HotkeyService.modifiersFromStrings(config.modifiers)
         let mode = config.mode
@@ -764,7 +766,7 @@ class AppState: ObservableObject {
     private func pollDownloadProgress() {
         guard let bridge else { return }
 
-        let progress = bridge.getDownloadProgress()
+        guard let progress = try? bridge.getDownloadProgress() else { return }
         downloadProgress = progress
 
         switch progress.state {

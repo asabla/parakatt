@@ -79,8 +79,8 @@ class CoreBridge {
     // MARK: - Hotkey config
 
     /// Get current hotkey configuration.
-    func getHotkeyConfig() -> HotkeyConfig {
-        engine.getHotkeyConfig()
+    func getHotkeyConfig() throws -> HotkeyConfig {
+        try engine.getHotkeyConfig()
     }
 
     /// Set and persist hotkey configuration.
@@ -89,8 +89,8 @@ class CoreBridge {
     }
 
     /// Get the preferred audio source bundle ID.
-    func getPreferredAudioSource() -> String? {
-        engine.getPreferredAudioSource()
+    func getPreferredAudioSource() throws -> String? {
+        try engine.getPreferredAudioSource()
     }
 
     /// Set and persist the preferred audio source bundle ID.
@@ -121,8 +121,8 @@ class CoreBridge {
     }
 
     /// Get current download progress (poll on a timer).
-    func getDownloadProgress() -> DownloadProgress {
-        engine.getDownloadProgress()
+    func getDownloadProgress() throws -> DownloadProgress {
+        try engine.getDownloadProgress()
     }
 
     /// Delete a downloaded model's files.
