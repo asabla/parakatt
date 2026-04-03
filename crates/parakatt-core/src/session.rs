@@ -42,20 +42,13 @@ struct SessionState {
 }
 
 /// Manages multiple concurrent transcription sessions.
+#[derive(Default)]
 pub struct SessionManager {
     sessions: HashMap<String, SessionState>,
 }
 
 /// Number of words to compare for overlap deduplication.
 const OVERLAP_WORD_COUNT: usize = 8;
-
-impl Default for SessionManager {
-    fn default() -> Self {
-        Self {
-            sessions: HashMap::new(),
-        }
-    }
-}
 
 impl SessionManager {
     pub fn new() -> Self {
