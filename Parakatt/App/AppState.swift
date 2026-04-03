@@ -1103,7 +1103,11 @@ class AppState: ObservableObject {
             return
         }
         let chunkSamples = Array(audioBuffer.prefix(samplesPerChunk))
-        let consumed = max(0, chunkSamples.count - overlapSamples)
+        // First chunk has no prior chunk to overlap with — consume everything
+        // to prevent the tail from re-processing the same audio.
+        let consumed = pttChunkIndex == 0
+            ? chunkSamples.count
+            : max(0, chunkSamples.count - overlapSamples)
         if consumed > 0 {
             audioBuffer.removeFirst(consumed)
         }
