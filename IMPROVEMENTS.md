@@ -6,16 +6,16 @@ Tracked improvements and feature ideas for Parakatt.
 
 ## UX / Quality of Life
 
-- [ ] **Completion notifications** — transcription finishes silently; add system notification or sound cue when done
+- [x] **Completion notifications** — transcription finishes silently; add system notification or sound cue when done
 - [ ] **Onboarding flow** — no first-run guide explaining the hotkey, modes, or permissions; users jump straight to Settings
 - [x] **Expose hidden settings** — `auto_paste` and `show_overlay` exist in config but aren't in the Settings UI
 - [ ] **Dictionary editor improvements** — no regex validation or test-before-save functionality
 - [ ] **LLM connection test button** — users can't verify Ollama/OpenAI setup without attempting a transcription
 - [ ] **Remember last meeting audio source** — requires manual app selection each time
-- [ ] **Short recording feedback** — recordings <1s are silently skipped; show "Recording too short" warning
+- [x] **Short recording feedback** — recordings <1s are silently skipped; show "Recording too short" warning
 - [ ] **Model download progress in menu bar** — menu bar icon shows idle during model download; no visual hint
 - [ ] **"No audio detected" warning** — recording overlay shows "Listening..." forever even if mic produces silence
-- [ ] **Text insertion failure feedback** — if all 3 paste strategies fail, user sees nothing; show an alert
+- [x] **Text insertion failure feedback** — if all 3 paste strategies fail, user sees nothing; show an alert
 - [ ] **Clipboard restore race condition** — if user copies something during the 500ms restore window, their copy gets overwritten
 
 ## Export & Data
@@ -47,7 +47,7 @@ Tracked improvements and feature ideas for Parakatt.
 
 - [x] **SQL injection in storage.rs** — `list()` and `search_fts()` use string concatenation for source filter; switch to parameterized queries
 - [ ] **API keys stored in plaintext** — config.toml stores OpenAI/Anthropic keys unencrypted; use macOS Keychain instead
-- [ ] **Model download checksum verification** — downloaded ONNX files aren't validated against known hashes
+- [x] **Model download checksum verification** — downloaded ONNX files aren't validated against known hashes
 - [ ] **ReDoS risk in dictionary** — user-supplied regex patterns (via `re:` prefix) have no complexity limits or timeout
 
 ## Concurrency & Correctness
@@ -58,21 +58,21 @@ Tracked improvements and feature ideas for Parakatt.
 - [x] **Recording state race condition** — `startRecording()` guard isn't atomic; rapid start/stop could cause dual recordings
 - [x] **Meeting state consistency** — `isMeetingActive` set before verifying session actually started (already correctly implemented)
 - [x] **Overlap dedup punctuation bug** — words like "brown." won't match "brown" across chunk boundaries; strip punctuation before comparing
-- [ ] **LLM truncation is lossy** — 4000-word truncation splits mid-sentence with no user notification; truncate at sentence boundary and warn
+- [x] **LLM truncation is lossy** — 4000-word truncation splits mid-sentence with no user notification; truncate at sentence boundary and warn
 
 ## Robustness
 
 - [ ] **Swift test coverage** — Rust has ~17 unit tests, Swift has essentially none
 - [ ] **Better error surfacing** — some failures only log to console; users see generic "No audio captured"
 - [ ] **LLM timeout handling** — no explicit timeout UI; requests can hang silently
-- [ ] **LLM error messages lack detail** — 4xx/5xx responses only show status code, not response body
+- [x] **LLM error messages lack detail** — 4xx/5xx responses only show status code, not response body
 - [ ] **LLM streaming support** — both providers hardcode `stream: false`; streaming would give real-time feedback and prevent timeout on long responses
 - [ ] **LLM retry logic** — no retry with backoff for transient network failures
 
 ## Database
 
 - [x] **Missing indexes** — no index on `created_at` or `source` columns; `ORDER BY created_at DESC` and source filtering do full table scans
-- [ ] **Add composite index** — `(source, created_at DESC)` for the common filtered+sorted query pattern
+- [x] **Add composite index** — `(source, created_at DESC)` for the common filtered+sorted query pattern
 
 ## macOS Integration
 
@@ -95,7 +95,7 @@ Tracked improvements and feature ideas for Parakatt.
 - [ ] **Manual version bumping** — version hardcoded in 4+ places (Makefile, project.yml, Info.plist, homebrew template); needs single source of truth
 - [ ] **No changelog generation** — manual CHANGELOG.md edits; consider git-cliff or conventional commits
 - [ ] **swift-package always regenerates** — `make swift-package` deletes and recreates ParakattCore/ even for minor changes; add incremental check
-- [ ] **No Cargo release profile optimization** — missing LTO, codegen-units, strip settings in `[profile.release]`
+- [x] **No Cargo release profile optimization** — missing LTO, codegen-units, strip settings in `[profile.release]`
 
 ## Logging & Observability
 
