@@ -270,6 +270,11 @@ class AppState: ObservableObject {
     /// Called after the capture drain grace period to stop capture and process remaining audio.
     private func finishStopRecording() {
         audioCaptureService?.stopCapture()
+        // Re-prewarm so the next hotkey press doesn't pay the macOS
+        // mic cold-start cost (which can be 2-5s after a few seconds
+        // of inactivity). The pre-warm fills a 500ms ring that the
+        // next startCapture() drains as pre-roll.
+        audioCaptureService?.prewarm()
         isCaptureDraining = false
 
         if let sessionId = pttSessionId {
