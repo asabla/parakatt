@@ -154,13 +154,40 @@ Branch: `stt-pipeline-overhaul`. Working doc — delete on merge.
 ## Mel feature canonical params (already implemented in parakeet-rs 0.3.4)
 n_mels=128, n_fft=512, win_length=400, hop_length=160, hann, preemph=0.97, log-mel, per-feature mean/var norm, 8× temporal subsampling → 80 ms frame stride.
 
-## Test status
-- `cargo test -p parakatt-core --lib`: **78 passed** (was 52 baseline).
-  Added: C4 segment-dedup regression, 8 EnergyVad, 2 time-based
-  overlap gating, 12 LocalAgreement-2, 3 NemotronProvider,
-  1 DummyStreamingProvider lifecycle. Removed obsolete normalize /
-  noise-gate tests.
+## Test status (current)
+- `cargo test -p parakatt-core`: **129 passed, 1 ignored** across
+  5 suites. Added across the architectural overhaul:
+  - LocalAgreement-2: 14 unit tests including 2 stuck-after-chunk
+    regression tests
+  - ScriptedStreamingProvider: 5 lifecycle tests
+  - streaming_e2e.rs: 22 E2E integration tests (happy path, flicker
+    scenarios, silence handling, speech-resume, long sessions,
+    concurrent sessions, reset, error injection, lifecycle, +
+    buffered preview lifecycle)
+  - audio_pipeline_e2e.rs: 20 audio + VAD scenarios (long pauses,
+    quiet trailing fricatives, single-frame clicks, dynamic range
+    preservation, realistic dictation patterns)
+  - NemotronProvider: 3 construction tests
+  - EnergyVad: 8 hysteresis tests
 - `make build` (Xcode Debug): clean.
+
+## Live-test status
+- Two-style display (committed in primary, tentative in italic) is
+  working as intended.
+- Chunk-boundary "stuck after ~2 sentences" bug fixed via the
+  buffered-preview LA-2 reset on chunk dispatch (commit `e09a4c1`).
+- Residual 1-2 s hiccups still observed when a chunk dispatches
+  on a CPU-saturated machine. This is structural to running
+  Parakeet TDT v3 on the growing preview buffer at ~1.5 s per
+  pass; eliminating it requires either:
+  1. Downloading the Nemotron streaming model (the streaming
+     path's cost is constant per chunk regardless of buffer
+     length), or
+  2. Lowering pttMinChunkSecs / pttMaxChunkSecs at the cost of
+     more chunk dispatches (and more LLM calls if enabled), or
+  3. Switching to a smaller distilled commit-path model.
+  As of the live-test report, the current implementation is
+  "fine for now" — acceptable but not optimal.
 
 ---
 
