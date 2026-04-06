@@ -1113,9 +1113,14 @@ class AppState: ObservableObject {
         // Dispatch the first chunk immediately (~5s of audio).
         dispatchPttChunk()
 
-        // Set up repeating timer for subsequent chunks.
+        // Set up repeating timer that wakes every pttDispatchTickSecs
+        // and decides whether the audio buffer is in a state where it
+        // should be flushed as a commit chunk. Policy lives in
+        // dispatchPttChunk: dispatch when (a) buffer ≥ pttMinChunkSecs
+        // AND (the speaker has been silent ≥ pttPauseSilenceCallbacks
+        // OR buffer ≥ pttMaxChunkSecs).
         pttChunkTimer = Timer.scheduledTimer(
-            withTimeInterval: pttChunkIntervalSecs,
+            withTimeInterval: pttDispatchTickSecs,
             repeats: true
         ) { [weak self] _ in
             self?.dispatchPttChunk()
@@ -1124,21 +1129,49 @@ class AppState: ObservableObject {
         NSLog("[Parakatt] Incremental session started (id: %@)", sessionId)
     }
 
-    /// Dispatch the next chunk from the audio buffer for incremental processing.
-    /// Adapted from MeetingSessionService.dispatchChunk().
+    /// VAD-aware chunk dispatch policy.
+    ///
+    /// On every timer tick (every `pttDispatchTickSecs`), evaluate
+    /// whether the audio buffer is in a state where we should flush
+    /// it to the commit pipeline:
+    ///
+    ///   * If the buffer holds less than `pttMinChunkSecs` of audio,
+    ///     do nothing — the model wastes work on too-short clips.
+    ///   * Otherwise, dispatch when EITHER
+    ///       - the speaker has been silent for at least
+    ///         `pttPauseSilenceCallbacks` consecutive audio
+    ///         callbacks (~500 ms), giving us a natural sentence
+    ///         boundary, OR
+    ///       - the buffer has reached `pttMaxChunkSecs`, the hard
+    ///         upper bound that prevents the user being stuck on a
+    ///         non-stop monologue.
+    ///
+    /// Chunks become variable-length and naturally aligned to
+    /// pauses, which is dramatically more responsive than the old
+    /// fixed 30 s × 28 s timer.
     private func dispatchPttChunk() {
         guard let sessionId = pttSessionId, isRecording else { return }
 
-        let samplesPerChunk = Int(chunkDurationSecs * Double(sttSampleRate))
+        let minSamples = Int(pttMinChunkSecs * Double(sttSampleRate))
+        let maxSamples = Int(pttMaxChunkSecs * Double(sttSampleRate))
         let overlapSamples = Int(overlapDurationSecs * Double(sttSampleRate))
 
         audioBufferLock.lock()
-        guard audioBuffer.count >= Int(sttSampleRate / 10) else {
-            // Less than 1 second of audio — skip this dispatch.
+        let bufferLen = audioBuffer.count
+        guard bufferLen >= minSamples else {
             audioBufferLock.unlock()
             return
         }
-        let chunkSamples = Array(audioBuffer.prefix(samplesPerChunk))
+        let speakerPaused = silentCallbackCount >= pttPauseSilenceCallbacks
+        let bufferAtCap = bufferLen >= maxSamples
+        guard speakerPaused || bufferAtCap else {
+            audioBufferLock.unlock()
+            return
+        }
+
+        // Take up to maxSamples worth — variable-length chunks.
+        let take = min(bufferLen, maxSamples)
+        let chunkSamples = Array(audioBuffer.prefix(take))
         // First chunk has no prior chunk to overlap with — consume everything
         // to prevent the tail from re-processing the same audio.
         let consumed = pttChunkIndex == 0

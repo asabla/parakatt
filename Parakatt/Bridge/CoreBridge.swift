@@ -316,6 +316,53 @@ class CoreBridge {
         try engine.getSessionText(sessionId: sessionId)
     }
 
+    // MARK: - Streaming preview (cache-aware Nemotron path)
+
+    /// Whether the streaming/live-preview model is loaded. Used to
+    /// decide whether the live-preview worker should run.
+    func isStreamingModelLoaded() -> Bool {
+        engine.isStreamingModelLoaded()
+    }
+
+    /// Native chunk size in samples for the loaded streaming model.
+    /// 0 if no streaming model is loaded.
+    func streamingNativeChunkSamples() -> UInt32 {
+        engine.streamingNativeChunkSamples()
+    }
+
+    /// Open a new streaming preview session for the given id.
+    func startStreamingSession(sessionId: String) throws {
+        try engine.startStreamingSession(sessionId: sessionId)
+    }
+
+    /// Feed a chunk of audio to a streaming session. The Rust side
+    /// runs LocalAgreement-2 internally and returns committed +
+    /// tentative slices ready for the UI.
+    func feedStreamingChunk(
+        sessionId: String,
+        audioSamples: [Float]
+    ) throws -> StreamingChunkResult {
+        try engine.feedStreamingChunk(
+            sessionId: sessionId,
+            audioSamples: audioSamples
+        )
+    }
+
+    /// Reset a streaming session in place (model state + LA-2 buffer).
+    func resetStreamingSession(sessionId: String) throws {
+        try engine.resetStreamingSession(sessionId: sessionId)
+    }
+
+    /// Close and discard a streaming session, returning final text.
+    func finishStreamingSession(sessionId: String) throws -> String {
+        try engine.finishStreamingSession(sessionId: sessionId)
+    }
+
+    /// Cancel and discard a streaming session.
+    func cancelStreamingSession(sessionId: String) {
+        engine.cancelStreamingSession(sessionId: sessionId)
+    }
+
     /// Cancel and discard a session.
     func cancelSession(sessionId: String) {
         engine.cancelSession(sessionId: sessionId)
