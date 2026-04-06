@@ -3,7 +3,10 @@ pub mod nemotron;
 pub mod parakeet;
 pub mod streaming;
 
-pub use streaming::{StreamChunkResult, StreamingProvider, StreamingSession};
+pub use streaming::{
+    ScriptedStreamingProvider, ScriptedStreamingSession, StreamChunkResult, StreamingProvider,
+    StreamingSession,
+};
 
 use crate::{CoreError, TranscriptionResult};
 
