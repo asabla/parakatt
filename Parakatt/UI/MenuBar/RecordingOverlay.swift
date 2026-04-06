@@ -65,11 +65,22 @@ struct RecordingOverlayView: View {
     let isRecording: Bool
     let isProcessing: Bool
     let liveText: String?
+    let committedText: String
+    let tentativeText: String
     let audioLevel: Float
     let silenceDetected: Bool
     let clippingDetected: Bool
 
+    /// True when the LocalAgreement-2 path has produced anything to
+    /// display. We prefer the committed/tentative split when it's
+    /// available because it gives the user a much clearer signal of
+    /// what's stable vs what might change.
+    private var hasLA2Text: Bool {
+        !committedText.isEmpty || !tentativeText.isEmpty
+    }
+
     private var hasText: Bool {
+        if hasLA2Text { return true }
         if let text = liveText, !text.isEmpty { return true }
         return false
     }
@@ -128,7 +139,45 @@ struct RecordingOverlayView: View {
                         .opacity(0.5)
 
                     Group {
-                        if let text = liveText, !text.isEmpty {
+                        if hasLA2Text {
+                            // Two-style display: committed text in
+                            // normal weight, tentative tail in 60%
+                            // opacity. Built as a single Text via
+                            // string concatenation so it line-wraps
+                            // naturally as one paragraph.
+                            ScrollViewReader { proxy in
+                                ScrollView {
+                                    let composed: Text = {
+                                        var t = Text(committedText)
+                                            .foregroundStyle(.primary)
+                                        if !tentativeText.isEmpty {
+                                            if !committedText.isEmpty {
+                                                t = t + Text(" ")
+                                            }
+                                            t = t + Text(tentativeText)
+                                                .foregroundStyle(.secondary)
+                                                .italic()
+                                        }
+                                        return t
+                                    }()
+                                    composed
+                                        .font(.system(.body, design: .rounded))
+                                        .multilineTextAlignment(.leading)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .id("la2Text")
+                                }
+                                .onChange(of: committedText) { _, _ in
+                                    proxy.scrollTo("la2Text", anchor: .bottom)
+                                }
+                                .onChange(of: tentativeText) { _, _ in
+                                    proxy.scrollTo("la2Text", anchor: .bottom)
+                                }
+                                .onAppear {
+                                    proxy.scrollTo("la2Text", anchor: .bottom)
+                                }
+                            }
+                            .frame(maxHeight: 160)
+                        } else if let text = liveText, !text.isEmpty {
                             ScrollViewReader { proxy in
                                 ScrollView {
                                     Text(text)
@@ -213,19 +262,34 @@ class RecordingOverlayController {
             }
             .store(in: &cancellables)
 
-        appState.$isRecording
+        // Combine the publishers in two layers because Combine's
+        // combineLatest only goes up to four arms. We split between
+        // "core recording state" (isRecording, isProcessing, liveText,
+        // audioLevel) and "annotation state" (LA-2 committed,
+        // tentative, silenceDetected, clippingDetected).
+        let core = appState.$isRecording
             .combineLatest(appState.$isProcessing, appState.$liveTranscription, appState.$currentAudioLevel)
-            .combineLatest(appState.$silenceDetected)
+
+        let la2 = appState.$livePreviewCommitted
+            .combineLatest(appState.$livePreviewTentative)
+
+        let warnings = appState.$silenceDetected
             .combineLatest(appState.$audioClippingDetected)
+
+        core
+            .combineLatest(la2, warnings)
             .throttle(for: .milliseconds(50), scheduler: DispatchQueue.main, latest: true)
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] nested, clippingDetected in
-                let (inner, silenceDetected) = nested
-                let (isRecording, isProcessing, liveText, audioLevel) = inner
+            .sink { [weak self] coreState, la2State, warnings in
+                let (isRecording, isProcessing, liveText, audioLevel) = coreState
+                let (committed, tentative) = la2State
+                let (silenceDetected, clippingDetected) = warnings
                 let newView = RecordingOverlayView(
                     isRecording: isRecording,
                     isProcessing: isProcessing,
                     liveText: liveText,
+                    committedText: committed,
+                    tentativeText: tentative,
                     audioLevel: audioLevel,
                     silenceDetected: silenceDetected,
                     clippingDetected: clippingDetected
@@ -301,6 +365,7 @@ class RecordingOverlayController {
     private func createPanel() {
         let view = RecordingOverlayView(
             isRecording: false, isProcessing: false, liveText: nil,
+            committedText: "", tentativeText: "",
             audioLevel: 0, silenceDetected: false, clippingDetected: false
         )
         let hosting = NSHostingView(rootView: view)
