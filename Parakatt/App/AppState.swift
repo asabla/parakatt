@@ -38,6 +38,15 @@ class AppState: ObservableObject {
     @Published var silenceDetected = false
     @Published var audioClippingDetected = false
 
+    // MARK: - Live preview (streaming) state
+
+    /// Latest committed text from the LocalAgreement-2 stream.
+    /// Stable, never revised by the live preview path.
+    @Published var livePreviewCommitted: String = ""
+    /// Latest tentative tail from the LocalAgreement-2 stream.
+    /// Renders in lighter style; expected to flicker.
+    @Published var livePreviewTentative: String = ""
+
     // Meeting state
     @Published var isMeetingActive = false
     @Published var meetingElapsedTime: TimeInterval = 0
@@ -112,6 +121,15 @@ class AppState: ObservableObject {
     private var bridge: CoreBridge?
     private var engineReady = false
 
+    /// Cache-aware streaming live preview (Nemotron). Owned by the
+    /// app, started/stopped per recording. Receives committed +
+    /// tentative slices via its onUpdate callback.
+    private var livePreview: LivePreviewService?
+    /// True while the streaming preview is active for the current
+    /// recording. Used by appendAudioSamples to decide whether to
+    /// also feed the buffered v3 path.
+    private var livePreviewActive = false
+
     // MARK: - Lifecycle
 
     /// Initialize the Rust engine, audio services, and load settings from config.
@@ -143,6 +161,27 @@ class AppState: ObservableObject {
             engineReady = true
             NSLog("[Parakatt] Engine created")
 
+            // Build the live preview service. It's a no-op until
+            // start() is called and noop-fails gracefully if no
+            // streaming model is loaded.
+            if let bridge = bridge {
+                let preview = LivePreviewService(bridge: bridge)
+                preview.onUpdate = { [weak self] committed, tentative, _ in
+                    guard let self else { return }
+                    self.livePreviewCommitted = committed
+                    self.livePreviewTentative = tentative
+                    let display = tentative.isEmpty
+                        ? committed
+                        : (committed.isEmpty ? tentative : "\(committed) \(tentative)")
+                    self.liveTranscription = display.isEmpty ? nil : display
+                }
+                preview.onError = { [weak self] msg in
+                    NSLog("[Parakatt] LivePreview disabled: %@", msg)
+                    self?.livePreviewActive = false
+                }
+                livePreview = preview
+            }
+
             // Load behavior settings from config
             if let ap = try? bridge?.getAutoPaste() { autoPaste = ap }
             if let so = try? bridge?.getShowOverlay() { showRecordingOverlay = so }
@@ -173,28 +212,47 @@ class AppState: ObservableObject {
         let models = bridge?.listModels() ?? []
         let downloadedModel = models.first(where: { $0.downloaded })
 
-        if let model = downloadedModel {
+        // Find the offline commit-path model (parakeet-*) and the
+        // optional streaming preview model (nemotron-*). Both can be
+        // downloaded; we register both.
+        let offlineModel = models.first(where: { $0.downloaded && $0.id.hasPrefix("parakeet-") })
+        let streamingModel = models.first(where: { $0.downloaded && $0.id.hasPrefix("nemotron-") })
+
+        if let model = offlineModel {
             // Load the downloaded model on a background thread (Metal/GPU init is heavy)
             let modelId = model.id
+            let streamingId = streamingModel?.id
             DispatchQueue.global(qos: .userInitiated).async { [weak self] in
                 guard let self, let bridge = self.bridge else { return }
 
-                NSLog("[Parakatt] Loading model '%@' in background...", modelId)
+                NSLog("[Parakatt] Loading offline model '%@' in background...", modelId)
                 do {
                     try bridge.loadModel(modelId)
                     DispatchQueue.main.async {
                         self.isModelLoaded = true
                         self.activeModelId = modelId
-                        NSLog("[Parakatt] Model loaded — ready to transcribe")
+                        NSLog("[Parakatt] Offline model loaded — ready to transcribe")
                     }
                 } catch {
                     DispatchQueue.main.async {
-                        NSLog("[Parakatt] Model load failed: \(error) — transcription won't work until a model is loaded")
+                        NSLog("[Parakatt] Offline model load failed: \(error) — transcription won't work until a model is loaded")
+                    }
+                }
+
+                // Optionally register the streaming preview model
+                // alongside it. Failure here is non-fatal — the
+                // commit path still works.
+                if let streamingId {
+                    do {
+                        try bridge.loadModel(streamingId)
+                        NSLog("[Parakatt] Streaming model registered: %@", streamingId)
+                    } catch {
+                        NSLog("[Parakatt] Streaming model register failed: %@", error.localizedDescription)
                     }
                 }
             }
         } else {
-            NSLog("[Parakatt] No model downloaded — user needs to download one")
+            NSLog("[Parakatt] No offline model downloaded — user needs to download one")
             needsModelDownload = true
         }
     }
@@ -249,8 +307,31 @@ class AppState: ObservableObject {
             currentAudioLevel = 0
             liveTranscription = nil
             errorMessage = nil
+            livePreviewCommitted = ""
+            livePreviewTentative = ""
 
-            // Start throwaway 2s preview for immediate feedback.
+            // Try to start the cache-aware streaming preview. If
+            // the streaming model isn't loaded (non-English user
+            // who didn't download Nemotron, or first launch), this
+            // gracefully falls back to the buffered v3 + LA-2 path
+            // via the throwaway streaming preview below.
+            if let preview = livePreview, preview.isStreamingAvailable {
+                do {
+                    _ = try preview.start()
+                    livePreviewActive = true
+                    NSLog("[Parakatt] Live preview: streaming path active")
+                } catch {
+                    livePreviewActive = false
+                    NSLog("[Parakatt] Live preview start failed: %@ — falling back to buffered preview", error.localizedDescription)
+                }
+            } else {
+                livePreviewActive = false
+            }
+
+            // Start throwaway buffered preview for immediate feedback.
+            // This is the fallback path for users without the streaming
+            // model, AND it runs alongside the streaming preview as a
+            // safety net while the streaming model warms up.
             startStreamingUpdates()
 
             // After 5s, transition to incremental session-based processing.
@@ -307,6 +388,19 @@ class AppState: ObservableObject {
         // next startCapture() drains as pre-roll.
         audioCaptureService?.prewarm()
         isCaptureDraining = false
+
+        // Tear down the live preview session and grab its final
+        // committed text. This becomes the canonical preview while
+        // the commit pipeline finishes processing the buffer tail.
+        if livePreviewActive {
+            let finalText = livePreview?.stop() ?? ""
+            livePreviewActive = false
+            if !finalText.isEmpty {
+                livePreviewCommitted = finalText
+                livePreviewTentative = ""
+                liveTranscription = finalText
+            }
+        }
 
         if let sessionId = pttSessionId {
             // Path B: incremental session was active — only process the tail.
@@ -1384,6 +1478,14 @@ class AppState: ObservableObject {
         audioBuffer.append(contentsOf: samples)
         let total = audioBuffer.count
         audioBufferLock.unlock()
+
+        // Feed the cache-aware streaming preview in parallel. The
+        // service does its own backpressure (drops if a feed is
+        // already in flight) so we can call it on every audio
+        // callback without queue pile-up.
+        if livePreviewActive {
+            livePreview?.enqueue(samples)
+        }
 
         // Warn once when push-to-talk exceeds 5 minutes.
         if total > longRecordingWarningSamples && !longRecordingWarned {
