@@ -31,7 +31,7 @@ Branch: `stt-pipeline-overhaul`. Working doc — delete on merge.
       non-AXUIElement) with `CFGetTypeID == AXUIElementGetTypeID()`
       guards.
 
-## Major — 9 fixed, 3 deferred with rationale
+## Major — 11 fixed, 2 deferred with rationale
 
 - [x] **M5** −6 dB per-source mixing headroom in `MeetingSessionService`
       so mic + system audio doesn't clip when both speakers are loud.
@@ -64,6 +64,14 @@ Branch: `stt-pipeline-overhaul`. Working doc — delete on merge.
       suppressed and a 500 ms ring; the next `startCapture()` drains
       the ring as pre-roll. AppState calls `prewarm()` after every
       `finishStopRecording()` so subsequent presses are warm.
+- [x] **M4** `@MainActor` enforcement on `AppState`, `AppDelegate`,
+      `MenuBarManager`, and `RecordingOverlayController`. The
+      `@Published` updates were already being main-dispatched manually
+      in every code path; this just lets the compiler enforce it.
+      Two `HotkeyService` callbacks that were calling
+      `appState.startRecording()` directly from a Carbon hotkey thread
+      now main-dispatch like the stop path already did. Build clean,
+      no behavior change.
 
 ### Deferred
 
@@ -79,13 +87,6 @@ Branch: `stt-pipeline-overhaul`. Working doc — delete on merge.
       PTT and meeting paths, snap chunk boundaries to silence in
       session manager. Worth doing but should be its own PR. Filed
       separately.
-- [ ] **M4** `@MainActor` on AppState. Cascading risk — would force
-      every method on a 1362-line `ObservableObject` to become
-      main-isolated, requiring `Task { @MainActor in … }` wrappers in
-      dozens of background-dispatched closures. The current pattern
-      (manual `DispatchQueue.main.async` around `@Published` updates)
-      works correctly; the audit was flagging a code-quality lint, not
-      a correctness bug. Defer to a focused refactor PR.
 
 ## Minor — 11/11 closed (8 fixed, 3 verified-not-bugs)
 
