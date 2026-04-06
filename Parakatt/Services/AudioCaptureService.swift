@@ -52,6 +52,14 @@ class AudioCaptureService {
     /// Currently selected device ID (nil = system default).
     private var selectedDeviceUID: String?
 
+    /// Pending teardown for the current warm window. Scheduled by
+    /// `prewarm(windowSecs:)` and cancelled if a real `startCapture()`
+    /// arrives first. When the work item fires it tears down the
+    /// engine so the macOS mic indicator actually turns off between
+    /// dictations — keeping the engine warm indefinitely would leave
+    /// the orange privacy indicator on forever.
+    private var warmWindowWorkItem: DispatchWorkItem?
+
     /// Start the audio engine in pre-roll mode without delivering
     /// samples to `onAudioSamples`. The tap fills a 500 ms ring
     /// buffer that is drained by the next `startCapture()` so the
@@ -61,11 +69,24 @@ class AudioCaptureService {
     /// Safe to call repeatedly; no-op if the engine is already
     /// running. Failures are non-fatal — we just lose the pre-roll
     /// benefit and `startCapture()` cold-starts as before.
-    func prewarm() {
+    ///
+    /// If `windowSecs` is non-nil the engine will be torn down after
+    /// that many seconds of inactivity (i.e. if no `startCapture()`
+    /// arrives in time). This bounds how long the macOS mic indicator
+    /// stays lit while the app is warm. Pass nil to keep warm
+    /// indefinitely (legacy behavior).
+    func prewarm(windowSecs: TimeInterval? = nil) {
         engineLock.lock()
         let alreadyOn = audioEngine != nil
         engineLock.unlock()
-        if alreadyOn { return }
+
+        if alreadyOn {
+            // Already warm — just (re)arm the teardown timer if a
+            // window was requested, so every stop→prewarm cycle gets
+            // a fresh grace period.
+            scheduleWarmWindowTeardown(after: windowSecs)
+            return
+        }
 
         prerollLock.lock()
         prerollRing.removeAll(keepingCapacity: true)
@@ -74,13 +95,43 @@ class AudioCaptureService {
         deliveryEnabled = false
         do {
             try startEngine()
-            NSLog("[Parakatt] Audio capture PRE-WARM started (500 ms ring)")
+            if let windowSecs {
+                NSLog("[Parakatt] Audio capture PRE-WARM started (500 ms ring, %.0fs window)", windowSecs)
+            } else {
+                NSLog("[Parakatt] Audio capture PRE-WARM started (500 ms ring)")
+            }
+            scheduleWarmWindowTeardown(after: windowSecs)
         } catch {
             // Pre-warm is best-effort; restore the default delivery
             // flag so a later normal startCapture() still works.
             deliveryEnabled = true
             NSLog("[Parakatt] Audio capture pre-warm failed: %@", error.localizedDescription)
         }
+    }
+
+    /// Cancel any pending warm-window teardown and, if `secs` is
+    /// non-nil, schedule a fresh one. Main-queue dispatch keeps the
+    /// teardown off the real-time audio thread.
+    private func scheduleWarmWindowTeardown(after secs: TimeInterval?) {
+        warmWindowWorkItem?.cancel()
+        warmWindowWorkItem = nil
+        guard let secs else { return }
+
+        let item = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            // Only tear down if we're still in the warm state (no
+            // delivery). If a real recording started in the meantime,
+            // deliveryEnabled will be true and we must not touch the
+            // engine.
+            self.engineLock.lock()
+            let warm = (self.audioEngine != nil) && !self.deliveryEnabled
+            self.engineLock.unlock()
+            guard warm else { return }
+            self.teardown()
+            NSLog("[Parakatt] Warm window expired — mic released")
+        }
+        warmWindowWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + secs, execute: item)
     }
 
     /// Start a recording session.
@@ -100,11 +151,18 @@ class AudioCaptureService {
         let warmRunning = (audioEngine != nil) && !deliveryEnabled
         engineLock.unlock()
         if warmRunning {
+            // Cancel any pending warm-window teardown — we're now a
+            // real recording and the engine must not be torn down
+            // under us.
+            scheduleWarmWindowTeardown(after: nil)
             drainPrerollAndEnableDelivery()
             NSLog("[Parakatt] Audio capture STARTED (warm — pre-roll drained)")
             return
         }
 
+        // Cold start: make sure no stale warm-window teardown is
+        // lingering from a previous cycle.
+        scheduleWarmWindowTeardown(after: nil)
         deliveryEnabled = true
         try startEngine()
         NSLog("[Parakatt] Audio capture STARTED")
@@ -183,6 +241,7 @@ class AudioCaptureService {
 
     /// Stop the current recording session and tear down the audio engine.
     func stopCapture() {
+        scheduleWarmWindowTeardown(after: nil)
         engineLock.lock()
         let hasEngine = audioEngine != nil
         engineLock.unlock()
