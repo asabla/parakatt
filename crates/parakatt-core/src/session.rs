@@ -25,12 +25,28 @@ pub struct ChunkResult {
 /// Number of sentences per paragraph in accumulated text.
 const SENTENCES_PER_PARAGRAPH: usize = 3;
 
+/// How many trailing segments / words from the previous chunk we keep
+/// around for overlap deduplication of the next chunk. Eight is enough
+/// for the typical 2–5s overlap with the chunk sizes we use today.
+const OVERLAP_SEGMENT_COUNT: usize = 8;
+const OVERLAP_WORD_COUNT: usize = 8;
+
+/// Maximum age (seconds) before an idle session is eligible for eviction
+/// by `cleanup_stale_sessions()`. 6 hours covers the longest realistic
+/// meeting and avoids unbounded HashMap growth if a client forgets to
+/// finish/cancel.
+pub const SESSION_MAX_IDLE_SECS: u64 = 6 * 60 * 60;
+
 /// Internal state for a running transcription session.
 struct SessionState {
     /// Full accumulated transcript text.
     accumulated_text: String,
-    /// Trailing words from the previous chunk, used for overlap dedup.
+    /// Trailing words from the previous chunk, used as a fallback when
+    /// segment-level dedup is unavailable (no STT segments).
     prev_trailing_words: Vec<String>,
+    /// Normalized text of the last few segments from the previous chunk,
+    /// used for segment-level overlap dedup.
+    prev_trailing_segments: Vec<String>,
     /// Number of chunks processed so far.
     chunk_count: u32,
     /// Total audio duration processed (seconds).
@@ -39,6 +55,9 @@ struct SessionState {
     accumulated_segments: Vec<TimestampedSegment>,
     /// Sentence count for paragraph breaking.
     sentence_count: usize,
+    /// Wall-clock time of the last `add_chunk` call (or `start` for an
+    /// empty session). Used by `cleanup_stale_sessions()`.
+    last_active: std::time::Instant,
 }
 
 /// Manages multiple concurrent transcription sessions.
@@ -46,9 +65,6 @@ struct SessionState {
 pub struct SessionManager {
     sessions: HashMap<String, SessionState>,
 }
-
-/// Number of words to compare for overlap deduplication.
-const OVERLAP_WORD_COUNT: usize = 8;
 
 impl SessionManager {
     pub fn new() -> Self {
@@ -68,14 +84,27 @@ impl SessionManager {
             SessionState {
                 accumulated_text: String::new(),
                 prev_trailing_words: Vec::new(),
+                prev_trailing_segments: Vec::new(),
                 chunk_count: 0,
                 total_duration_secs: 0.0,
                 accumulated_segments: Vec::new(),
                 sentence_count: 0,
+                last_active: std::time::Instant::now(),
             },
         );
 
         Ok(())
+    }
+
+    /// Drop sessions that have been idle longer than `SESSION_MAX_IDLE_SECS`.
+    /// Returns the number of sessions evicted.
+    pub fn cleanup_stale_sessions(&mut self) -> usize {
+        let now = std::time::Instant::now();
+        let before = self.sessions.len();
+        self.sessions.retain(|_, state| {
+            now.duration_since(state.last_active).as_secs() < SESSION_MAX_IDLE_SECS
+        });
+        before - self.sessions.len()
     }
 
     /// Process a chunk's STT result and stitch it into the session transcript.
@@ -96,66 +125,89 @@ impl SessionManager {
 
         let chunk_index = state.chunk_count;
         let chunk_offset_secs = state.total_duration_secs;
+        state.last_active = std::time::Instant::now();
 
-        let new_text = if chunk_index == 0 {
-            // First chunk — no dedup needed.
-            raw_text.to_string()
+        // Two paths:
+        //   1. We have STT segments → segment-level dedup is authoritative.
+        //      Skip leading segments whose normalized text matches the
+        //      trailing segments of the previous chunk, then derive the
+        //      chunk's text from the surviving segments. This avoids
+        //      the word-counting heuristic which got off-by-one when
+        //      segment boundaries didn't align with overlap word boundaries.
+        //   2. No segments → fall back to the old word-level dedup so
+        //      we still produce a sensible transcript.
+        let surviving_segments: Vec<TimestampedSegment>;
+        let new_text: String;
+
+        if !segments.is_empty() {
+            let normalized: Vec<String> = segments.iter().map(|s| normalize_text(&s.text)).collect();
+            let segments_to_skip = if chunk_index > 0 {
+                longest_matching_overlap(&state.prev_trailing_segments, &normalized)
+            } else {
+                0
+            };
+
+            surviving_segments = segments.iter().skip(segments_to_skip).cloned().collect();
+
+            // Build the chunk's text from surviving segments — this stays
+            // perfectly in sync with what we push into accumulated_text.
+            new_text = surviving_segments
+                .iter()
+                .map(|s| s.text.trim())
+                .filter(|s| !s.is_empty())
+                .collect::<Vec<_>>()
+                .join(" ");
+
+            // Update trailing segments cache for the next chunk.
+            // We use the *raw* normalized list (not the survivors) so the
+            // next chunk can match against everything we just emitted.
+            state.prev_trailing_segments = normalized
+                .iter()
+                .rev()
+                .take(OVERLAP_SEGMENT_COUNT)
+                .rev()
+                .cloned()
+                .collect();
         } else {
-            deduplicate_overlap(&state.prev_trailing_words, raw_text)
-        };
+            // Fallback path: no segment information from STT.
+            new_text = if chunk_index == 0 {
+                raw_text.to_string()
+            } else {
+                deduplicate_overlap(&state.prev_trailing_words, raw_text)
+            };
+            surviving_segments = Vec::new();
+        }
 
-        // Update trailing words for next chunk's dedup.
-        let all_words: Vec<String> = raw_text.split_whitespace().map(|w| w.to_string()).collect();
+        // Word-level trailing cache stays maintained even on the segment
+        // path so a session can mix segment and non-segment chunks safely.
+        let all_words: Vec<&str> = raw_text.split_whitespace().collect();
         state.prev_trailing_words = all_words
             .iter()
             .rev()
             .take(OVERLAP_WORD_COUNT)
             .rev()
-            .cloned()
+            .map(|w| w.to_string())
             .collect();
 
-        // Count how many leading words were removed by overlap dedup so we
-        // can skip the corresponding segments (segments bypass word-level dedup).
-        let words_to_skip = if chunk_index > 0 {
-            let raw_words: Vec<&str> = raw_text.split_whitespace().collect();
-            let new_words: Vec<&str> = new_text.split_whitespace().collect();
-            raw_words.len().saturating_sub(new_words.len())
-        } else {
-            0
-        };
-
-        // Accumulate segments with absolute timestamps and build text
-        // with paragraph breaks: new paragraph at each chunk boundary,
-        // and every SENTENCES_PER_PARAGRAPH sentences within a chunk.
-        if !segments.is_empty() {
+        // Append surviving segments (with absolute timestamps) and grow
+        // accumulated_text with paragraph breaks at chunk boundaries.
+        if !surviving_segments.is_empty() {
             let mut chunk_sentence_count: usize = 0;
-            let mut words_skipped: usize = 0;
-
-            for seg in &segments {
-                let trimmed = seg.text.trim();
-
-                // Skip leading segments that fall within the overlap zone.
-                if words_to_skip > 0 && words_skipped < words_to_skip {
-                    let seg_word_count = trimmed.split_whitespace().count();
-                    words_skipped += seg_word_count;
-                    if words_skipped <= words_to_skip {
-                        continue;
-                    }
-                }
-
+            for seg in &surviving_segments {
                 state.accumulated_segments.push(TimestampedSegment {
                     text: seg.text.clone(),
                     start_secs: chunk_offset_secs + seg.start_secs,
                     end_secs: chunk_offset_secs + seg.end_secs,
                 });
 
+                let trimmed = seg.text.trim();
                 if trimmed.is_empty() {
                     continue;
                 }
 
                 if !state.accumulated_text.is_empty() {
-                    // Paragraph break at chunk boundary (first sentence of new chunk)
-                    // or every N sentences within a chunk
+                    // Paragraph break at chunk boundary (first sentence of
+                    // new chunk) or every N sentences within a chunk.
                     if chunk_sentence_count == 0
                         || chunk_sentence_count.is_multiple_of(SENTENCES_PER_PARAGRAPH)
                     {
@@ -169,7 +221,7 @@ impl SessionManager {
             }
             state.sentence_count += chunk_sentence_count;
         } else if !new_text.is_empty() {
-            // Fallback: no segments available, use raw text with chunk breaks
+            // Fallback: no segments available, append raw text with chunk break.
             if !state.accumulated_text.is_empty() {
                 state.accumulated_text.push_str("\n\n");
             }
@@ -229,6 +281,36 @@ impl SessionManager {
 /// Strip leading/trailing punctuation from a word for comparison purposes.
 fn strip_punctuation(word: &str) -> &str {
     word.trim_matches(|c: char| c.is_ascii_punctuation())
+}
+
+/// Normalize a segment's text for comparison: lowercase, collapse
+/// whitespace, strip punctuation. Used by segment-level dedup so that
+/// "Hello, world." and "hello world" compare equal.
+fn normalize_text(text: &str) -> String {
+    text.split_whitespace()
+        .map(|w| strip_punctuation(w).to_lowercase())
+        .filter(|w| !w.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Find the longest suffix of `prev_tail` (slice of normalized strings)
+/// that exactly matches a prefix of `current_head`. Returns the length
+/// of the match — i.e. the number of leading entries in `current_head`
+/// that should be skipped as overlap.
+fn longest_matching_overlap(prev_tail: &[String], current_head: &[String]) -> usize {
+    if prev_tail.is_empty() || current_head.is_empty() {
+        return 0;
+    }
+    let max_check = prev_tail.len().min(current_head.len());
+    for n in (1..=max_check).rev() {
+        let suffix = &prev_tail[prev_tail.len() - n..];
+        let prefix = &current_head[..n];
+        if suffix == prefix {
+            return n;
+        }
+    }
+    0
 }
 
 /// Remove overlapping words between the end of the previous chunk and the
@@ -535,6 +617,114 @@ mod tests {
             r2.accumulated_text
         );
         assert!(r2.accumulated_text.contains("pasted text above"));
+    }
+
+    #[test]
+    fn test_normalize_text_strips_punctuation_and_case() {
+        assert_eq!(normalize_text("Hello, World!"), "hello world");
+        assert_eq!(normalize_text("  multiple   spaces  "), "multiple spaces");
+        assert_eq!(normalize_text(""), "");
+    }
+
+    #[test]
+    fn test_longest_matching_overlap_basic() {
+        let prev = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+        let curr = vec!["b".to_string(), "c".to_string(), "d".to_string()];
+        // Longest match: "b c" (length 2)
+        assert_eq!(longest_matching_overlap(&prev, &curr), 2);
+
+        let prev = vec!["x".to_string()];
+        let curr = vec!["y".to_string()];
+        assert_eq!(longest_matching_overlap(&prev, &curr), 0);
+
+        assert_eq!(longest_matching_overlap(&[], &curr), 0);
+        assert_eq!(longest_matching_overlap(&prev, &[]), 0);
+    }
+
+    #[test]
+    fn test_segment_dedup_misaligned_word_boundaries() {
+        // Regression test for the old word-counting heuristic which
+        // miscounted when the overlap word boundary did not coincide
+        // with a segment boundary.
+        //
+        // Chunk 1 has 4 segments: "five", "six", "seven", "eight".
+        // Chunk 2 reproduces "seven", "eight" as the start (overlap)
+        // followed by new segments "nine ten", "eleven twelve".
+        // The first two segments of chunk 2 should be skipped.
+        use crate::TimestampedSegment;
+
+        let mut mgr = SessionManager::new();
+        mgr.start("misaligned").unwrap();
+
+        let seg1 = vec![
+            TimestampedSegment { text: "five".into(),  start_secs: 0.0, end_secs: 1.0 },
+            TimestampedSegment { text: "six".into(),   start_secs: 1.0, end_secs: 2.0 },
+            TimestampedSegment { text: "seven".into(), start_secs: 2.0, end_secs: 3.0 },
+            TimestampedSegment { text: "eight".into(), start_secs: 3.0, end_secs: 4.0 },
+        ];
+        mgr.add_chunk("misaligned", "five six seven eight", 4.0, seg1).unwrap();
+
+        let seg2 = vec![
+            TimestampedSegment { text: "seven".into(),         start_secs: 0.0, end_secs: 1.0 },
+            TimestampedSegment { text: "eight".into(),         start_secs: 1.0, end_secs: 2.0 },
+            TimestampedSegment { text: "nine ten".into(),      start_secs: 2.0, end_secs: 4.0 },
+            TimestampedSegment { text: "eleven twelve".into(), start_secs: 4.0, end_secs: 6.0 },
+        ];
+        let r2 = mgr
+            .add_chunk("misaligned", "seven eight nine ten eleven twelve", 6.0, seg2)
+            .unwrap();
+
+        assert_eq!(r2.text, "nine ten eleven twelve");
+        assert!(
+            !r2.accumulated_text.contains("five six seven eight\n\nseven"),
+            "duplicated overlap leaked into transcript: {}",
+            r2.accumulated_text
+        );
+        assert!(r2.accumulated_text.contains("nine ten"));
+
+        let (_text, _dur, segs) = mgr.finish("misaligned").unwrap();
+        // 4 (chunk 1) + 2 surviving (chunk 2) = 6
+        assert_eq!(segs.len(), 6);
+    }
+
+    #[test]
+    fn test_segment_dedup_normalizes_punctuation() {
+        // Chunk 2 has punctuation that the trailing chunk 1 segments
+        // don't, but normalization should still match them.
+        use crate::TimestampedSegment;
+
+        let mut mgr = SessionManager::new();
+        mgr.start("punct").unwrap();
+
+        let seg1 = vec![TimestampedSegment {
+            text: "Hello world".into(),
+            start_secs: 0.0,
+            end_secs: 1.0,
+        }];
+        mgr.add_chunk("punct", "Hello world", 1.0, seg1).unwrap();
+
+        let seg2 = vec![
+            TimestampedSegment {
+                text: "hello, world!".into(),
+                start_secs: 0.0,
+                end_secs: 1.0,
+            },
+            TimestampedSegment {
+                text: "and more".into(),
+                start_secs: 1.0,
+                end_secs: 2.0,
+            },
+        ];
+        let r2 = mgr.add_chunk("punct", "hello, world! and more", 2.0, seg2).unwrap();
+        assert_eq!(r2.text, "and more");
+    }
+
+    #[test]
+    fn test_cleanup_stale_sessions_no_op_when_fresh() {
+        let mut mgr = SessionManager::new();
+        mgr.start("fresh").unwrap();
+        assert_eq!(mgr.cleanup_stale_sessions(), 0);
+        assert!(mgr.has_session("fresh"));
     }
 
     #[test]
