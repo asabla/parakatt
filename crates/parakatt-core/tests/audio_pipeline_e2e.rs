@@ -15,7 +15,6 @@
 use parakatt_core::audio::preprocess;
 use parakatt_core::vad::{EnergyVad, Vad, VoicedRange};
 
-const SR: usize = 16_000;
 const FRAME: usize = 320;
 
 /// Build a speech-like signal at `amp` for `frames` frames.
