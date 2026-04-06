@@ -16,6 +16,21 @@ class AudioCaptureService {
     private let targetSampleRate: Double = 16_000
     private let engineLock = NSLock()
     private var deviceListenerInstalled = false
+    /// Retained `Unmanaged.toOpaque()` pointer for the device-change
+    /// listener's C callback. Stored so we can release it on teardown
+    /// instead of relying on `passUnretained`, which would let us
+    /// crash with a use-after-free if the callback fired after dealloc.
+    private var deviceListenerContext: UnsafeMutableRawPointer?
+
+    /// Serial queue for any AVAudioConverter creation/use that
+    /// shouldn't run on the AVAudioEngine tap thread (a real-time
+    /// audio thread where allocations are unsafe).
+    private let converterQueue = DispatchQueue(label: "parakatt.audio.converter", qos: .userInteractive)
+    /// The hardware sample rate the current `converter` was built for.
+    /// When the tap delivers a different rate we trigger a new build
+    /// off-thread and drop the racing buffer.
+    private var converterSourceRate: Double = 0
+    private var converterPending = false
 
     /// Currently selected device ID (nil = system default).
     private var selectedDeviceUID: String?
@@ -29,7 +44,10 @@ class AudioCaptureService {
     func startCapture() throws {
         teardown()
         tapCallbackCount = 0
-        lastConverterSourceRate = 0
+        engineLock.lock()
+        converterSourceRate = 0
+        converterPending = false
+        engineLock.unlock()
 
         let engine = AVAudioEngine()
 
@@ -206,8 +224,11 @@ class AudioCaptureService {
             mElement: kAudioObjectPropertyElementMain
         )
 
-        // Use Unmanaged to pass self as the client data pointer for the C callback.
-        let selfPtr = Unmanaged.passUnretained(self).toOpaque()
+        // passRetained so the C callback's client pointer holds a
+        // strong reference until we explicitly release it in
+        // removeDeviceChangeListener(). Using passUnretained here used
+        // to allow the callback to fire after dealloc → UAF.
+        let selfPtr = Unmanaged.passRetained(self).toOpaque()
         let status = AudioObjectAddPropertyListener(
             AudioObjectID(kAudioObjectSystemObject),
             &address,
@@ -217,14 +238,17 @@ class AudioCaptureService {
 
         if status == noErr {
             deviceListenerInstalled = true
+            deviceListenerContext = selfPtr
             NSLog("[Parakatt] Device change listener installed")
         } else {
+            // Listener wasn't actually installed; balance the retain.
+            Unmanaged<AudioCaptureService>.fromOpaque(selfPtr).release()
             NSLog("[Parakatt] Failed to install device change listener: %d", status)
         }
     }
 
     private func removeDeviceChangeListener() {
-        guard deviceListenerInstalled else { return }
+        guard deviceListenerInstalled, let selfPtr = deviceListenerContext else { return }
 
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDevices,
@@ -232,13 +256,15 @@ class AudioCaptureService {
             mElement: kAudioObjectPropertyElementMain
         )
 
-        let selfPtr = Unmanaged.passUnretained(self).toOpaque()
         AudioObjectRemovePropertyListener(
             AudioObjectID(kAudioObjectSystemObject),
             &address,
             deviceChangeCallback,
             selfPtr
         )
+        // Balance the passRetained() above.
+        Unmanaged<AudioCaptureService>.fromOpaque(selfPtr).release()
+        deviceListenerContext = nil
         deviceListenerInstalled = false
     }
 
@@ -297,34 +323,56 @@ class AudioCaptureService {
         }
     }
 
-    /// Track the source format to detect when we need a new converter.
-    private var lastConverterSourceRate: Double = 0
-
     private func convertAndDeliver(buffer: AVAudioPCMBuffer) {
         let bufferFormat = buffer.format
 
-        let targetFormat = AVAudioFormat(
+        guard let targetFormat = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
             sampleRate: targetSampleRate,
             channels: 1,
             interleaved: false
-        )!
-
-        // Create or recreate converter if the source format changed.
-        engineLock.lock()
-        if converter == nil || lastConverterSourceRate != bufferFormat.sampleRate {
-            converter = AVAudioConverter(from: bufferFormat, to: targetFormat)
-            lastConverterSourceRate = bufferFormat.sampleRate
-            if converter == nil {
-                NSLog("[Parakatt] ERROR: Failed to create converter from %.0fHz %dch to 16kHz mono",
-                      bufferFormat.sampleRate, bufferFormat.channelCount)
-            } else {
-                NSLog("[Parakatt] Created audio converter: %.0fHz %dch → 16kHz mono",
-                      bufferFormat.sampleRate, bufferFormat.channelCount)
-            }
+        ) else {
+            NSLog("[Parakatt] ERROR: Could not create 16kHz mono target format")
+            return
         }
-        let conv = converter
+
+        // Capture state under the engine lock so we can decide whether
+        // we already have a usable converter or need to (re)build one.
+        engineLock.lock()
+        let needsNewConverter = (converter == nil)
+            || (converterSourceRate != bufferFormat.sampleRate)
+        let alreadyPending = converterPending
+        let conv = needsNewConverter ? nil : converter
+        if needsNewConverter && !alreadyPending {
+            converterPending = true
+        }
         engineLock.unlock()
+
+        // If the source format changed (or this is the very first
+        // buffer), kick off converter creation off the audio tap thread
+        // — AVAudioConverter init does CoreAudio work that should not
+        // run on the real-time hardware thread. The racing buffer is
+        // dropped; we lose ~20ms of audio at format-change time, which
+        // is negligible compared to silently corrupting state.
+        if needsNewConverter && !alreadyPending {
+            converterQueue.async { [weak self] in
+                guard let self else { return }
+                let newConv = AVAudioConverter(from: bufferFormat, to: targetFormat)
+                self.engineLock.lock()
+                self.converter = newConv
+                self.converterSourceRate = bufferFormat.sampleRate
+                self.converterPending = false
+                self.engineLock.unlock()
+                if newConv == nil {
+                    NSLog("[Parakatt] ERROR: Failed to create converter from %.0fHz %dch to 16kHz mono",
+                          bufferFormat.sampleRate, bufferFormat.channelCount)
+                } else {
+                    NSLog("[Parakatt] Created audio converter: %.0fHz %dch → 16kHz mono",
+                          bufferFormat.sampleRate, bufferFormat.channelCount)
+                }
+            }
+            return
+        }
 
         guard let conv else { return }
 
@@ -333,11 +381,18 @@ class AudioCaptureService {
         guard let outBuf = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: frameCount) else { return }
 
         var consumed = false
-        conv.convert(to: outBuf, error: nil) { _, status in
-            if consumed { status.pointee = .noDataNow; return nil }
+        var convertError: NSError?
+        let status = conv.convert(to: outBuf, error: &convertError) { _, ioStatus in
+            if consumed { ioStatus.pointee = .noDataNow; return nil }
             consumed = true
-            status.pointee = .haveData
+            ioStatus.pointee = .haveData
             return buffer
+        }
+
+        if status == .error {
+            NSLog("[Parakatt] AVAudioConverter convert failed: %@",
+                  convertError?.localizedDescription ?? "unknown")
+            return
         }
 
         deliverSamples(from: outBuf)

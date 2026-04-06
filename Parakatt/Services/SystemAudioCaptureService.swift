@@ -175,19 +175,20 @@ class SystemAudioCaptureService {
             return
         }
 
-        let sourceFormat = AVAudioFormat(
+        guard let sourceFormat = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
             sampleRate: sourceSampleRate,
             channels: 1,
             interleaved: false
-        )!
-
-        let targetFormat = AVAudioFormat(
+        ), let targetFormat = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
             sampleRate: targetSampleRate,
             channels: 1,
             interleaved: false
-        )!
+        ) else {
+            NSLog("[Parakatt] System audio: failed to construct PCM formats")
+            return
+        }
 
         if conv == nil || conv?.inputFormat.sampleRate != sourceSampleRate {
             conv = AVAudioConverter(from: sourceFormat, to: targetFormat)
@@ -217,11 +218,17 @@ class SystemAudioCaptureService {
         }
 
         var consumed = false
-        conv.convert(to: outputBuffer, error: nil) { _, status in
-            if consumed { status.pointee = .noDataNow; return nil }
+        var convertError: NSError?
+        let convStatus = conv.convert(to: outputBuffer, error: &convertError) { _, ioStatus in
+            if consumed { ioStatus.pointee = .noDataNow; return nil }
             consumed = true
-            status.pointee = .haveData
+            ioStatus.pointee = .haveData
             return inputBuffer
+        }
+        if convStatus == .error {
+            NSLog("[Parakatt] System audio: convert failed: %@",
+                  convertError?.localizedDescription ?? "unknown")
+            return
         }
 
         let count = Int(outputBuffer.frameLength)
