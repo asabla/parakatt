@@ -185,6 +185,7 @@ struct RecordingOverlayView: View {
 }
 
 /// Manages the floating overlay window lifecycle.
+@MainActor
 class RecordingOverlayController {
     private var panel: NSPanel?
     private var hostingView: NSHostingView<RecordingOverlayView>?

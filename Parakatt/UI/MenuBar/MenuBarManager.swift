@@ -40,6 +40,7 @@ private class TranscriptionItemView: NSView {
 
 /// Manages the menubar status item.
 /// Click the icon to open the menu. Use "Start Recording" to record.
+@MainActor
 class MenuBarManager: NSObject {
     private var statusItem: NSStatusItem
     private var appState: AppState

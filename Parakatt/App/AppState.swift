@@ -11,6 +11,15 @@ private let signpostLog = OSLog(subsystem: "com.parakatt.app", category: .points
 /// Observable application state shared across the UI.
 ///
 /// Coordinates recording, transcription, and text insertion.
+///
+/// `@MainActor` is required: this class owns `@Published` properties
+/// that drive SwiftUI surfaces, and historically there were ad-hoc
+/// `DispatchQueue.main.async` calls scattered throughout to keep
+/// updates on the main thread. Pinning the whole class to `@MainActor`
+/// lets the compiler enforce that — any background-thread call site
+/// has to explicitly hop back via `Task { @MainActor in … }` or
+/// `DispatchQueue.main.async`.
+@MainActor
 class AppState: ObservableObject {
     // MARK: - Published state
 
