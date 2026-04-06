@@ -40,6 +40,24 @@ final class LivePreviewService {
     private var consecutiveErrors: Int = 0
     private let maxConsecutiveErrors: Int = 5
 
+    // MARK: - Telemetry
+
+    /// Wall-clock time when the session was started, used to compute
+    /// first-token latency.
+    private var sessionStartTime: Date?
+    /// Wall-clock time when the first non-empty committed text was
+    /// observed for this session. nil until that happens.
+    private var firstTokenTime: Date?
+    /// Total chunks fed to the model since session start.
+    private var chunksProcessed: Int = 0
+    /// Total feed latency (sum) for averaging.
+    private var totalFeedLatencySecs: Double = 0
+    /// Number of times the committed prefix changed (= LA-2 advanced).
+    /// Counted as a churn metric so we can spot if the model is
+    /// flickering instead of converging.
+    private var committedAdvances: Int = 0
+    private var lastCommittedLength: Int = 0
+
     init(bridge: CoreBridge) {
         self.bridge = bridge
     }
@@ -63,6 +81,12 @@ final class LivePreviewService {
         sessionId = id
         pending.removeAll(keepingCapacity: true)
         consecutiveErrors = 0
+        sessionStartTime = Date()
+        firstTokenTime = nil
+        chunksProcessed = 0
+        totalFeedLatencySecs = 0
+        committedAdvances = 0
+        lastCommittedLength = 0
         let native = Int(bridge.streamingNativeChunkSamples())
         // Default to 8000 (500 ms) if the provider didn't report a
         // size — that's a reasonable lower bound for any model.
@@ -107,12 +131,41 @@ final class LivePreviewService {
         pending.removeFirst(nativeChunkSamples)
         bufferLock.unlock()
 
+        let feedStart = Date()
         do {
             let result = try bridge.feedStreamingChunk(
                 sessionId: id,
                 audioSamples: chunk
             )
+            let feedSecs = Date().timeIntervalSince(feedStart)
             consecutiveErrors = 0
+            chunksProcessed += 1
+            totalFeedLatencySecs += feedSecs
+            // Track first-token latency.
+            if firstTokenTime == nil && !result.committedText.isEmpty {
+                firstTokenTime = Date()
+                if let start = sessionStartTime {
+                    let latencyMs = Int(firstTokenTime!.timeIntervalSince(start) * 1000)
+                    NSLog("[Parakatt] LivePreview first-token latency: %d ms", latencyMs)
+                }
+            }
+            // Commit advance / churn.
+            if result.committedText.count > lastCommittedLength {
+                committedAdvances += 1
+                lastCommittedLength = result.committedText.count
+            } else if result.committedText.count < lastCommittedLength {
+                // Shouldn't happen with LA-2's monotonic commits but
+                // log it if it ever does.
+                NSLog("[Parakatt] WARNING: committed text shrank from %d to %d chars",
+                      lastCommittedLength, result.committedText.count)
+                lastCommittedLength = result.committedText.count
+            }
+            // Periodic average feed latency log every 20 chunks.
+            if chunksProcessed % 20 == 0 {
+                let avgMs = Int((totalFeedLatencySecs / Double(chunksProcessed)) * 1000)
+                NSLog("[Parakatt] LivePreview stats: chunks=%d avg_feed=%d ms commit_advances=%d",
+                      chunksProcessed, avgMs, committedAdvances)
+            }
             DispatchQueue.main.async { [weak self] in
                 self?.onUpdate?(
                     result.committedText,
