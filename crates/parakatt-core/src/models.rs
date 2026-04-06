@@ -28,13 +28,17 @@ pub fn model_file_set(model_id: &str) -> Option<ModelFileSet> {
         }),
         // Cache-aware streaming model used for the live preview path
         // (English only). See `crate::stt::nemotron` for usage.
+        // File names are dictated by `parakeet-rs::Nemotron::from_pretrained`:
+        //   encoder.onnx + encoder.onnx.data
+        //   decoder_joint.onnx
+        //   tokenizer.model      (SentencePiece protobuf, NOT vocab.txt)
         "nemotron-speech-streaming-en-0.6b" => Some(ModelFileSet {
             repo_url: "https://huggingface.co/altunenes/parakeet-rs/resolve/main/nemotron-speech-streaming-en-0.6b",
             files: &[
-                "vocab.txt",
-                "encoder-model.onnx",
-                "encoder-model.onnx.data",
-                "decoder_joint-model.onnx",
+                "tokenizer.model",
+                "encoder.onnx",
+                "encoder.onnx.data",
+                "decoder_joint.onnx",
             ],
         }),
         _ => None,
@@ -75,12 +79,15 @@ pub fn available_models() -> Vec<ModelInfo> {
 }
 
 /// Check which models are actually downloaded in the models directory.
-/// A Parakeet model is "downloaded" if its directory contains a .onnx file and vocab.txt.
+/// A model is "downloaded" if its directory contains a .onnx file and the
+/// expected vocabulary file (vocab.txt for Parakeet, tokenizer.model for
+/// Nemotron-style streaming models).
 pub fn list_models_with_status(models_dir: &Path) -> Vec<ModelInfo> {
     let mut models = available_models();
     for model in &mut models {
         let dir = model_path(models_dir, &model.id);
-        model.downloaded = dir.exists() && has_onnx_file(&dir) && dir.join("vocab.txt").exists();
+        let has_vocab = dir.join("vocab.txt").exists() || dir.join("tokenizer.model").exists();
+        model.downloaded = dir.exists() && has_onnx_file(&dir) && has_vocab;
     }
     models
 }

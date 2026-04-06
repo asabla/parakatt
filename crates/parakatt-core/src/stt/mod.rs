@@ -1,9 +1,16 @@
 /// Speech-to-text provider trait and implementations.
+pub mod nemotron;
 pub mod parakeet;
+pub mod streaming;
+
+pub use streaming::{StreamChunkResult, StreamingProvider, StreamingSession};
 
 use crate::{CoreError, TranscriptionResult};
 
-/// Trait that all STT backends must implement.
+/// Trait that all *batch / commit-path* STT backends must implement.
+///
+/// For *streaming / live-preview* backends see [`StreamingProvider`]
+/// in `streaming.rs`.
 pub trait SttProvider: Send + Sync {
     /// Transcribe audio samples (16kHz mono f32) into text.
     fn transcribe(&self, audio: &[f32], sample_rate: u32)
