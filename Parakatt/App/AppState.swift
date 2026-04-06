@@ -256,7 +256,13 @@ class AppState: ObservableObject {
 
     /// Grace period (seconds) after hotkey release before stopping audio capture.
     /// Allows the AVAudioEngine tap to deliver remaining buffered samples (~256ms).
-    private let captureDrainDelaySecs: TimeInterval = 0.3
+    /// Grace period after the user releases the hotkey before we
+    /// stop the audio engine. AVAudioEngine has a hardware buffer
+    /// in flight; if we tear down too quickly the last few hundred
+    /// milliseconds of audio (often the trailing word of the user's
+    /// final sentence) never make it into our buffer. 600 ms covers
+    /// the typical CoreAudio buffer + a margin for slow speakers.
+    private let captureDrainDelaySecs: TimeInterval = 0.6
 
     /// Stop recording and process the captured audio through the STT pipeline.
     func stopRecording() {
@@ -1343,11 +1349,28 @@ class AppState: ObservableObject {
         // Normalize: typical speech RMS ~0.01-0.1, scale up for display
         let normalized = min(rms * 10, 1.0)
         let smoothed = 0.3 * currentAudioLevel + 0.7 * normalized
-        // Track silence: if RMS is near zero, count consecutive silent callbacks
+        // Track silence: if RMS is near zero, count consecutive silent callbacks.
+        // Detect a "speech resumed after silence" transition so we can
+        // kick the live preview immediately instead of waiting for the
+        // next streaming-timer tick. Without this, the user got 0 to 2
+        // seconds of "nothing happening" UI after they started speaking
+        // again following a pause.
+        let wasSilentBefore = silentCallbackCount > 5
         if rms < 0.001 {
             silentCallbackCount += 1
         } else {
             silentCallbackCount = 0
+        }
+        let speechResumed = wasSilentBefore && rms >= 0.001
+        if speechResumed && isRecording {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                // Bypass the "buffer hasn't grown enough" gate by
+                // resetting the watermark; we want this pass to run
+                // even if only ~one frame of new audio has arrived.
+                self.lastStreamingSampleCount = 0
+                self.updateLiveTranscription()
+            }
         }
         // Detect clipping: any sample at +/-1.0 means the signal is saturated
         let maxAmp = samples.lazy.map { abs($0) }.max() ?? 0
