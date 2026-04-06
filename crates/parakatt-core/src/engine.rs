@@ -63,6 +63,12 @@ pub struct Engine {
     /// Each session owns its own per-recording cache state plus a
     /// LocalAgreement-2 commit policy.
     streaming_sessions: Mutex<std::collections::HashMap<String, StreamingPreviewSession>>,
+    /// Per-session LocalAgreement-2 buffers for the **buffered**
+    /// preview path (used when Nemotron isn't installed). The
+    /// buffered path re-runs Parakeet TDT on a growing audio tail
+    /// every few hundred milliseconds; LA-2 here is what suppresses
+    /// the flicker that would otherwise show in the UI.
+    buffered_preview_la2: Mutex<std::collections::HashMap<String, LocalAgreement2>>,
     llm: Mutex<Option<Arc<dyn LlmProvider>>>,
     dictionary: Mutex<Dictionary>,
     download_progress: Arc<Mutex<DownloadProgress>>,
@@ -108,6 +114,7 @@ impl Engine {
             stt: Mutex::new(None),
             streaming: Mutex::new(None),
             streaming_sessions: Mutex::new(std::collections::HashMap::new()),
+            buffered_preview_la2: Mutex::new(std::collections::HashMap::new()),
             llm: Mutex::new(None),
             dictionary: Mutex::new(dictionary),
             download_progress: Arc::new(Mutex::new(DownloadProgress::idle())),
@@ -394,6 +401,145 @@ impl Engine {
     /// Cancel a streaming session without returning text.
     pub fn cancel_streaming_session(&self, session_id: String) {
         if let Ok(mut g) = self.streaming_sessions.lock() {
+            g.remove(&session_id);
+        }
+    }
+
+    // ----- Buffered preview API (fallback when Nemotron is absent) -----
+    //
+    // The Swift side uses these when the streaming model isn't loaded.
+    // Each preview pass runs Parakeet TDT on the current audio tail
+    // and pipes the result through LocalAgreement-2 so the user sees
+    // committed/tentative slices instead of a flickering raw transcript.
+
+    /// Open a buffered preview session for the given id. Pair with
+    /// [`buffered_preview_finish`] or [`buffered_preview_cancel`].
+    pub fn buffered_preview_start(&self, session_id: String) -> Result<(), CoreError> {
+        let mut g = self.buffered_preview_la2.lock().map_err(|e| {
+            CoreError::TranscriptionFailed(format!("Buffered preview lock poisoned: {e}"))
+        })?;
+        if g.contains_key(&session_id) {
+            return Err(CoreError::TranscriptionFailed(format!(
+                "Buffered preview session already exists: {session_id}"
+            )));
+        }
+        g.insert(session_id, LocalAgreement2::new());
+        Ok(())
+    }
+
+    /// Run one preview pass: transcribe the audio with the loaded
+    /// commit-path STT model, fold the result into the session's
+    /// LocalAgreement-2 state, and return the committed/tentative
+    /// slices. NO dictionary or LLM is applied — this is a raw
+    /// preview, not a commit.
+    pub fn buffered_preview_update(
+        &self,
+        session_id: String,
+        audio_samples: Vec<f32>,
+        sample_rate: u32,
+    ) -> Result<StreamingChunkResult, CoreError> {
+        // 1. Preprocess + run Parakeet on the audio.
+        let processed = crate::audio::preprocess(&audio_samples, sample_rate)?;
+        let leading_trim_secs = processed.leading_trim_secs;
+
+        let stt_guard = self
+            .stt
+            .lock()
+            .map_err(|e| CoreError::TranscriptionFailed(format!("STT lock poisoned: {e}")))?;
+        let stt = stt_guard
+            .as_ref()
+            .ok_or_else(|| CoreError::TranscriptionFailed("No STT model loaded".into()))?;
+        let mut result = stt.transcribe(&processed.samples, sample_rate)?;
+        drop(stt_guard);
+
+        // Shift segment timestamps so they refer to the original
+        // (un-trimmed) chunk's time base. Important if the caller
+        // ever inspects them.
+        if leading_trim_secs > 0.0 {
+            for seg in result.segments.iter_mut() {
+                seg.start_secs += leading_trim_secs;
+                seg.end_secs += leading_trim_secs;
+            }
+        }
+
+        // 2. Tokenize the transcript text on whitespace and feed
+        // to LA-2. We use whitespace tokens because the buffered
+        // path doesn't have token-level alignment (Parakeet TDT
+        // gives us sentence-level segments, but LA-2's job is
+        // word-level).
+        let hypothesis: Vec<Token> = result
+            .text
+            .split_whitespace()
+            .map(|w| Token {
+                text: w.to_string(),
+                start_secs: 0.0,
+                end_secs: 0.0,
+            })
+            .collect();
+
+        let mut g = self.buffered_preview_la2.lock().map_err(|e| {
+            CoreError::TranscriptionFailed(format!("Buffered preview lock poisoned: {e}"))
+        })?;
+        let la2 = g.get_mut(&session_id).ok_or_else(|| {
+            CoreError::TranscriptionFailed(format!(
+                "Buffered preview session not found: {session_id}"
+            ))
+        })?;
+        let agreement = la2.update(hypothesis);
+
+        let newly_committed_text = agreement
+            .newly_committed
+            .iter()
+            .map(|t| t.text.as_str())
+            .collect::<Vec<_>>()
+            .join(" ");
+        let tentative_text = agreement
+            .tentative
+            .iter()
+            .map(|t| t.text.as_str())
+            .collect::<Vec<_>>()
+            .join(" ");
+        let committed_text = la2.committed_text().to_string();
+
+        Ok(StreamingChunkResult {
+            committed_text,
+            tentative_text,
+            newly_committed_text,
+        })
+    }
+
+    /// Close a buffered preview session and return the committed
+    /// text. The caller is then responsible for any final commit
+    /// pass via the regular session API.
+    pub fn buffered_preview_finish(&self, session_id: String) -> Result<String, CoreError> {
+        let mut g = self.buffered_preview_la2.lock().map_err(|e| {
+            CoreError::TranscriptionFailed(format!("Buffered preview lock poisoned: {e}"))
+        })?;
+        let la2 = g.remove(&session_id).ok_or_else(|| {
+            CoreError::TranscriptionFailed(format!(
+                "Buffered preview session not found: {session_id}"
+            ))
+        })?;
+        Ok(la2.committed_text().to_string())
+    }
+
+    /// Reset a buffered preview session in place (clears LA-2 buffer).
+    pub fn buffered_preview_reset(&self, session_id: String) -> Result<(), CoreError> {
+        let mut g = self.buffered_preview_la2.lock().map_err(|e| {
+            CoreError::TranscriptionFailed(format!("Buffered preview lock poisoned: {e}"))
+        })?;
+        let la2 = g.get_mut(&session_id).ok_or_else(|| {
+            CoreError::TranscriptionFailed(format!(
+                "Buffered preview session not found: {session_id}"
+            ))
+        })?;
+        la2.reset();
+        Ok(())
+    }
+
+    /// Cancel a buffered preview session without returning text.
+    pub fn buffered_preview_cancel(&self, session_id: String) {
+        if let Ok(mut g) = self.buffered_preview_la2.lock() {
             g.remove(&session_id);
         }
     }

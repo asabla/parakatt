@@ -402,6 +402,18 @@ class AppState: ObservableObject {
             }
         }
 
+        // Also tear down the buffered preview LA-2 session if it
+        // was used (when no streaming model was loaded).
+        if let bpId = bufferedPreviewSessionId {
+            let final = (try? bridge?.bufferedPreviewFinish(sessionId: bpId)) ?? ""
+            bufferedPreviewSessionId = nil
+            if !final.isEmpty {
+                livePreviewCommitted = final
+                livePreviewTentative = ""
+                liveTranscription = final
+            }
+        }
+
         if let sessionId = pttSessionId {
             // Path B: incremental session was active — only process the tail.
             isProcessing = true
@@ -1354,9 +1366,19 @@ class AppState: ObservableObject {
     /// pass before we'll re-transcribe. 0.5 s at 16 kHz — anything
     /// less is almost certainly just silence accumulating.
     private let minNewSamplesForRestream = 8000
+    /// Buffered preview LocalAgreement-2 session id, set when the
+    /// fallback path takes over (no Nemotron loaded). Cleared on
+    /// stopRecording.
+    private var bufferedPreviewSessionId: String?
 
     private func updateLiveTranscription() {
         guard isRecording, let bridge, !isStreamTranscribing else { return }
+
+        // If the cache-aware streaming preview is doing its thing
+        // we don't need to also run the buffered preview — they
+        // both publish to livePreviewCommitted/Tentative and one
+        // will dominate. Skip to save CPU.
+        if livePreviewActive { return }
 
         // Snapshot the current buffer (unprocessed tail during incremental mode)
         audioBufferLock.lock()
@@ -1381,8 +1403,19 @@ class AppState: ObservableObject {
             ? Array(snapshot.suffix(maxSamples))
             : snapshot
 
-        // Capture accumulated text from chunks already processed
-        let accumulatedPrefix = pttAccumulatedText
+        // Lazily start a buffered preview LA-2 session for this
+        // recording so the LA-2 commit policy persists across
+        // every preview tick.
+        if bufferedPreviewSessionId == nil {
+            let id = UUID().uuidString
+            do {
+                try bridge.bufferedPreviewStart(sessionId: id)
+                bufferedPreviewSessionId = id
+            } catch {
+                NSLog("[Parakatt] Buffered preview start failed: %@", error.localizedDescription)
+            }
+        }
+        guard let bpSessionId = bufferedPreviewSessionId else { return }
 
         isStreamTranscribing = true
 
@@ -1391,38 +1424,25 @@ class AppState: ObservableObject {
             defer { self.isStreamTranscribing = false }
 
             do {
-                let result = try bridge.transcribe(
+                let result = try bridge.bufferedPreviewUpdate(
+                    sessionId: bpSessionId,
                     audioSamples: trimmed,
-                    sampleRate: 16000,
-                    mode: "dictation",
-                    context: nil
+                    sampleRate: 16000
                 )
                 DispatchQueue.main.async {
                     if self.isRecording {
-                        // Use latest accumulated text (may have changed during transcription)
-                        let currentPrefix = self.pttAccumulatedText
-
-                        if let prefix = currentPrefix, !prefix.isEmpty {
-                            if result.text.isEmpty {
-                                // No streaming tail — just show accumulated
-                                self.liveTranscription = prefix
-                            } else {
-                                // Append tail, but skip if it duplicates the end of accumulated
-                                let tail = result.text
-                                let prefixSuffix = String(prefix.suffix(80)).lowercased()
-                                let tailPrefix = String(tail.prefix(80)).lowercased()
-
-                                // Check for overlap: if the tail starts with text that
-                                // already ends the accumulated, skip it to avoid duplication
-                                if prefixSuffix.hasSuffix(tailPrefix.prefix(30)) && tailPrefix.count > 30 {
-                                    self.liveTranscription = prefix
-                                } else {
-                                    self.liveTranscription = prefix + "\n\n" + tail
-                                }
-                            }
-                        } else {
-                            self.liveTranscription = result.text.isEmpty ? nil : result.text
-                        }
+                        // The buffered preview path now drives the
+                        // same @Published surfaces as the streaming
+                        // path. The overlay's two-style display
+                        // picks them up automatically.
+                        self.livePreviewCommitted = result.committedText
+                        self.livePreviewTentative = result.tentativeText
+                        let display = result.tentativeText.isEmpty
+                            ? result.committedText
+                            : (result.committedText.isEmpty
+                                ? result.tentativeText
+                                : "\(result.committedText) \(result.tentativeText)")
+                        self.liveTranscription = display.isEmpty ? nil : display
                     }
                 }
             } catch {

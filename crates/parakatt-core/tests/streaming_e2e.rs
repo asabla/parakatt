@@ -458,3 +458,69 @@ fn lifecycle_cancel_is_idempotent() {
     // Now we can start a new session with the same id.
     engine.start_streaming_session("s1".into()).unwrap();
 }
+
+// =====================================================
+// Buffered preview path lifecycle (Nemotron-absent fallback)
+// =====================================================
+
+#[test]
+fn buffered_preview_double_start_errors() {
+    let engine = engine_with_script("bp_double", vec!["a"]);
+    engine.buffered_preview_start("s1".into()).unwrap();
+    assert!(engine.buffered_preview_start("s1".into()).is_err());
+}
+
+#[test]
+fn buffered_preview_finish_unknown_errors() {
+    let engine = engine_with_script("bp_unknown", vec!["a"]);
+    assert!(engine.buffered_preview_finish("nope".into()).is_err());
+}
+
+#[test]
+fn buffered_preview_cancel_idempotent() {
+    let engine = engine_with_script("bp_cancel", vec!["a"]);
+    engine.buffered_preview_cancel("never".into());
+    engine.buffered_preview_start("s1".into()).unwrap();
+    engine.buffered_preview_cancel("s1".into());
+    engine.buffered_preview_start("s1".into()).unwrap();
+}
+
+#[test]
+fn buffered_preview_update_without_stt_errors() {
+    // No Parakeet model loaded → buffered_preview_update must fail
+    // cleanly with "No STT model loaded".
+    let engine = engine_with_script("bp_no_stt", vec!["a"]);
+    engine.buffered_preview_start("s1".into()).unwrap();
+    let res = engine.buffered_preview_update(
+        "s1".into(),
+        vec![0.5; 8000],
+        16_000,
+    );
+    assert!(res.is_err());
+    let msg = format!("{:?}", res.unwrap_err());
+    assert!(
+        msg.contains("STT") || msg.contains("model"),
+        "expected 'no STT model' error, got: {msg}"
+    );
+}
+
+#[test]
+fn buffered_preview_finish_returns_la2_committed() {
+    // Without an STT model we can't actually feed it audio, but
+    // we can verify that finish returns the empty committed text
+    // for a fresh session.
+    let engine = engine_with_script("bp_finish", vec!["a"]);
+    engine.buffered_preview_start("s1".into()).unwrap();
+    let r = engine.buffered_preview_finish("s1".into()).unwrap();
+    assert_eq!(r, "");
+}
+
+#[test]
+fn buffered_preview_reset_clears_committed() {
+    let engine = engine_with_script("bp_reset", vec!["a"]);
+    engine.buffered_preview_start("s1".into()).unwrap();
+    // Reset on an empty session is a no-op but must not error.
+    engine.buffered_preview_reset("s1".into()).unwrap();
+    let r = engine.buffered_preview_finish("s1".into()).unwrap();
+    assert_eq!(r, "");
+}
