@@ -65,14 +65,18 @@ class HotkeyService {
                 } else {
                     self.isRecording = true
                     NSLog("[Parakatt] ▶ Hotkey toggle — recording started")
-                    self.appState?.startRecording()
+                    DispatchQueue.main.async {
+                        self.appState?.startRecording()
+                    }
                 }
             } else {
                 // Hold mode: press to start, release modifier to stop
                 guard !self.isRecording else { return }
                 self.isRecording = true
                 NSLog("[Parakatt] ▶ Hotkey hold — recording started")
-                self.appState?.startRecording()
+                DispatchQueue.main.async {
+                    self.appState?.startRecording()
+                }
             }
         }
     }
