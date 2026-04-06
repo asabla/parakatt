@@ -127,6 +127,31 @@ impl SessionManager {
         chunk_duration_secs: f64,
         segments: Vec<TimestampedSegment>,
     ) -> Result<ChunkResult, CoreError> {
+        // Default path: no overlap information from caller, fall back
+        // to text-based segment dedup against the previous chunk's
+        // trailing segments.
+        self.add_chunk_with_overlap(session_id, raw_text, chunk_duration_secs, 0.0, segments)
+    }
+
+    /// Same as `add_chunk`, but the caller tells us the overlap region
+    /// (in seconds) at the start of this chunk that re-encodes audio
+    /// already covered by the previous chunk. When `chunk_overlap_secs`
+    /// is positive we use **time-based** segment gating: any STT
+    /// segment whose start falls inside `[0, chunk_overlap_secs)` is
+    /// dropped, since the previous chunk already emitted it. This is
+    /// the NeMo "middle-token merging" pattern adapted to our chunk
+    /// shape — exact, no string-matching heuristics.
+    ///
+    /// When `chunk_overlap_secs == 0` (or the STT returned no
+    /// segments) we fall back to the text-based dedup path.
+    pub fn add_chunk_with_overlap(
+        &mut self,
+        session_id: &str,
+        raw_text: &str,
+        chunk_duration_secs: f64,
+        chunk_overlap_secs: f64,
+        segments: Vec<TimestampedSegment>,
+    ) -> Result<ChunkResult, CoreError> {
         let state = self.sessions.get_mut(session_id).ok_or_else(|| {
             CoreError::TranscriptionFailed(format!("Session not found: {session_id}"))
         })?;
@@ -135,19 +160,48 @@ impl SessionManager {
         let chunk_offset_secs = state.total_duration_secs;
         state.last_active = std::time::Instant::now();
 
-        // Two paths:
-        //   1. We have STT segments → segment-level dedup is authoritative.
-        //      Skip leading segments whose normalized text matches the
-        //      trailing segments of the previous chunk, then derive the
-        //      chunk's text from the surviving segments. This avoids
-        //      the word-counting heuristic which got off-by-one when
-        //      segment boundaries didn't align with overlap word boundaries.
-        //   2. No segments → fall back to the old word-level dedup so
-        //      we still produce a sensible transcript.
+        // Three paths:
+        //   1. Caller knows the overlap (chunk_overlap_secs > 0) AND
+        //      we have STT segments → time-based gating, the
+        //      authoritative middle-token merge. Drop segments whose
+        //      start falls inside the overlap window. Cleanest, no
+        //      string matching needed.
+        //   2. We have segments but no overlap info → fall back to
+        //      text-based segment dedup against trailing segments
+        //      from the previous chunk.
+        //   3. No segments at all → word-level text dedup as last resort.
         let surviving_segments: Vec<TimestampedSegment>;
         let new_text: String;
 
-        if !segments.is_empty() {
+        if chunk_overlap_secs > 0.0 && !segments.is_empty() && chunk_index > 0 {
+            // Path 1: time-based middle-token merge.
+            surviving_segments = segments
+                .iter()
+                .filter(|s| s.start_secs >= chunk_overlap_secs)
+                .cloned()
+                .collect();
+
+            new_text = surviving_segments
+                .iter()
+                .map(|s| s.text.trim())
+                .filter(|s| !s.is_empty())
+                .collect::<Vec<_>>()
+                .join(" ");
+
+            // Refresh trailing-segments cache too so a later chunk
+            // that DOESN'T pass overlap info can still fall back to
+            // path 2 cleanly.
+            let normalized: Vec<String> =
+                segments.iter().map(|s| normalize_text(&s.text)).collect();
+            state.prev_trailing_segments = normalized
+                .iter()
+                .rev()
+                .take(OVERLAP_SEGMENT_COUNT)
+                .rev()
+                .cloned()
+                .collect();
+        } else if !segments.is_empty() {
+            // Path 2: text-based segment-level dedup.
             let normalized: Vec<String> = segments.iter().map(|s| normalize_text(&s.text)).collect();
             let segments_to_skip = if chunk_index > 0 {
                 longest_matching_overlap(&state.prev_trailing_segments, &normalized)
@@ -694,6 +748,85 @@ mod tests {
         let (_text, _dur, segs) = mgr.finish("misaligned").unwrap();
         // 4 (chunk 1) + 2 surviving (chunk 2) = 6
         assert_eq!(segs.len(), 6);
+    }
+
+    #[test]
+    fn test_time_based_overlap_gating() {
+        // The "middle-token merging" path. Caller passes a 2 s
+        // overlap, segments that start before 2.0 s into the chunk
+        // are dropped — no string matching at all.
+        use crate::TimestampedSegment;
+
+        let mut mgr = SessionManager::new();
+        mgr.start("time").unwrap();
+
+        // Chunk 1 establishes the baseline.
+        let seg1 = vec![TimestampedSegment {
+            text: "first chunk content".into(),
+            start_secs: 0.0,
+            end_secs: 4.0,
+        }];
+        mgr.add_chunk_with_overlap("time", "first chunk content", 4.0, 0.0, seg1)
+            .unwrap();
+
+        // Chunk 2 has 2 s of overlap. The first segment starts at
+        // 0.5 s (inside the overlap window) and should be dropped.
+        // The second segment starts at 2.5 s (past the overlap) and
+        // should survive.
+        let seg2 = vec![
+            TimestampedSegment {
+                text: "this was already emitted".into(),
+                start_secs: 0.5,
+                end_secs: 2.0,
+            },
+            TimestampedSegment {
+                text: "this is fresh content".into(),
+                start_secs: 2.5,
+                end_secs: 5.0,
+            },
+        ];
+        let r2 = mgr
+            .add_chunk_with_overlap(
+                "time",
+                "this was already emitted this is fresh content",
+                5.0,
+                2.0,
+                seg2,
+            )
+            .unwrap();
+
+        assert_eq!(r2.text, "this is fresh content");
+
+        let acc = mgr.get_session_text("time").unwrap();
+        assert!(
+            !acc.contains("already emitted"),
+            "overlap segment leaked into transcript: {acc}"
+        );
+        assert!(acc.contains("fresh content"));
+
+        let (_text, _dur, segs) = mgr.finish("time").unwrap();
+        assert_eq!(segs.len(), 2);
+    }
+
+    #[test]
+    fn test_time_based_gating_zero_overlap_first_chunk() {
+        // First chunk is never gated even when overlap is set,
+        // because there is nothing to overlap with.
+        use crate::TimestampedSegment;
+
+        let mut mgr = SessionManager::new();
+        mgr.start("first").unwrap();
+
+        let seg = vec![TimestampedSegment {
+            text: "early content".into(),
+            start_secs: 0.5,
+            end_secs: 2.0,
+        }];
+        let r = mgr
+            .add_chunk_with_overlap("first", "early content", 4.0, 2.0, seg)
+            .unwrap();
+
+        assert_eq!(r.text, "early content");
     }
 
     #[test]
