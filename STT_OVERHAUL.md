@@ -31,7 +31,7 @@ Branch: `stt-pipeline-overhaul`. Working doc — delete on merge.
       non-AXUIElement) with `CFGetTypeID == AXUIElementGetTypeID()`
       guards.
 
-## Major — 12 fixed, 1 deferred with rationale
+## Major — 13/13 fixed ✅
 
 - [x] **M5** −6 dB per-source mixing headroom in `MeetingSessionService`
       so mic + system audio doesn't clip when both speakers are loud.
@@ -87,15 +87,16 @@ Branch: `stt-pipeline-overhaul`. Working doc — delete on merge.
       `SileroVad` ONNX implementation; dropping it in is now a
       one-file change rather than a re-architecture.
 
-### Deferred
-
-- [ ] **M1** NeMo middle-token merging. Our segment-level dedup (C4)
-      already addresses the off-by-one and segment-misalignment bugs
-      that motivated this. The full middle-token approach with
-      `[left_ctx, left_ctx + chunk_len]` token gating is a research
-      project requiring per-token alignment exposure from `parakeet-rs`
-      (which currently surfaces only sentence-level segments). Track
-      as future work; not blocking correctness.
+- [x] **M1** Time-based middle-token merging.
+      `SessionManager::add_chunk_with_overlap` + `Engine::process_chunk_with_overlap`
+      now accept the overlap window in seconds and drop any STT
+      segment whose start falls inside it. This is exact and
+      deterministic — no string-matching heuristics. MeetingSessionService
+      passes `overlapDurationSecs` (2.0) for every chunk after the
+      first, so meeting mode now uses the authoritative path.
+      The text-based segment dedup (C4) stays as the fallback for
+      callers that don't know the overlap (e.g. PTT) and as a safety
+      net even on the new path.
 
 ## Minor — 11/11 closed (8 fixed, 3 verified-not-bugs)
 
@@ -154,7 +155,8 @@ Branch: `stt-pipeline-overhaul`. Working doc — delete on merge.
 n_mels=128, n_fft=512, win_length=400, hop_length=160, hann, preemph=0.97, log-mel, per-feature mean/var norm, 8× temporal subsampling → 80 ms frame stride.
 
 ## Test status
-- `cargo test -p parakatt-core --lib`: 60 passed (was 52 baseline; added
-  C4 regression tests + 8 EnergyVad tests, removed obsolete
-  normalize/noise-gate tests).
+- `cargo test -p parakatt-core --lib`: 62 passed (was 52 baseline;
+  added C4 segment-dedup regression tests, 8 EnergyVad tests, and
+  2 time-based overlap gating tests; removed obsolete normalize /
+  noise-gate tests).
 - `make build` (Xcode Debug): clean.
