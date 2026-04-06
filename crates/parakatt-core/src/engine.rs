@@ -12,7 +12,9 @@ use crate::models;
 use crate::modes;
 use crate::session::{ChunkResult, SessionManager};
 use crate::storage::{Storage, StoredTranscription, TranscriptionQuery};
+use crate::stt::nemotron::NemotronProvider;
 use crate::stt::parakeet::ParakeetProvider;
+use crate::stt::streaming::{StreamingProvider, StreamingSession};
 use crate::stt::SttProvider;
 use crate::{
     AppContext, CoreError, EngineConfig, HotkeyConfig, ModeConfig, ModelInfo, ReplacementRule,
@@ -26,11 +28,13 @@ use crate::{
 /// When acquiring multiple Mutexes, always follow this order to prevent deadlocks:
 ///   1. `config`
 ///   2. `stt`
-///   3. `llm`
-///   4. `dictionary`
-///   5. `sessions`
-///   6. `storage`
-///   7. `download_progress`
+///   3. `streaming`
+///   4. `streaming_sessions`
+///   5. `llm`
+///   6. `dictionary`
+///   7. `sessions`
+///   8. `storage`
+///   9. `download_progress`
 ///
 /// Drop locks as soon as possible — especially before network I/O (e.g., `llm`).
 #[derive(uniffi::Object)]
@@ -38,7 +42,15 @@ pub struct Engine {
     models_dir: PathBuf,
     config_dir: PathBuf,
     config: Mutex<Config>,
+    /// Offline / commit-path STT (currently Parakeet TDT v3).
     stt: Mutex<Option<Box<dyn SttProvider>>>,
+    /// Cache-aware streaming STT used for the live preview path
+    /// (currently Nemotron). Independent of `stt` — both can be
+    /// loaded at the same time, neither is required.
+    streaming: Mutex<Option<Box<dyn StreamingProvider>>>,
+    /// Active streaming sessions keyed by Swift-supplied session id.
+    /// Each session owns its own per-recording cache state.
+    streaming_sessions: Mutex<std::collections::HashMap<String, Box<dyn StreamingSession>>>,
     llm: Mutex<Option<Arc<dyn LlmProvider>>>,
     dictionary: Mutex<Dictionary>,
     download_progress: Arc<Mutex<DownloadProgress>>,
@@ -82,6 +94,8 @@ impl Engine {
             config_dir: config_dir.clone(),
             config: Mutex::new(config),
             stt: Mutex::new(None),
+            streaming: Mutex::new(None),
+            streaming_sessions: Mutex::new(std::collections::HashMap::new()),
             llm: Mutex::new(None),
             dictionary: Mutex::new(dictionary),
             download_progress: Arc::new(Mutex::new(DownloadProgress::idle())),
@@ -156,8 +170,25 @@ impl Engine {
     }
 
     /// Load an STT model by ID.
+    ///
+    /// Routes to the right provider type based on the model id:
+    ///   - `parakeet-*` → offline TDT, sets `self.stt`
+    ///   - `nemotron-*` → cache-aware streaming, sets `self.streaming`
+    ///
+    /// Both can be loaded simultaneously — the engine uses `stt` for
+    /// the commit path and `streaming` for the live preview path.
     pub fn load_model(&self, model_id: &str) -> Result<(), CoreError> {
         let model_path = models::model_path(&self.models_dir, model_id);
+
+        if model_id.starts_with("nemotron-") {
+            let provider = NemotronProvider::new(&model_path, model_id)?;
+            let mut streaming_guard = self.streaming.lock().map_err(|e| {
+                CoreError::ModelLoadFailed(format!("Streaming lock poisoned: {e}"))
+            })?;
+            *streaming_guard = Some(Box::new(provider));
+            log::info!("Streaming provider registered: {}", model_id);
+            return Ok(());
+        }
 
         // model_path is a directory for Parakeet models
         let provider: Box<dyn SttProvider> = if model_id.starts_with("parakeet-") {
@@ -189,6 +220,102 @@ impl Engine {
     pub fn unload_model(&self) {
         if let Ok(mut guard) = self.stt.lock() {
             *guard = None;
+        }
+    }
+
+    /// Whether a cache-aware streaming model (e.g. Nemotron) is
+    /// loaded. The Swift side uses this to decide whether to spawn
+    /// the live-preview worker thread.
+    pub fn is_streaming_model_loaded(&self) -> bool {
+        self.streaming
+            .lock()
+            .map(|g| g.as_ref().is_some_and(|p| p.is_loaded()) || g.is_some())
+            .unwrap_or(false)
+    }
+
+    /// Native chunk size in samples for the loaded streaming model,
+    /// or 0 if no streaming model is loaded.
+    pub fn streaming_native_chunk_samples(&self) -> u32 {
+        self.streaming
+            .lock()
+            .map(|g| g.as_ref().map(|p| p.native_chunk_samples() as u32).unwrap_or(0))
+            .unwrap_or(0)
+    }
+
+    // ----- Streaming session API (live preview path) -----
+
+    /// Open a new streaming preview session for the given session id.
+    /// Caller should pair this with [`finish_streaming_session`] or
+    /// [`cancel_streaming_session`] to release model state.
+    pub fn start_streaming_session(&self, session_id: String) -> Result<(), CoreError> {
+        let streaming_guard = self
+            .streaming
+            .lock()
+            .map_err(|e| CoreError::TranscriptionFailed(format!("Streaming lock poisoned: {e}")))?;
+        let provider = streaming_guard.as_ref().ok_or_else(|| {
+            CoreError::TranscriptionFailed("No streaming model loaded".into())
+        })?;
+        let session = provider.start_session()?;
+        drop(streaming_guard);
+
+        let mut sessions_guard = self.streaming_sessions.lock().map_err(|e| {
+            CoreError::TranscriptionFailed(format!("Streaming sessions lock poisoned: {e}"))
+        })?;
+        if sessions_guard.contains_key(&session_id) {
+            return Err(CoreError::TranscriptionFailed(format!(
+                "Streaming session already exists: {session_id}"
+            )));
+        }
+        sessions_guard.insert(session_id, session);
+        Ok(())
+    }
+
+    /// Feed a chunk of 16 kHz mono audio to a streaming session.
+    /// Returns the FULL running transcript so the Swift side can
+    /// hand it directly to LocalAgreement-2 for the commit policy.
+    pub fn feed_streaming_chunk(
+        &self,
+        session_id: String,
+        audio_samples: Vec<f32>,
+    ) -> Result<String, CoreError> {
+        let mut sessions_guard = self.streaming_sessions.lock().map_err(|e| {
+            CoreError::TranscriptionFailed(format!("Streaming sessions lock poisoned: {e}"))
+        })?;
+        let session = sessions_guard.get_mut(&session_id).ok_or_else(|| {
+            CoreError::TranscriptionFailed(format!("Streaming session not found: {session_id}"))
+        })?;
+        session.feed_chunk(&audio_samples)?;
+        Ok(session.current_transcript())
+    }
+
+    /// Reset a streaming session in place (new utterance, same handle).
+    pub fn reset_streaming_session(&self, session_id: String) -> Result<(), CoreError> {
+        let mut sessions_guard = self.streaming_sessions.lock().map_err(|e| {
+            CoreError::TranscriptionFailed(format!("Streaming sessions lock poisoned: {e}"))
+        })?;
+        let session = sessions_guard.get_mut(&session_id).ok_or_else(|| {
+            CoreError::TranscriptionFailed(format!("Streaming session not found: {session_id}"))
+        })?;
+        session.reset();
+        Ok(())
+    }
+
+    /// Close and discard a streaming session, returning the final
+    /// transcript that was accumulated.
+    pub fn finish_streaming_session(&self, session_id: String) -> Result<String, CoreError> {
+        let mut sessions_guard = self.streaming_sessions.lock().map_err(|e| {
+            CoreError::TranscriptionFailed(format!("Streaming sessions lock poisoned: {e}"))
+        })?;
+        let session = sessions_guard.remove(&session_id).ok_or_else(|| {
+            CoreError::TranscriptionFailed(format!("Streaming session not found: {session_id}"))
+        })?;
+        Ok(session.current_transcript())
+    }
+
+    /// Cancel a streaming session without returning text.
+    pub fn cancel_streaming_session(&self, session_id: String) {
+        if let Ok(mut g) = self.streaming_sessions.lock() {
+            g.remove(&session_id);
         }
     }
 
