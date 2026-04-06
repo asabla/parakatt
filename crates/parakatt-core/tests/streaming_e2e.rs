@@ -234,11 +234,11 @@ fn t5_empty_hypotheses_leave_committed_unchanged() {
     }
 
     // Speech resumes — new tokens land.
-    let rN = engine
+    let resume = engine
         .feed_streaming_chunk("s1".into(), vec![0.0; 8000])
         .unwrap();
-    assert_eq!(rN.committed_text, "hello world");
-    assert_eq!(rN.tentative_text, "more text");
+    assert_eq!(resume.committed_text, "hello world");
+    assert_eq!(resume.tentative_text, "more text");
 }
 
 #[test]

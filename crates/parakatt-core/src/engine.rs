@@ -1247,6 +1247,11 @@ impl Engine {
 
     /// Variant of `process_chunk` that takes an explicit overlap
     /// region. See [`SessionManager::add_chunk_with_overlap`].
+    /// (8 args is over clippy's default 7 limit; allowed because
+    /// these all map directly to the FFI surface and bundling
+    /// them into a struct would churn the Swift caller for no
+    /// functional gain.)
+    #[allow(clippy::too_many_arguments)]
     pub fn process_chunk_with_overlap(
         &self,
         session_id: String,
