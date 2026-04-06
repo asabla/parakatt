@@ -1,6 +1,6 @@
 # Parakatt
 
-Local-first voice-to-text transcription for macOS. Lives in your menu bar, transcribes speech using [NVIDIA Parakeet](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx) running entirely on-device, and pastes the result into whatever app you're using.
+Local-first voice-to-text transcription for macOS. Lives in your menu bar, transcribes speech using [NVIDIA Parakeet](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx) running entirely on-device, and pastes the result into whatever app you're using.
 
 ## Features
 

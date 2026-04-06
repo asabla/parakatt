@@ -7,7 +7,7 @@ auto_paste = true
 show_overlay = true
 
 [stt]
-active_model = "parakeet-tdt-0.6b-v2"
+active_model = "parakeet-tdt-0.6b-v3"
 
 [llm]
 # Uncomment and configure one of the following providers:

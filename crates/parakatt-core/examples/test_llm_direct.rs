@@ -77,7 +77,7 @@ fn main() {
 
     // Load STT model
     engine
-        .load_model("parakeet-tdt-0.6b-v2")
+        .load_model("parakeet-tdt-0.6b-v3")
         .expect("STT model load failed");
 
     // Generate audio with intentionally sloppy speech

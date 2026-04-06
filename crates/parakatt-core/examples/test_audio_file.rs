@@ -57,7 +57,7 @@ fn main() {
     .expect("Engine creation failed");
 
     engine
-        .load_model("parakeet-tdt-0.6b-v2")
+        .load_model("parakeet-tdt-0.6b-v3")
         .expect("Model load failed");
 
     // Transcribe

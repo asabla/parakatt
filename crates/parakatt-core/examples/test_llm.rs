@@ -127,14 +127,14 @@ fn test_llm_with_provider(
 
     // Load STT model if available
     let has_stt = std::path::Path::new(models_dir)
-        .join("parakeet-tdt-0.6b-v2")
+        .join("parakeet-tdt-0.6b-v3")
         .join("vocab.txt")
         .exists();
 
     if has_stt {
         eprintln!("\n--- Test A: Full pipeline (STT → LLM) ---");
         engine
-            .load_model("parakeet-tdt-0.6b-v2")
+            .load_model("parakeet-tdt-0.6b-v3")
             .expect("Model load failed");
 
         // Generate TTS audio for testing

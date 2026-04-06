@@ -96,7 +96,7 @@ pub struct SttConfig {
 impl Default for SttConfig {
     fn default() -> Self {
         Self {
-            active_model: Some("parakeet-tdt-0.6b-v2".to_string()),
+            active_model: Some("parakeet-tdt-0.6b-v3".to_string()),
         }
     }
 }
@@ -312,7 +312,7 @@ mod tests {
         assert_eq!(deserialized.general.active_mode, "dictation");
         assert_eq!(
             deserialized.stt.active_model,
-            Some("parakeet-tdt-0.6b-v2".to_string())
+            Some("parakeet-tdt-0.6b-v3".to_string())
         );
     }
 
