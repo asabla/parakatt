@@ -46,7 +46,7 @@ impl SttProvider for ParakeetProvider {
     fn transcribe(
         &self,
         audio: &[f32],
-        _sample_rate: u32,
+        sample_rate: u32,
     ) -> Result<TranscriptionResult, CoreError> {
         let start = std::time::Instant::now();
 
@@ -55,7 +55,7 @@ impl SttProvider for ParakeetProvider {
         })?;
 
         let result = model
-            .transcribe_samples(audio.to_vec(), 16000, 1, Some(TimestampMode::Sentences))
+            .transcribe_samples(audio.to_vec(), sample_rate, 1, Some(TimestampMode::Sentences))
             .map_err(|e| {
                 CoreError::TranscriptionFailed(format!("Parakeet transcription failed: {e}"))
             })?;
