@@ -241,11 +241,18 @@ class CoreBridge {
     /// Process one audio chunk within a session.
     /// Dictionary + LLM processing is applied per-chunk to avoid
     /// accumulating a huge transcript for the LLM at session end.
+    ///
+    /// `chunkOverlapSecs` lets the caller declare how many seconds at
+    /// the start of `audioSamples` are a re-encoding of audio the
+    /// previous chunk already covered. Pass > 0 to use the
+    /// authoritative time-based dedup (NeMo middle-token style),
+    /// pass 0 to fall back to text-based dedup.
     func processChunk(
         sessionId: String,
         audioSamples: [Float],
         sampleRate: UInt32,
         chunkIndex: UInt32,
+        chunkOverlapSecs: Double = 0.0,
         mode: String,
         context: AppContextInfo?
     ) throws -> ChunkResult {
@@ -255,6 +262,17 @@ class CoreBridge {
                 appName: $0.appName,
                 selectedText: $0.selectedText,
                 windowTitle: $0.windowTitle
+            )
+        }
+        if chunkOverlapSecs > 0.0 {
+            return try engine.processChunkWithOverlap(
+                sessionId: sessionId,
+                audioSamples: audioSamples,
+                sampleRate: sampleRate,
+                chunkIndex: chunkIndex,
+                chunkOverlapSecs: chunkOverlapSecs,
+                mode: mode,
+                context: ctx
             )
         }
         return try engine.processChunk(

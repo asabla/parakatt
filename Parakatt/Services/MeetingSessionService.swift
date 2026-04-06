@@ -337,11 +337,18 @@ class MeetingSessionService {
             guard let self, self.isActive || currentIndex == self.chunkIndex - 1 else { return }
 
             do {
+                // Chunk N (N > 0) carries the previous chunk's last
+                // `overlapDurationSecs` of audio at its head — pass
+                // that as the overlap window so Rust can apply
+                // time-based middle-token merging instead of falling
+                // back to text matching.
+                let chunkOverlap = currentIndex > 0 ? self.overlapDurationSecs : 0.0
                 let result = try self.bridge.processChunk(
                     sessionId: self.sessionId,
                     audioSamples: chunkSamples,
                     sampleRate: self.sampleRate,
                     chunkIndex: currentIndex,
+                    chunkOverlapSecs: chunkOverlap,
                     mode: self.activeMode,
                     context: self.activeContext
                 )

@@ -843,12 +843,41 @@ impl Engine {
     /// The audio is preprocessed, transcribed via STT, dictionary + LLM
     /// processed per-chunk, then stitched into the session's accumulated
     /// transcript with overlap deduplication.
+    ///
+    /// `chunk_overlap_secs` tells the dedup pipeline how many seconds
+    /// at the start of `audio_samples` are a re-encoding of audio the
+    /// previous chunk already covered. When > 0 the session uses
+    /// time-based segment gating (NeMo middle-token merging style)
+    /// instead of text matching. Pass 0 if the caller doesn't know.
     pub fn process_chunk(
         &self,
         session_id: String,
         audio_samples: Vec<f32>,
         sample_rate: u32,
         _chunk_index: u32,
+        mode: String,
+        context: Option<AppContext>,
+    ) -> Result<ChunkResult, CoreError> {
+        self.process_chunk_with_overlap(
+            session_id,
+            audio_samples,
+            sample_rate,
+            _chunk_index,
+            0.0,
+            mode,
+            context,
+        )
+    }
+
+    /// Variant of `process_chunk` that takes an explicit overlap
+    /// region. See [`SessionManager::add_chunk_with_overlap`].
+    pub fn process_chunk_with_overlap(
+        &self,
+        session_id: String,
+        audio_samples: Vec<f32>,
+        sample_rate: u32,
+        _chunk_index: u32,
+        chunk_overlap_secs: f64,
         mode: String,
         context: Option<AppContext>,
     ) -> Result<ChunkResult, CoreError> {
@@ -900,10 +929,11 @@ impl Engine {
             .sessions
             .lock()
             .map_err(|e| CoreError::TranscriptionFailed(format!("Session lock poisoned: {e}")))?;
-        let mut chunk_result = mgr.add_chunk(
+        let mut chunk_result = mgr.add_chunk_with_overlap(
             &session_id,
             &chunk_text,
             chunk_duration_secs,
+            chunk_overlap_secs,
             stt_result.segments,
         )?;
         chunk_result.llm_error = llm_error;
