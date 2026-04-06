@@ -88,6 +88,7 @@ impl SttProvider for ParakeetProvider {
             duration_secs: duration.as_secs_f64(),
             provider_name: self.name().to_string(),
             segments,
+            llm_error: None,
         })
     }
 

@@ -177,9 +177,15 @@ class MeetingSessionService {
                 mode: activeMode,
                 context: activeContext
             )
-            accumulatedText = result.accumulatedText
+            // Pull the running accumulated text on demand instead of
+            // having Rust clone it on every chunk.
+            let acc = (try? bridge.getSessionText(sessionId: sessionId)) ?? accumulatedText
+            accumulatedText = acc
+            if let llmErr = result.llmError {
+                NSLog("[Parakatt] Final chunk %d LLM degraded (raw text used): %@", currentIndex, llmErr)
+            }
             DispatchQueue.main.async { [weak self] in
-                self?.onChunkTranscribed?(result.text, result.accumulatedText, result.segments)
+                self?.onChunkTranscribed?(result.text, acc, result.segments)
             }
             NSLog("[Parakatt] Final chunk %d processed: %d samples", currentIndex, chunkSamples.count)
         } catch {
@@ -316,9 +322,14 @@ class MeetingSessionService {
                     mode: self.activeMode,
                     context: self.activeContext
                 )
+                // Pull running accumulated text on demand.
+                let acc = (try? self.bridge.getSessionText(sessionId: self.sessionId)) ?? ""
+                if let llmErr = result.llmError {
+                    NSLog("[Parakatt] Chunk %d LLM degraded (raw text used): %@", currentIndex, llmErr)
+                }
                 DispatchQueue.main.async {
-                    self.accumulatedText = result.accumulatedText
-                    self.onChunkTranscribed?(result.text, result.accumulatedText, result.segments)
+                    self.accumulatedText = acc
+                    self.onChunkTranscribed?(result.text, acc, result.segments)
                 }
             } catch {
                 NSLog("[Parakatt] Chunk %d failed: %@", currentIndex, error.localizedDescription)

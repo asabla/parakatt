@@ -147,7 +147,7 @@ impl Engine {
         drop(dict_guard);
 
         // 4. LLM post-processing (if mode has a system prompt and LLM is configured)
-        self.apply_llm(&mut result.text, &mode, &ctx)?;
+        result.llm_error = self.apply_llm(&mut result.text, &mode, &ctx)?;
 
         // Auto-save to history.
         self.auto_save_transcription(&result, "push_to_talk", &mode, "mic", &ctx);
@@ -893,19 +893,21 @@ impl Engine {
 
         // Apply LLM post-processing per-chunk to avoid accumulating
         // a huge transcript that overwhelms the LLM at session end.
-        self.apply_llm(&mut chunk_text, &mode, &ctx)?;
+        let llm_error = self.apply_llm(&mut chunk_text, &mode, &ctx)?;
 
         // Stitch into session with overlap dedup.
         let mut mgr = self
             .sessions
             .lock()
             .map_err(|e| CoreError::TranscriptionFailed(format!("Session lock poisoned: {e}")))?;
-        mgr.add_chunk(
+        let mut chunk_result = mgr.add_chunk(
             &session_id,
             &chunk_text,
             chunk_duration_secs,
             stt_result.segments,
-        )
+        )?;
+        chunk_result.llm_error = llm_error;
+        Ok(chunk_result)
     }
 
     /// Finish a session and return the final result.
@@ -933,6 +935,7 @@ impl Engine {
             duration_secs,
             provider_name: "parakeet".to_string(),
             segments,
+            llm_error: None,
         };
 
         let ctx = context.unwrap_or_default();
@@ -1117,9 +1120,21 @@ impl Engine {
     /// Apply LLM post-processing to text if the mode has a system prompt and
     /// an LLM provider is configured. Includes a token guard to prevent
     /// sending excessively long text to the LLM.
-    fn apply_llm(&self, text: &mut String, mode: &str, ctx: &AppContext) -> Result<(), CoreError> {
+    ///
+    /// Returns:
+    /// - `Ok(None)` on success, or when LLM is not configured / not needed.
+    /// - `Ok(Some(msg))` if LLM was configured for this mode but all
+    ///   retries failed; `text` is left unchanged so the caller can
+    ///   surface the raw STT output to the user along with a warning.
+    /// - `Err(_)` only for unrecoverable internal errors (poisoned locks).
+    fn apply_llm(
+        &self,
+        text: &mut String,
+        mode: &str,
+        ctx: &AppContext,
+    ) -> Result<Option<String>, CoreError> {
         if text.trim().is_empty() {
-            return Ok(());
+            return Ok(None);
         }
 
         let config_guard = self
@@ -1136,12 +1151,12 @@ impl Engine {
 
         let mode_config = match modes::find_mode(&all_modes, mode) {
             Some(m) => m,
-            None => return Ok(()),
+            None => return Ok(None),
         };
 
         let base_prompt = match &mode_config.system_prompt {
             Some(p) => p.clone(),
-            None => return Ok(()),
+            None => return Ok(None),
         };
 
         let llm = {
@@ -1156,7 +1171,7 @@ impl Engine {
                         "Mode '{}' has a system prompt but no LLM provider is configured",
                         mode
                     );
-                    return Ok(());
+                    return Ok(None);
                 }
             }
         };
@@ -1251,9 +1266,10 @@ impl Engine {
         }
         if let Some(e) = last_error {
             log::warn!("LLM processing failed, using raw transcription: {e}");
+            return Ok(Some(e.to_string()));
         }
 
-        Ok(())
+        Ok(None)
     }
 
     /// Auto-save a transcription result to storage. Failures are logged, not propagated.
