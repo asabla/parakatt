@@ -290,6 +290,14 @@ class CoreBridge {
         )
     }
 
+    /// Get the running accumulated transcript for a session, on demand.
+    /// `processChunk` no longer returns it on every call to avoid the
+    /// per-chunk full-string clone; pull it via this when you actually
+    /// need to refresh a UI surface.
+    func getSessionText(sessionId: String) throws -> String {
+        try engine.getSessionText(sessionId: sessionId)
+    }
+
     /// Cancel and discard a session.
     func cancelSession(sessionId: String) {
         engine.cancelSession(sessionId: sessionId)

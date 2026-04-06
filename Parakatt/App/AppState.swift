@@ -1133,10 +1133,15 @@ class AppState: ObservableObject {
                     mode: mode,
                     context: context
                 )
+                // Pull the running accumulated text on demand instead of
+                // having Rust clone it on every chunk.
+                let acc = (try? bridge.getSessionText(sessionId: sessionId)) ?? ""
+                if let llmErr = result.llmError {
+                    NSLog("[Parakatt] PTT chunk %d LLM degraded (raw text used): %@", currentIndex, llmErr)
+                }
                 DispatchQueue.main.async {
                     if self.isRecording || self.isProcessing {
-                        let newAccumulated = result.accumulatedText.isEmpty
-                            ? nil : result.accumulatedText
+                        let newAccumulated = acc.isEmpty ? nil : acc
                         self.pttAccumulatedText = newAccumulated
                         // Immediately update live display to prevent flash/disappearance
                         // The streaming preview will append the tail on its next cycle

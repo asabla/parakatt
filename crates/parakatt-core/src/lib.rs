@@ -50,6 +50,10 @@ pub struct TranscriptionResult {
     pub provider_name: String,
     /// Sentence-level timestamp segments from STT.
     pub segments: Vec<TimestampedSegment>,
+    /// If the LLM post-processing step failed (after retries), this
+    /// holds the last error message and `text` is the raw STT output.
+    /// `None` means LLM either succeeded or wasn't configured for this mode.
+    pub llm_error: Option<String>,
 }
 
 /// Context about the currently focused application, passed from Swift.

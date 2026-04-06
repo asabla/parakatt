@@ -8,18 +8,26 @@ use std::collections::HashMap;
 use crate::{CoreError, TimestampedSegment};
 
 /// Result of processing a single audio chunk.
+///
+/// `accumulated_text` is intentionally not included — cloning the full
+/// transcript on every chunk was a measurable allocation hot path on
+/// long meetings. Callers that need the running transcript should call
+/// `Engine::get_session_text(session_id)` on demand, or maintain their
+/// own accumulator by appending `text` after each chunk.
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct ChunkResult {
     /// New text from this chunk (after overlap dedup).
     pub text: String,
     /// Zero-based index of this chunk.
     pub chunk_index: u32,
-    /// Accumulated full transcript so far.
-    pub accumulated_text: String,
     /// Sentence-level timestamp segments for this chunk.
     pub segments: Vec<TimestampedSegment>,
     /// Offset in seconds from session start for this chunk's timestamps.
     pub chunk_offset_secs: f64,
+    /// If LLM post-processing failed for this chunk (after retries),
+    /// this holds the last error message and `text` is the raw STT
+    /// output. `None` means LLM either succeeded or wasn't configured.
+    pub llm_error: Option<String>,
 }
 
 /// Number of sentences per paragraph in accumulated text.
@@ -234,9 +242,9 @@ impl SessionManager {
         Ok(ChunkResult {
             text: new_text,
             chunk_index,
-            accumulated_text: state.accumulated_text.clone(),
             segments,
             chunk_offset_secs,
+            llm_error: None,
         })
     }
 
@@ -433,7 +441,7 @@ mod tests {
         assert_eq!(r2.chunk_index, 1);
         assert_eq!(r2.text, "and here is chunk two");
         assert_eq!(
-            r2.accumulated_text,
+            mgr.get_session_text("test-1").unwrap(),
             "hello world this is chunk one\n\nand here is chunk two"
         );
         assert!((r2.chunk_offset_secs - 30.0).abs() < 0.01);
@@ -582,10 +590,12 @@ mod tests {
             start_secs: 0.0,
             end_secs: 2.0,
         }];
-        let r1 = mgr
-            .add_chunk("dedup-seg", "As you can see with the", 2.0, seg1)
+        mgr.add_chunk("dedup-seg", "As you can see with the", 2.0, seg1)
             .unwrap();
-        assert_eq!(r1.accumulated_text, "As you can see with the");
+        assert_eq!(
+            mgr.get_session_text("dedup-seg").unwrap(),
+            "As you can see with the"
+        );
 
         // Chunk 2 overlaps: STT reproduces the overlap words plus new content.
         let seg2 = vec![
@@ -600,23 +610,21 @@ mod tests {
                 end_secs: 5.0,
             },
         ];
-        let r2 = mgr
-            .add_chunk(
-                "dedup-seg",
-                "As you can see with the pasted text above there is a duplicate.",
-                5.0,
-                seg2,
-            )
-            .unwrap();
+        mgr.add_chunk(
+            "dedup-seg",
+            "As you can see with the pasted text above there is a duplicate.",
+            5.0,
+            seg2,
+        )
+        .unwrap();
 
         // The overlap segment should be skipped — no duplication.
+        let acc = mgr.get_session_text("dedup-seg").unwrap();
         assert!(
-            !r2.accumulated_text
-                .contains("As you can see with the\n\nAs you can see with the"),
-            "Accumulated text should not contain duplicated overlap: {}",
-            r2.accumulated_text
+            !acc.contains("As you can see with the\n\nAs you can see with the"),
+            "Accumulated text should not contain duplicated overlap: {acc}"
         );
-        assert!(r2.accumulated_text.contains("pasted text above"));
+        assert!(acc.contains("pasted text above"));
     }
 
     #[test]
@@ -675,12 +683,13 @@ mod tests {
             .unwrap();
 
         assert_eq!(r2.text, "nine ten eleven twelve");
+        let acc = mgr.get_session_text("misaligned").unwrap();
         assert!(
-            !r2.accumulated_text.contains("five six seven eight\n\nseven"),
-            "duplicated overlap leaked into transcript: {}",
-            r2.accumulated_text
+            !acc.contains("five six seven eight\n\nseven"),
+            "duplicated overlap leaked into transcript: {acc}"
         );
-        assert!(r2.accumulated_text.contains("nine ten"));
+        assert!(acc.contains("nine ten"));
+        let _ = r2;
 
         let (_text, _dur, segs) = mgr.finish("misaligned").unwrap();
         // 4 (chunk 1) + 2 surviving (chunk 2) = 6
