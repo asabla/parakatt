@@ -1372,6 +1372,23 @@ impl Engine {
 }
 
 impl Engine {
+    /// Test / integration hook: install a streaming provider directly
+    /// without going through `load_model`. Lets integration tests
+    /// inject a `ScriptedStreamingProvider` (or any other
+    /// `StreamingProvider`) to drive the streaming session pipeline
+    /// deterministically. NOT exported via UniFFI — Rust-only API.
+    pub fn install_streaming_provider(
+        &self,
+        provider: Box<dyn StreamingProvider>,
+    ) -> Result<(), CoreError> {
+        let mut g = self
+            .streaming
+            .lock()
+            .map_err(|e| CoreError::ModelLoadFailed(format!("Streaming lock poisoned: {e}")))?;
+        *g = Some(provider);
+        Ok(())
+    }
+
     /// Apply LLM post-processing to text if the mode has a system prompt and
     /// an LLM provider is configured. Includes a token guard to prevent
     /// sending excessively long text to the LLM.

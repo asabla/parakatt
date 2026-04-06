@@ -85,66 +85,216 @@ pub trait StreamingSession: Send + Any {
     fn reset(&mut self);
 }
 
+// =============================================================
+// Scriptable in-memory streaming provider used by integration
+// tests across the crate. Lives in the main module (not under
+// #[cfg(test)]) so it's reachable from `tests/*.rs` integration
+// files. Real builds never run a ScriptedStreamingProvider in
+// production code paths — it's only constructed by tests.
+// =============================================================
+
+use std::sync::Mutex;
+
+/// A streaming provider whose output is fully scripted by the test.
+/// Each `feed_chunk` call advances an internal cursor through a
+/// pre-set list of "hypotheses" — each hypothesis is the FULL
+/// running transcript that the model would have produced after that
+/// chunk. (This matches the way real cache-aware streaming models
+/// work: each chunk causes the model's accumulated output to be
+/// extended or revised.)
+///
+/// Configuration knobs:
+///   - `hypotheses`: ordered list of full transcripts, one per chunk
+///   - `feed_latency_ms`: artificial sleep inside `feed_chunk`
+///   - `error_at_chunk`: if `Some(n)`, the n-th feed_chunk returns Err
+///
+/// When chunks exceed the scripted list, the provider keeps emitting
+/// the LAST hypothesis indefinitely (simulating "no new audio").
+pub struct ScriptedStreamingProvider {
+    pub hypotheses: Vec<String>,
+    pub feed_latency_ms: u64,
+    pub error_at_chunk: Option<usize>,
+    pub native_chunk: usize,
+    pub name: String,
+}
+
+impl ScriptedStreamingProvider {
+    /// Build a provider with a fixed sequence of full-transcript
+    /// hypotheses. The Nth `feed_chunk` returns the Nth hypothesis
+    /// as the new running transcript.
+    pub fn new(hypotheses: Vec<&str>) -> Self {
+        Self {
+            hypotheses: hypotheses.into_iter().map(String::from).collect(),
+            feed_latency_ms: 0,
+            error_at_chunk: None,
+            native_chunk: 0,
+            name: "scripted-streaming".to_string(),
+        }
+    }
+
+    pub fn with_latency(mut self, ms: u64) -> Self {
+        self.feed_latency_ms = ms;
+        self
+    }
+
+    pub fn with_error_at(mut self, chunk: usize) -> Self {
+        self.error_at_chunk = Some(chunk);
+        self
+    }
+
+    pub fn with_native_chunk(mut self, samples: usize) -> Self {
+        self.native_chunk = samples;
+        self
+    }
+}
+
+impl StreamingProvider for ScriptedStreamingProvider {
+    fn start_session(&self) -> Result<Box<dyn StreamingSession>, CoreError> {
+        Ok(Box::new(ScriptedStreamingSession {
+            hypotheses: self.hypotheses.clone(),
+            feed_latency_ms: self.feed_latency_ms,
+            error_at_chunk: self.error_at_chunk,
+            cursor: Mutex::new(0),
+            transcript: Mutex::new(String::new()),
+        }))
+    }
+
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn is_loaded(&self) -> bool {
+        true
+    }
+
+    fn native_chunk_samples(&self) -> usize {
+        self.native_chunk
+    }
+}
+
+pub struct ScriptedStreamingSession {
+    hypotheses: Vec<String>,
+    feed_latency_ms: u64,
+    error_at_chunk: Option<usize>,
+    cursor: Mutex<usize>,
+    transcript: Mutex<String>,
+}
+
+impl StreamingSession for ScriptedStreamingSession {
+    fn feed_chunk(&mut self, _audio: &[f32]) -> Result<StreamChunkResult, CoreError> {
+        if self.feed_latency_ms > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(self.feed_latency_ms));
+        }
+
+        let mut cursor = self.cursor.lock().unwrap();
+        let chunk_index = *cursor;
+        *cursor += 1;
+
+        if let Some(err_at) = self.error_at_chunk {
+            if chunk_index == err_at {
+                return Err(CoreError::TranscriptionFailed(format!(
+                    "scripted error at chunk {chunk_index}"
+                )));
+            }
+        }
+
+        // Pick the scripted hypothesis (clamp to last entry once
+        // we've consumed the script).
+        let new_full = if self.hypotheses.is_empty() {
+            String::new()
+        } else if chunk_index < self.hypotheses.len() {
+            self.hypotheses[chunk_index].clone()
+        } else {
+            self.hypotheses
+                .last()
+                .cloned()
+                .unwrap_or_default()
+        };
+
+        // Compute delta vs the previous transcript.
+        let mut transcript = self.transcript.lock().unwrap();
+        let delta = if new_full.starts_with(&*transcript) {
+            new_full[transcript.len()..].trim_start().to_string()
+        } else {
+            // Hypothesis revision (shouldn't happen with monotonic
+            // streams but the test API supports it).
+            new_full.clone()
+        };
+        *transcript = new_full;
+
+        Ok(StreamChunkResult { text: delta })
+    }
+
+    fn current_transcript(&self) -> String {
+        self.transcript.lock().unwrap().clone()
+    }
+
+    fn reset(&mut self) {
+        *self.cursor.lock().unwrap() = 0;
+        self.transcript.lock().unwrap().clear();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// In-memory dummy provider used by other tests in the crate to
-    /// exercise the streaming pipeline without loading a real ONNX
-    /// model. Each `feed_chunk` returns a fake "tok-N" token where
-    /// N counts the chunks fed so far.
-    pub(crate) struct DummyStreamingProvider;
-
-    pub(crate) struct DummyStreamingSession {
-        pub fed_chunks: usize,
-        pub transcript: String,
-    }
-
-    impl StreamingProvider for DummyStreamingProvider {
-        fn start_session(&self) -> Result<Box<dyn StreamingSession>, CoreError> {
-            Ok(Box::new(DummyStreamingSession {
-                fed_chunks: 0,
-                transcript: String::new(),
-            }))
-        }
-        fn name(&self) -> &str {
-            "dummy"
-        }
-        fn is_loaded(&self) -> bool {
-            true
-        }
-        fn native_chunk_samples(&self) -> usize {
-            0
-        }
-    }
-
-    impl StreamingSession for DummyStreamingSession {
-        fn feed_chunk(&mut self, _audio: &[f32]) -> Result<StreamChunkResult, CoreError> {
-            self.fed_chunks += 1;
-            let tok = format!("tok-{}", self.fed_chunks);
-            if !self.transcript.is_empty() {
-                self.transcript.push(' ');
-            }
-            self.transcript.push_str(&tok);
-            Ok(StreamChunkResult { text: tok })
-        }
-        fn current_transcript(&self) -> String {
-            self.transcript.clone()
-        }
-        fn reset(&mut self) {
-            self.fed_chunks = 0;
-            self.transcript.clear();
-        }
+    #[test]
+    fn scripted_provider_emits_hypotheses_in_order() {
+        let p = ScriptedStreamingProvider::new(vec!["hello", "hello world", "hello world and more"]);
+        let mut s = p.start_session().unwrap();
+        assert_eq!(s.feed_chunk(&[]).unwrap().text, "hello");
+        assert_eq!(s.current_transcript(), "hello");
+        assert_eq!(s.feed_chunk(&[]).unwrap().text, "world");
+        assert_eq!(s.current_transcript(), "hello world");
+        assert_eq!(s.feed_chunk(&[]).unwrap().text, "and more");
+        assert_eq!(s.current_transcript(), "hello world and more");
     }
 
     #[test]
-    fn dummy_provider_lifecycle() {
-        let p = DummyStreamingProvider;
+    fn scripted_provider_clamps_past_end_of_script() {
+        let p = ScriptedStreamingProvider::new(vec!["one"]);
         let mut s = p.start_session().unwrap();
-        assert_eq!(s.feed_chunk(&[]).unwrap().text, "tok-1");
-        assert_eq!(s.feed_chunk(&[]).unwrap().text, "tok-2");
-        assert_eq!(s.current_transcript(), "tok-1 tok-2");
+        assert_eq!(s.feed_chunk(&[]).unwrap().text, "one");
+        // Past end → still returns "one" as the running transcript,
+        // delta is empty (no new tokens).
+        let r = s.feed_chunk(&[]).unwrap();
+        assert_eq!(r.text, "");
+        assert_eq!(s.current_transcript(), "one");
+    }
+
+    #[test]
+    fn scripted_provider_error_injection() {
+        let p = ScriptedStreamingProvider::new(vec!["a", "b", "c"]).with_error_at(1);
+        let mut s = p.start_session().unwrap();
+        assert!(s.feed_chunk(&[]).is_ok());
+        assert!(s.feed_chunk(&[]).is_err());
+        // Cursor still advanced past the error so the next call
+        // returns the next hypothesis.
+        assert!(s.feed_chunk(&[]).is_ok());
+    }
+
+    #[test]
+    fn scripted_provider_reset_rewinds_cursor() {
+        // Real streaming models emit a *growing full transcript*
+        // at each chunk, not isolated tokens — hypotheses must
+        // contain the cumulative text.
+        let p = ScriptedStreamingProvider::new(vec!["a", "a b"]);
+        let mut s = p.start_session().unwrap();
+        let _ = s.feed_chunk(&[]);
+        let _ = s.feed_chunk(&[]);
+        assert_eq!(s.current_transcript(), "a b");
         s.reset();
         assert_eq!(s.current_transcript(), "");
+        assert_eq!(s.feed_chunk(&[]).unwrap().text, "a");
+    }
+
+    #[test]
+    fn scripted_provider_with_latency_does_sleep() {
+        let p = ScriptedStreamingProvider::new(vec!["x"]).with_latency(10);
+        let mut s = p.start_session().unwrap();
+        let start = std::time::Instant::now();
+        let _ = s.feed_chunk(&[]);
+        assert!(start.elapsed().as_millis() >= 10);
     }
 }
