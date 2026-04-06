@@ -44,6 +44,23 @@ pub struct TimestampedSegment {
     pub end_secs: f64,
 }
 
+/// Output of one `feed_streaming_chunk` call.
+///
+/// Pre-baked by the LocalAgreement-2 commit policy on the Rust side
+/// so the UI doesn't have to re-implement it in Swift.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct StreamingChunkResult {
+    /// Full committed transcript so far. Stable — never revised.
+    pub committed_text: String,
+    /// The tail that hasn't reached LA-2 agreement yet. Render in
+    /// lighter style; this slice can change on every update.
+    pub tentative_text: String,
+    /// Just the tokens that became committed this call. Useful for
+    /// callers that want to do something on every "stable word"
+    /// event (e.g. typewriter UI animation, telemetry).
+    pub newly_committed_text: String,
+}
+
 /// Result of a transcription + optional LLM processing pipeline.
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct TranscriptionResult {
