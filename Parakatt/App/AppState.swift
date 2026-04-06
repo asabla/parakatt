@@ -386,7 +386,12 @@ class AppState: ObservableObject {
         // mic cold-start cost (which can be 2-5s after a few seconds
         // of inactivity). The pre-warm fills a 500ms ring that the
         // next startCapture() drains as pre-roll.
-        audioCaptureService?.prewarm()
+        //
+        // Bounded to a 20s warm window: if no new recording starts
+        // within that time the engine is torn down so the macOS
+        // orange mic indicator actually turns off. Successive
+        // dictations within the window stay warm (no cold-start).
+        audioCaptureService?.prewarm(windowSecs: 20)
         isCaptureDraining = false
 
         // Tear down the live preview session and grab its final
