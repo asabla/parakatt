@@ -10,6 +10,7 @@ pub mod modes;
 pub mod session;
 pub mod storage;
 pub mod stt;
+pub mod vad;
 
 uniffi::setup_scaffolding!();
 
