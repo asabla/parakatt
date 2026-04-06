@@ -363,6 +363,43 @@ class CoreBridge {
         engine.cancelStreamingSession(sessionId: sessionId)
     }
 
+    // MARK: - Buffered preview (Nemotron-absent fallback)
+    //
+    // When the cache-aware streaming model isn't loaded the live
+    // preview falls back to running Parakeet TDT on a growing audio
+    // tail every few hundred milliseconds. These calls pipe each
+    // pass through LocalAgreement-2 so the user STILL sees the
+    // committed/tentative split instead of a flickering raw
+    // transcript.
+
+    func bufferedPreviewStart(sessionId: String) throws {
+        try engine.bufferedPreviewStart(sessionId: sessionId)
+    }
+
+    func bufferedPreviewUpdate(
+        sessionId: String,
+        audioSamples: [Float],
+        sampleRate: UInt32
+    ) throws -> StreamingChunkResult {
+        try engine.bufferedPreviewUpdate(
+            sessionId: sessionId,
+            audioSamples: audioSamples,
+            sampleRate: sampleRate
+        )
+    }
+
+    func bufferedPreviewFinish(sessionId: String) throws -> String {
+        try engine.bufferedPreviewFinish(sessionId: sessionId)
+    }
+
+    func bufferedPreviewReset(sessionId: String) throws {
+        try engine.bufferedPreviewReset(sessionId: sessionId)
+    }
+
+    func bufferedPreviewCancel(sessionId: String) {
+        engine.bufferedPreviewCancel(sessionId: sessionId)
+    }
+
     /// Cancel and discard a session.
     func cancelSession(sessionId: String) {
         engine.cancelSession(sessionId: sessionId)
