@@ -16,7 +16,7 @@ fn config_dir() -> PathBuf {
 }
 
 fn has_parakeet_model() -> bool {
-    let dir = models_dir().join("parakeet-tdt-0.6b-v2");
+    let dir = models_dir().join("parakeet-tdt-0.6b-v3");
     dir.exists() && dir.join("tokenizer.json").exists()
 }
 
@@ -94,7 +94,7 @@ fn test_parakeet_transcription() {
 
     let engine = Engine::new(config).expect("Engine should initialize");
     engine
-        .load_model("parakeet-tdt-0.6b-v2")
+        .load_model("parakeet-tdt-0.6b-v3")
         .expect("Should load parakeet model");
 
     assert!(engine.is_model_loaded());
@@ -112,5 +112,5 @@ fn test_parakeet_transcription() {
         "Transcription: '{}' ({:.2}s)",
         result.text, result.duration_secs
     );
-    assert_eq!(result.provider_name, "parakeet-tdt-0.6b-v2");
+    assert_eq!(result.provider_name, "parakeet-tdt-0.6b-v3");
 }

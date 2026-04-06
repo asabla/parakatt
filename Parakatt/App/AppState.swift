@@ -87,9 +87,25 @@ class AppState: ObservableObject {
     private var isCaptureDraining = false
 
     /// Seconds before transitioning from single-shot preview to incremental chunking.
-    private let firstChunkDelaySecs: TimeInterval = 2.0
-    /// Chunk dispatch interval after the first chunk (30s chunk - 2s overlap).
-    private let pttChunkIntervalSecs: TimeInterval = 28.0
+    private let firstChunkDelaySecs: TimeInterval = 1.0
+    /// How often the dispatch timer wakes up. Each tick decides
+    /// whether the audio buffer is in a state where it should be
+    /// flushed as a chunk (see `dispatchPttChunk` for the policy).
+    /// Short interval keeps the loop responsive; the actual chunk
+    /// rate is gated by the policy, not the timer.
+    private let pttDispatchTickSecs: TimeInterval = 1.5
+    /// Minimum audio (in seconds) required before we'll dispatch
+    /// even an early chunk. Below this Parakeet's accuracy drops
+    /// noticeably and we waste a model call.
+    private let pttMinChunkSecs: Double = 2.0
+    /// Hard upper bound on chunk size — if the speaker hasn't paused
+    /// for this long we force-dispatch anyway so the user isn't
+    /// stuck waiting for a natural break.
+    private let pttMaxChunkSecs: Double = 12.0
+    /// Number of consecutive silent audio callbacks (~100 ms each)
+    /// that must have elapsed before we treat the current moment as
+    /// a "natural pause" and flush. ~5 callbacks ≈ 500 ms.
+    private let pttPauseSilenceCallbacks: Int = 5
 
     // MARK: - Engine bridge
 

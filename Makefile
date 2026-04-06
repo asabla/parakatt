@@ -116,16 +116,16 @@ run:
 run-detached:
 	@open "$$(xcodebuild -project Parakatt.xcodeproj -scheme Parakatt -configuration Debug -showBuildSettings 2>/dev/null | grep ' BUILT_PRODUCTS_DIR' | awk '{print $$NF}')/Parakatt.app"
 
-# Download the Parakeet TDT 0.6B v2 ONNX model (~2.5GB)
+# Download the Parakeet TDT 0.6B v3 multilingual ONNX model (~2.55GB)
 download-model:
-	@mkdir -p "$(HOME)/Library/Application Support/Parakatt/models/parakeet-tdt-0.6b-v2"
-	@echo "Downloading Parakeet TDT 0.6B v2 ONNX model..."
-	@cd "$(HOME)/Library/Application Support/Parakatt/models/parakeet-tdt-0.6b-v2" && \
-		curl -L -O "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx/resolve/main/vocab.txt" && \
-		curl -L -O "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx/resolve/main/decoder_joint-model.onnx" && \
-		curl -L -O "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx/resolve/main/encoder-model.onnx" && \
-		curl -L -O "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx/resolve/main/encoder-model.onnx.data"
-	@echo "Model downloaded to ~/Library/Application Support/Parakatt/models/parakeet-tdt-0.6b-v2/"
+	@mkdir -p "$(HOME)/Library/Application Support/Parakatt/models/parakeet-tdt-0.6b-v3"
+	@echo "Downloading Parakeet TDT 0.6B v3 ONNX model..."
+	@cd "$(HOME)/Library/Application Support/Parakatt/models/parakeet-tdt-0.6b-v3" && \
+		curl -L -O "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main/vocab.txt" && \
+		curl -L -O "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main/decoder_joint-model.onnx" && \
+		curl -L -O "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main/encoder-model.onnx" && \
+		curl -L -O "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main/encoder-model.onnx.data"
+	@echo "Model downloaded to ~/Library/Application Support/Parakatt/models/parakeet-tdt-0.6b-v3/"
 
 # Run the Parakeet integration test (requires model)
 test-integration:

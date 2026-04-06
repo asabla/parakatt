@@ -15,15 +15,8 @@ pub struct ModelFileSet {
 /// Get the download file set for a known model.
 pub fn model_file_set(model_id: &str) -> Option<ModelFileSet> {
     match model_id {
-        "parakeet-tdt-0.6b-v2" => Some(ModelFileSet {
-            repo_url: "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx/resolve/main",
-            files: &[
-                "vocab.txt",
-                "decoder_joint-model.onnx",
-                "encoder-model.onnx",
-                "encoder-model.onnx.data",
-            ],
-        }),
+        // Multilingual offline commit-path model. Default Parakatt
+        // model since the v2-deprecation overhaul.
         "parakeet-tdt-0.6b-v3" => Some(ModelFileSet {
             repo_url: "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main",
             files: &[
@@ -31,6 +24,17 @@ pub fn model_file_set(model_id: &str) -> Option<ModelFileSet> {
                 "decoder_joint-model.onnx",
                 "encoder-model.onnx",
                 "encoder-model.onnx.data",
+            ],
+        }),
+        // Cache-aware streaming model used for the live preview path
+        // (English only). See `crate::stt::nemotron` for usage.
+        "nemotron-speech-streaming-en-0.6b" => Some(ModelFileSet {
+            repo_url: "https://huggingface.co/altunenes/parakeet-rs/resolve/main/nemotron-speech-streaming-en-0.6b",
+            files: &[
+                "vocab.txt",
+                "encoder-model.onnx",
+                "encoder-model.onnx.data",
+                "decoder_joint-model.onnx",
             ],
         }),
         _ => None,
@@ -41,24 +45,30 @@ pub fn model_file_set(model_id: &str) -> Option<ModelFileSet> {
 pub fn available_models() -> Vec<ModelInfo> {
     vec![
         ModelInfo {
-            id: "parakeet-tdt-0.6b-v2".to_string(),
-            provider_type: "parakeet".to_string(),
-            display_name: "Parakeet TDT 0.6B v2 (English)".to_string(),
-            description: Some(
-                "NVIDIA Parakeet. Fast and accurate for English. Requires ONNX model files."
-                    .to_string(),
-            ),
-            size_bytes: 2_500_000_000, // ~2.5GB full precision
-            downloaded: false,
-        },
-        ModelInfo {
             id: "parakeet-tdt-0.6b-v3".to_string(),
             provider_type: "parakeet".to_string(),
             display_name: "Parakeet TDT 0.6B v3 (Multilingual)".to_string(),
             description: Some(
-                "NVIDIA Parakeet. 25 languages. Requires ONNX model files.".to_string(),
+                "NVIDIA Parakeet. 25 European languages, native punctuation, \
+                 reduced silence-hallucination training. Required for the \
+                 committed transcript path."
+                    .to_string(),
             ),
-            size_bytes: 2_500_000_000,
+            size_bytes: 2_550_000_000, // ~2.55 GB full precision
+            downloaded: false,
+        },
+        ModelInfo {
+            id: "nemotron-speech-streaming-en-0.6b".to_string(),
+            provider_type: "nemotron-streaming".to_string(),
+            display_name: "Nemotron Speech Streaming 0.6B (English live preview)".to_string(),
+            description: Some(
+                "NVIDIA cache-aware streaming Parakeet variant. Provides \
+                 sub-second live preview for English dictation. Optional — \
+                 if absent, the live preview falls back to the v3 commit \
+                 model with LocalAgreement-2."
+                    .to_string(),
+            ),
+            size_bytes: 1_200_000_000, // ~1.2 GB full precision
             downloaded: false,
         },
     ]
