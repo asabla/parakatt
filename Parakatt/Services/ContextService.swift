@@ -30,14 +30,16 @@ class ContextService {
 
         var focusedApp: AnyObject?
         if AXUIElementCopyAttributeValue(systemWide, kAXFocusedApplicationAttribute as CFString, &focusedApp) == .success,
-           let axApp = focusedApp as! AXUIElement? {
+           let axApp = focusedApp, CFGetTypeID(axApp) == AXUIElementGetTypeID() {
+            let axAppElement = axApp as! AXUIElement
 
             // Window title
             var focusedWindow: AnyObject?
-            if AXUIElementCopyAttributeValue(axApp, kAXFocusedWindowAttribute as CFString, &focusedWindow) == .success,
-               let axWindow = focusedWindow as! AXUIElement? {
+            if AXUIElementCopyAttributeValue(axAppElement, kAXFocusedWindowAttribute as CFString, &focusedWindow) == .success,
+               let axWindow = focusedWindow, CFGetTypeID(axWindow) == AXUIElementGetTypeID() {
+                let axWindowElement = axWindow as! AXUIElement
                 var title: AnyObject?
-                if AXUIElementCopyAttributeValue(axWindow, kAXTitleAttribute as CFString, &title) == .success,
+                if AXUIElementCopyAttributeValue(axWindowElement, kAXTitleAttribute as CFString, &title) == .success,
                    let titleStr = title as? String {
                     context.windowTitle = titleStr
                 }
@@ -47,9 +49,10 @@ class ContextService {
         // Selected text from focused element
         var focusedElement: AnyObject?
         if AXUIElementCopyAttributeValue(systemWide, kAXFocusedUIElementAttribute as CFString, &focusedElement) == .success,
-           let axElement = focusedElement as! AXUIElement? {
+           let axElement = focusedElement, CFGetTypeID(axElement) == AXUIElementGetTypeID() {
+            let axElementRef = axElement as! AXUIElement
             var selectedText: AnyObject?
-            if AXUIElementCopyAttributeValue(axElement, kAXSelectedTextAttribute as CFString, &selectedText) == .success,
+            if AXUIElementCopyAttributeValue(axElementRef, kAXSelectedTextAttribute as CFString, &selectedText) == .success,
                let text = selectedText as? String, !text.isEmpty {
                 context.selectedText = text
             }
