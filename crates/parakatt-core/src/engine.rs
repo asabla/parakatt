@@ -109,8 +109,9 @@ impl Engine {
         mode: String,
         context: Option<AppContext>,
     ) -> Result<TranscriptionResult, CoreError> {
-        // 1. Preprocess audio
+        // 1. Preprocess audio (validate sample rate, trim leading/trailing silence)
         let processed = crate::audio::preprocess(&audio_samples, sample_rate)?;
+        let leading_trim_secs = processed.leading_trim_secs;
 
         // 2. Run STT
         let stt_guard = self
@@ -122,7 +123,17 @@ impl Engine {
             .as_ref()
             .ok_or_else(|| CoreError::TranscriptionFailed("No STT model loaded".into()))?;
 
-        let mut result = stt.transcribe(&processed, sample_rate)?;
+        let mut result = stt.transcribe(&processed.samples, sample_rate)?;
+
+        // Shift segment timestamps so they reference the start of the
+        // *original* (un-trimmed) buffer rather than the trimmed waveform
+        // we actually fed into the model.
+        if leading_trim_secs > 0.0 {
+            for seg in result.segments.iter_mut() {
+                seg.start_secs += leading_trim_secs;
+                seg.end_secs += leading_trim_secs;
+            }
+        }
 
         // 3. Remove filler words (uh, um, mmm, etc.)
         result.text = crate::filler::remove_fillers(&result.text);
@@ -841,10 +852,14 @@ impl Engine {
         mode: String,
         context: Option<AppContext>,
     ) -> Result<ChunkResult, CoreError> {
-        // Preprocess audio (validate, trim silence, normalize).
-        let processed = crate::audio::preprocess(&audio_samples, sample_rate)?;
-
+        // Preprocess audio (validate sample rate, trim leading/trailing silence).
+        // The full original chunk duration is what advances the session
+        // timeline; the trimmed offset is how much we have to add back to
+        // STT-returned timestamps so they refer to the chunk's real time
+        // base instead of the trimmed buffer's time base.
         let chunk_duration_secs = audio_samples.len() as f64 / sample_rate as f64;
+        let processed = crate::audio::preprocess(&audio_samples, sample_rate)?;
+        let leading_trim_secs = processed.leading_trim_secs;
 
         // Run STT on this chunk.
         let stt_guard = self
@@ -854,8 +869,18 @@ impl Engine {
         let stt = stt_guard
             .as_ref()
             .ok_or_else(|| CoreError::TranscriptionFailed("No STT model loaded".into()))?;
-        let stt_result = stt.transcribe(&processed, sample_rate)?;
+        let mut stt_result = stt.transcribe(&processed.samples, sample_rate)?;
         drop(stt_guard);
+
+        // Shift segment timestamps so they reference the start of the
+        // *original* (un-trimmed) chunk, not the trimmed waveform that
+        // was actually fed into the model.
+        if leading_trim_secs > 0.0 {
+            for seg in stt_result.segments.iter_mut() {
+                seg.start_secs += leading_trim_secs;
+                seg.end_secs += leading_trim_secs;
+            }
+        }
 
         // Remove filler words and apply dictionary replacements per-chunk.
         let ctx = context.unwrap_or_default();
