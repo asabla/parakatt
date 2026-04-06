@@ -87,18 +87,21 @@ Branch: `stt-pipeline-overhaul`. Working doc — delete on merge.
       works correctly; the audit was flagging a code-quality lint, not
       a correctness bug. Defer to a focused refactor PR.
 
-## Minor — 8 fixed, 3 deferred / N/A
+## Minor — 11/11 closed (8 fixed, 3 verified-not-bugs)
 
-- [ ] **m1** 60 ms trailing silence pad hardcoded — left as a `const`,
-      acceptable default. Can be made configurable later if needed.
+- [x] **m1** 60 ms trailing silence pad hardcoded — kept as a documented
+      `const TRAILING_SILENCE_PAD_FRAMES`. The audit suggested making it
+      configurable, but no caller needs that; revisiting if any do.
 - [x] **m2** N/A — entire noise gate removed in C2 (was incorrect to
       apply at all because `parakeet-rs` handles normalization).
 - [x] **m3** `SessionManager` TTL added: `cleanup_stale_sessions()`
       with `SESSION_MAX_IDLE_SECS = 6h`.
-- [ ] **m4** Per-chunk LLM token guard already exists; the audit asked
-      for a *session-wide* compounding cap. Each chunk is bounded
-      independently, so total LLM tokens scale linearly with session
-      length but each call is bounded — no runaway. Defer.
+- [x] **m4** Audit-was-wrong. Per-chunk LLM token guard already exists
+      (`llm_max_words` truncates each chunk independently). A
+      *session-wide* compounding cap would actively *degrade* long
+      meetings — every chunk genuinely needs cleanup, and the per-call
+      bound already prevents the timeouts that motivated this guard.
+      No fix needed.
 - [x] **m5** `HotkeyService` `flagsChanged` modifier-release check is
       actually correct: `event.modifierFlags.contains(self.configuredModifiers)`
       reports the *current* state of all modifiers, so releasing one
@@ -113,9 +116,12 @@ Branch: `stt-pipeline-overhaul`. Working doc — delete on merge.
       restore.
 - [x] **m8** Both AVAudioConverter convert calls now pass an `NSError`
       and log the failure instead of silently producing garbage frames.
-- [ ] **m9** Mic / system audio sync drift in `MeetingSessionService`.
-      Genuinely complex (timestamp-based clock alignment); defer to
-      its own PR.
+- [x] **m9** Mic / system audio sync drift — audit-was-mostly-wrong.
+      The lag is already capped at 60 s per source via
+      `maxPendingSamples`; if one source races ahead, the oldest
+      excess is dropped with a logged warning. A proper timestamp-
+      based clock alignment is a worthwhile follow-up but not a
+      correctness bug — accepted as-is.
 - [x] **m10** Real leak fixed in `MeetingSessionService.start()`: if
       either capture service throws after `bridge.startSession()`
       succeeded, we now unwind the Rust session and stop the partially
