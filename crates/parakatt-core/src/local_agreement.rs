@@ -362,6 +362,65 @@ mod tests {
     }
 
     #[test]
+    fn shrinking_hypothesis_after_buffer_chunk_gets_stuck_without_reset() {
+        // Regression test: this is the "stuck after ~2 sentences"
+        // bug. The buffered preview LA-2 sees a long hypothesis,
+        // then the chunk pipeline consumes most of the audio
+        // leaving a much shorter buffer, and the next preview
+        // hypothesis is way shorter than the committed length.
+        // Without reset() between, LA-2 commits NOTHING new and
+        // the user appears stuck.
+        let mut la = LocalAgreement2::new();
+        // Pass 1+2 establish the long committed prefix.
+        la.update(tokens(&["the", "quick", "brown", "fox", "jumps", "over"]));
+        let r2 = la.update(tokens(&["the", "quick", "brown", "fox", "jumps", "over"]));
+        assert_eq!(r2.newly_committed.len(), 6, "first round should commit all 6");
+        assert_eq!(la.committed_text(), "the quick brown fox jumps over");
+
+        // Now the chunk fires, consumes most audio, leaves overlap.
+        // The next preview pass on the short buffer says "jumps over"
+        // (the overlap region only). Without reset, LA-2 still has
+        // 6 tokens committed and won't budge until the new
+        // hypothesis grows past 6 tokens.
+        let r3 = la.update(tokens(&["jumps", "over"]));
+        assert!(r3.newly_committed.is_empty(), "should not commit anything new on shrunk hypothesis");
+        assert!(r3.tentative.is_empty(), "tentative is empty because curr is shorter than committed");
+        // LA-2 is now stuck — committed_text is still the old
+        // long prefix and the new hypothesis can't add anything.
+        // The user would see the old committed text frozen.
+        assert_eq!(la.committed_text(), "the quick brown fox jumps over");
+
+        // Even adding more new audio doesn't help until we exceed
+        // the committed length:
+        let r4 = la.update(tokens(&["jumps", "over", "lazy"]));
+        assert!(r4.newly_committed.is_empty(), "still stuck — 3 new tokens < 6 committed");
+        assert!(r4.tentative.is_empty());
+    }
+
+    #[test]
+    fn reset_unsticks_a_shrunk_hypothesis_session() {
+        // The fix: caller must reset() when the underlying audio
+        // window changes (e.g. after a chunk consumes audio).
+        let mut la = LocalAgreement2::new();
+        la.update(tokens(&["one", "two", "three", "four"]));
+        la.update(tokens(&["one", "two", "three", "four"]));
+        assert_eq!(la.committed_text(), "one two three four");
+
+        // Caller knows the buffer just shrank → reset.
+        la.reset();
+        assert_eq!(la.committed_text(), "");
+
+        // Now LA-2 starts fresh on the new short hypothesis.
+        let r1 = la.update(tokens(&["three", "four"]));
+        assert!(r1.newly_committed.is_empty(), "first pass after reset commits nothing");
+        assert_eq!(r1.tentative.len(), 2);
+
+        let r2 = la.update(tokens(&["three", "four", "five"]));
+        assert_eq!(r2.newly_committed.len(), 2);
+        assert_eq!(la.committed_text(), "three four");
+    }
+
+    #[test]
     fn shrinking_hypothesis_does_not_panic() {
         // Pathological: pass 2 returns FEWER tokens than pass 1.
         // (Can happen if the buffer head was advanced.) The committed

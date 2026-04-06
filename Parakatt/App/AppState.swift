@@ -1288,6 +1288,19 @@ class AppState: ObservableObject {
         }
         audioBufferLock.unlock()
 
+        // The audio buffer just shrank — the buffered preview's
+        // LA-2 is now operating on a shorter hypothesis than its
+        // committed prefix, which would freeze the preview ("stuck
+        // after ~2 sentences" bug). Reset the LA-2 state and the
+        // gate watermark so the preview starts fresh on the new
+        // (shorter) tail. The committed text we want the user to
+        // see across chunk boundaries is `pttAccumulatedText`,
+        // which is updated when the chunk processing returns.
+        lastStreamingSampleCount = 0
+        if let bpId = bufferedPreviewSessionId {
+            try? bridge?.bufferedPreviewReset(sessionId: bpId)
+        }
+
         let currentIndex = pttChunkIndex
         pttChunkIndex += 1
         let context = contextService?.currentContext()
@@ -1391,11 +1404,23 @@ class AppState: ObservableObject {
         // matter. Without this, every 2 s of silence after speech
         // would re-decode the exact same waveform and surface a
         // flickering "alternate" decoding to the user.
-        let newSamples = snapshot.count - lastStreamingSampleCount
-        if lastStreamingSampleCount > 0 && newSamples < minNewSamplesForRestream {
-            return
+        //
+        // Special case: if the buffer SHRANK since the last pass
+        // (a chunk fired and consumed audio) we always run the
+        // preview — there's a fresh tail to look at. The chunk
+        // dispatch path resets `lastStreamingSampleCount` to 0
+        // when it consumes audio so we hit this branch by length
+        // comparison even if the new buffer is small.
+        if snapshot.count < lastStreamingSampleCount {
+            // Buffer shrank — fresh window, allow this pass.
+            lastStreamingSampleCount = snapshot.count
+        } else {
+            let newSamples = snapshot.count - lastStreamingSampleCount
+            if lastStreamingSampleCount > 0 && newSamples < minNewSamplesForRestream {
+                return
+            }
+            lastStreamingSampleCount = snapshot.count
         }
-        lastStreamingSampleCount = snapshot.count
 
         // Limit snapshot to last 30 seconds to avoid OOM on very long recordings
         let maxSamples = 30 * 16000
@@ -1431,17 +1456,39 @@ class AppState: ObservableObject {
                 )
                 DispatchQueue.main.async {
                     if self.isRecording {
-                        // The buffered preview path now drives the
-                        // same @Published surfaces as the streaming
-                        // path. The overlay's two-style display
-                        // picks them up automatically.
-                        self.livePreviewCommitted = result.committedText
+                        // Compose the display text. Three sources:
+                        //   1. pttAccumulatedText: text already
+                        //      committed by the chunk pipeline
+                        //      (everything finalized in past chunks)
+                        //   2. result.committedText: LA-2 stable
+                        //      prefix from THIS preview window
+                        //      (current unprocessed tail)
+                        //   3. result.tentativeText: LA-2 unstable
+                        //      tail (might still revise)
+                        //
+                        // Concatenate (1) + (2) into the committed
+                        // surface and put (3) into tentative. The
+                        // overlay's two-style display reads both.
+                        let chunkPrefix = self.pttAccumulatedText ?? ""
+                        let committedFull: String
+                        if chunkPrefix.isEmpty {
+                            committedFull = result.committedText
+                        } else if result.committedText.isEmpty {
+                            committedFull = chunkPrefix
+                        } else {
+                            committedFull = "\(chunkPrefix) \(result.committedText)"
+                        }
+                        self.livePreviewCommitted = committedFull
                         self.livePreviewTentative = result.tentativeText
-                        let display = result.tentativeText.isEmpty
-                            ? result.committedText
-                            : (result.committedText.isEmpty
-                                ? result.tentativeText
-                                : "\(result.committedText) \(result.tentativeText)")
+
+                        let display: String
+                        if result.tentativeText.isEmpty {
+                            display = committedFull
+                        } else if committedFull.isEmpty {
+                            display = result.tentativeText
+                        } else {
+                            display = "\(committedFull) \(result.tentativeText)"
+                        }
                         self.liveTranscription = display.isEmpty ? nil : display
                     }
                 }
