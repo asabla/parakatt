@@ -8,9 +8,9 @@ use crate::config::Config;
 use crate::dictionary::Dictionary;
 use crate::download::{DownloadProgress, DownloadState};
 use crate::llm::{LlmProvider, LlmRequest};
+use crate::local_agreement::{LocalAgreement2, Token};
 use crate::models;
 use crate::modes;
-use crate::local_agreement::{LocalAgreement2, Token};
 use crate::session::{ChunkResult, SessionManager};
 use crate::storage::{Storage, StoredTranscription, TranscriptionQuery};
 use crate::stt::nemotron::NemotronProvider;
@@ -201,9 +201,10 @@ impl Engine {
 
         if model_id.starts_with("nemotron-") {
             let provider = NemotronProvider::new(&model_path, model_id)?;
-            let mut streaming_guard = self.streaming.lock().map_err(|e| {
-                CoreError::ModelLoadFailed(format!("Streaming lock poisoned: {e}"))
-            })?;
+            let mut streaming_guard = self
+                .streaming
+                .lock()
+                .map_err(|e| CoreError::ModelLoadFailed(format!("Streaming lock poisoned: {e}")))?;
             *streaming_guard = Some(Box::new(provider));
             log::info!("Streaming provider registered: {}", model_id);
             return Ok(());
@@ -273,7 +274,11 @@ impl Engine {
     pub fn streaming_native_chunk_samples(&self) -> u32 {
         self.streaming
             .lock()
-            .map(|g| g.as_ref().map(|p| p.native_chunk_samples() as u32).unwrap_or(0))
+            .map(|g| {
+                g.as_ref()
+                    .map(|p| p.native_chunk_samples() as u32)
+                    .unwrap_or(0)
+            })
             .unwrap_or(0)
     }
 
@@ -287,9 +292,9 @@ impl Engine {
             .streaming
             .lock()
             .map_err(|e| CoreError::TranscriptionFailed(format!("Streaming lock poisoned: {e}")))?;
-        let provider = streaming_guard.as_ref().ok_or_else(|| {
-            CoreError::TranscriptionFailed("No streaming model loaded".into())
-        })?;
+        let provider = streaming_guard
+            .as_ref()
+            .ok_or_else(|| CoreError::TranscriptionFailed("No streaming model loaded".into()))?;
         let session = provider.start_session()?;
         drop(streaming_guard);
 

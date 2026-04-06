@@ -174,7 +174,10 @@ mod tests {
         let provider = NemotronProvider::new(&tmp, "nemotron-fake").unwrap();
         assert!(!provider.is_loaded.load(Ordering::Relaxed));
         assert_eq!(provider.name(), "nemotron-fake");
-        assert_eq!(provider.native_chunk_samples(), NEMOTRON_NATIVE_CHUNK_SAMPLES);
+        assert_eq!(
+            provider.native_chunk_samples(),
+            NEMOTRON_NATIVE_CHUNK_SAMPLES
+        );
         let _ = std::fs::remove_dir_all(&tmp);
     }
 }

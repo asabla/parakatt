@@ -5,11 +5,11 @@ pub mod download;
 pub mod engine;
 pub mod filler;
 pub mod llm;
+pub mod local_agreement;
 pub mod models;
 pub mod modes;
 pub mod session;
 pub mod storage;
-pub mod local_agreement;
 pub mod stt;
 pub mod vad;
 

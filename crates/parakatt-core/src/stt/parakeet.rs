@@ -55,7 +55,12 @@ impl SttProvider for ParakeetProvider {
         })?;
 
         let result = model
-            .transcribe_samples(audio.to_vec(), sample_rate, 1, Some(TimestampMode::Sentences))
+            .transcribe_samples(
+                audio.to_vec(),
+                sample_rate,
+                1,
+                Some(TimestampMode::Sentences),
+            )
             .map_err(|e| {
                 CoreError::TranscriptionFailed(format!("Parakeet transcription failed: {e}"))
             })?;
