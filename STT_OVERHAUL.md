@@ -31,7 +31,7 @@ Branch: `stt-pipeline-overhaul`. Working doc — delete on merge.
       non-AXUIElement) with `CFGetTypeID == AXUIElementGetTypeID()`
       guards.
 
-## Major — 11 fixed, 2 deferred with rationale
+## Major — 12 fixed, 1 deferred with rationale
 
 - [x] **M5** −6 dB per-source mixing headroom in `MeetingSessionService`
       so mic + system audio doesn't clip when both speakers are loud.
@@ -73,6 +73,20 @@ Branch: `stt-pipeline-overhaul`. Working doc — delete on merge.
       now main-dispatch like the stop path already did. Build clean,
       no behavior change.
 
+- [x] **M2** Voice Activity Detection. New `vad.rs` module with a
+      `Vad` trait and a `EnergyVad` hysteresis-based implementation
+      now powers `audio::preprocess`. This is a real upgrade over
+      the old "single threshold" trim:
+      - Single-frame clicks no longer register as speech (≥3
+        consecutive above-enter frames required).
+      - Brief intra-utterance pauses (≤500 ms) no longer split a
+        sentence.
+      - Each voiced span is padded ±80 ms so we don't clip leading
+        consonants or trailing fricatives.
+      The `Vad` trait is the integration point for a future
+      `SileroVad` ONNX implementation; dropping it in is now a
+      one-file change rather than a re-architecture.
+
 ### Deferred
 
 - [ ] **M1** NeMo middle-token merging. Our segment-level dedup (C4)
@@ -82,11 +96,6 @@ Branch: `stt-pipeline-overhaul`. Working doc — delete on merge.
       project requiring per-token alignment exposure from `parakeet-rs`
       (which currently surfaces only sentence-level segments). Track
       as future work; not blocking correctness.
-- [ ] **M2** Silero VAD integration. Multi-day task: bundle the ~2 MB
-      ONNX model, set up a `vad.rs` module, integrate gating into both
-      PTT and meeting paths, snap chunk boundaries to silence in
-      session manager. Worth doing but should be its own PR. Filed
-      separately.
 
 ## Minor — 11/11 closed (8 fixed, 3 verified-not-bugs)
 
@@ -145,6 +154,7 @@ Branch: `stt-pipeline-overhaul`. Working doc — delete on merge.
 n_mels=128, n_fft=512, win_length=400, hop_length=160, hann, preemph=0.97, log-mel, per-feature mean/var norm, 8× temporal subsampling → 80 ms frame stride.
 
 ## Test status
-- `cargo test -p parakatt-core --lib`: 54 passed (was 52 baseline; added
-  C4 regression tests, removed obsolete normalize/noise-gate tests).
+- `cargo test -p parakatt-core --lib`: 60 passed (was 52 baseline; added
+  C4 regression tests + 8 EnergyVad tests, removed obsolete
+  normalize/noise-gate tests).
 - `make build` (Xcode Debug): clean.
