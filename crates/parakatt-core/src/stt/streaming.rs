@@ -205,10 +205,7 @@ impl StreamingSession for ScriptedStreamingSession {
         } else if chunk_index < self.hypotheses.len() {
             self.hypotheses[chunk_index].clone()
         } else {
-            self.hypotheses
-                .last()
-                .cloned()
-                .unwrap_or_default()
+            self.hypotheses.last().cloned().unwrap_or_default()
         };
 
         // Compute delta vs the previous transcript.
@@ -241,7 +238,8 @@ mod tests {
 
     #[test]
     fn scripted_provider_emits_hypotheses_in_order() {
-        let p = ScriptedStreamingProvider::new(vec!["hello", "hello world", "hello world and more"]);
+        let p =
+            ScriptedStreamingProvider::new(vec!["hello", "hello world", "hello world and more"]);
         let mut s = p.start_session().unwrap();
         assert_eq!(s.feed_chunk(&[]).unwrap().text, "hello");
         assert_eq!(s.current_transcript(), "hello");

@@ -202,7 +202,8 @@ impl SessionManager {
                 .collect();
         } else if !segments.is_empty() {
             // Path 2: text-based segment-level dedup.
-            let normalized: Vec<String> = segments.iter().map(|s| normalize_text(&s.text)).collect();
+            let normalized: Vec<String> =
+                segments.iter().map(|s| normalize_text(&s.text)).collect();
             let segments_to_skip = if chunk_index > 0 {
                 longest_matching_overlap(&state.prev_trailing_segments, &normalized)
             } else {
@@ -719,21 +720,59 @@ mod tests {
         mgr.start("misaligned").unwrap();
 
         let seg1 = vec![
-            TimestampedSegment { text: "five".into(),  start_secs: 0.0, end_secs: 1.0 },
-            TimestampedSegment { text: "six".into(),   start_secs: 1.0, end_secs: 2.0 },
-            TimestampedSegment { text: "seven".into(), start_secs: 2.0, end_secs: 3.0 },
-            TimestampedSegment { text: "eight".into(), start_secs: 3.0, end_secs: 4.0 },
+            TimestampedSegment {
+                text: "five".into(),
+                start_secs: 0.0,
+                end_secs: 1.0,
+            },
+            TimestampedSegment {
+                text: "six".into(),
+                start_secs: 1.0,
+                end_secs: 2.0,
+            },
+            TimestampedSegment {
+                text: "seven".into(),
+                start_secs: 2.0,
+                end_secs: 3.0,
+            },
+            TimestampedSegment {
+                text: "eight".into(),
+                start_secs: 3.0,
+                end_secs: 4.0,
+            },
         ];
-        mgr.add_chunk("misaligned", "five six seven eight", 4.0, seg1).unwrap();
+        mgr.add_chunk("misaligned", "five six seven eight", 4.0, seg1)
+            .unwrap();
 
         let seg2 = vec![
-            TimestampedSegment { text: "seven".into(),         start_secs: 0.0, end_secs: 1.0 },
-            TimestampedSegment { text: "eight".into(),         start_secs: 1.0, end_secs: 2.0 },
-            TimestampedSegment { text: "nine ten".into(),      start_secs: 2.0, end_secs: 4.0 },
-            TimestampedSegment { text: "eleven twelve".into(), start_secs: 4.0, end_secs: 6.0 },
+            TimestampedSegment {
+                text: "seven".into(),
+                start_secs: 0.0,
+                end_secs: 1.0,
+            },
+            TimestampedSegment {
+                text: "eight".into(),
+                start_secs: 1.0,
+                end_secs: 2.0,
+            },
+            TimestampedSegment {
+                text: "nine ten".into(),
+                start_secs: 2.0,
+                end_secs: 4.0,
+            },
+            TimestampedSegment {
+                text: "eleven twelve".into(),
+                start_secs: 4.0,
+                end_secs: 6.0,
+            },
         ];
         let r2 = mgr
-            .add_chunk("misaligned", "seven eight nine ten eleven twelve", 6.0, seg2)
+            .add_chunk(
+                "misaligned",
+                "seven eight nine ten eleven twelve",
+                6.0,
+                seg2,
+            )
             .unwrap();
 
         assert_eq!(r2.text, "nine ten eleven twelve");
@@ -857,7 +896,9 @@ mod tests {
                 end_secs: 2.0,
             },
         ];
-        let r2 = mgr.add_chunk("punct", "hello, world! and more", 2.0, seg2).unwrap();
+        let r2 = mgr
+            .add_chunk("punct", "hello, world! and more", 2.0, seg2)
+            .unwrap();
         assert_eq!(r2.text, "and more");
     }
 

@@ -84,9 +84,9 @@ impl Default for EnergyVad {
             frame_size: 320,        // 20 ms @ 16 kHz
             enter_threshold: 0.015, // ~ -36 dBFS
             exit_threshold: 0.003,  // ~ -50 dBFS — generous so quiet
-                                    // trailing speech (fricatives,
-                                    // unstressed syllables) doesn't
-                                    // close the voiced range early.
+            // trailing speech (fricatives,
+            // unstressed syllables) doesn't
+            // close the voiced range early.
             min_voiced_frames: 3,   // 60 ms — kills clicks/pops
             min_silence_frames: 25, // 500 ms — natural pause tolerance
             pad_frames: 12,         // 240 ms padding — Whisper.cpp
@@ -293,7 +293,10 @@ mod tests {
 
     #[test]
     fn voiced_range_len_is_correct() {
-        let r = VoicedRange { start: 100, end: 250 };
+        let r = VoicedRange {
+            start: 100,
+            end: 250,
+        };
         assert_eq!(r.len(), 150);
         assert!(!r.is_empty());
 

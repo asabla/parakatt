@@ -131,10 +131,14 @@ fn t4_flicker_at_tail_only_commits_through_stable_prefix() {
     );
     engine.start_streaming_session("s1".into()).unwrap();
 
-    let r1 = engine.feed_streaming_chunk("s1".into(), vec![0.0; 8000]).unwrap();
+    let r1 = engine
+        .feed_streaming_chunk("s1".into(), vec![0.0; 8000])
+        .unwrap();
     assert_eq!(r1.committed_text, "");
 
-    let r2 = engine.feed_streaming_chunk("s1".into(), vec![0.0; 8000]).unwrap();
+    let r2 = engine
+        .feed_streaming_chunk("s1".into(), vec![0.0; 8000])
+        .unwrap();
     // "welcome everyone good" stable across both → committed.
     // The flicker word ("warning" vs "morning") is NOT committed yet.
     assert_eq!(r2.committed_text, "welcome everyone good");
@@ -147,7 +151,9 @@ fn t4_flicker_at_tail_only_commits_through_stable_prefix() {
         "morning leaked into committed text on first agreement"
     );
 
-    let r3 = engine.feed_streaming_chunk("s1".into(), vec![0.0; 8000]).unwrap();
+    let r3 = engine
+        .feed_streaming_chunk("s1".into(), vec![0.0; 8000])
+        .unwrap();
     // Now "morning" appeared in two passes (2 and 3) → committed.
     assert_eq!(r3.committed_text, "welcome everyone good morning");
     assert!(!r3.committed_text.contains("warning"));
@@ -164,12 +170,18 @@ fn t4_flicker_in_middle_freezes_commit_at_divergence() {
         ],
     );
     engine.start_streaming_session("s1".into()).unwrap();
-    let _ = engine.feed_streaming_chunk("s1".into(), vec![0.0; 8000]).unwrap();
-    let r2 = engine.feed_streaming_chunk("s1".into(), vec![0.0; 8000]).unwrap();
+    let _ = engine
+        .feed_streaming_chunk("s1".into(), vec![0.0; 8000])
+        .unwrap();
+    let r2 = engine
+        .feed_streaming_chunk("s1".into(), vec![0.0; 8000])
+        .unwrap();
     // "the meeting started with" stable; word 5 diverges so it's
     // tentative.
     assert_eq!(r2.committed_text, "the meeting started with");
-    let r3 = engine.feed_streaming_chunk("s1".into(), vec![0.0; 8000]).unwrap();
+    let r3 = engine
+        .feed_streaming_chunk("s1".into(), vec![0.0; 8000])
+        .unwrap();
     // Now "introductions" appears in passes 1 and 3 — but they're
     // not CONSECUTIVE passes. LA-2 needs the *previous* hypothesis
     // (pass 2 = "introduction") to agree with the current
@@ -199,24 +211,32 @@ fn t5_empty_hypotheses_leave_committed_unchanged() {
     );
     engine.start_streaming_session("s1".into()).unwrap();
 
-    let r1 = engine.feed_streaming_chunk("s1".into(), vec![0.0; 8000]).unwrap();
+    let r1 = engine
+        .feed_streaming_chunk("s1".into(), vec![0.0; 8000])
+        .unwrap();
     assert_eq!(r1.committed_text, "");
 
-    let r2 = engine.feed_streaming_chunk("s1".into(), vec![0.0; 8000]).unwrap();
+    let r2 = engine
+        .feed_streaming_chunk("s1".into(), vec![0.0; 8000])
+        .unwrap();
     assert_eq!(r2.committed_text, "hello world");
     assert_eq!(r2.tentative_text, "");
 
     // Three more silent passes — committed must NOT regress, NOT
     // grow, and NOT churn.
     for _ in 0..3 {
-        let r = engine.feed_streaming_chunk("s1".into(), vec![0.0; 8000]).unwrap();
+        let r = engine
+            .feed_streaming_chunk("s1".into(), vec![0.0; 8000])
+            .unwrap();
         assert_eq!(r.committed_text, "hello world");
         assert_eq!(r.tentative_text, "");
         assert_eq!(r.newly_committed_text, "", "no new commits during silence");
     }
 
     // Speech resumes — new tokens land.
-    let rN = engine.feed_streaming_chunk("s1".into(), vec![0.0; 8000]).unwrap();
+    let rN = engine
+        .feed_streaming_chunk("s1".into(), vec![0.0; 8000])
+        .unwrap();
     assert_eq!(rN.committed_text, "hello world");
     assert_eq!(rN.tentative_text, "more text");
 }
@@ -227,7 +247,9 @@ fn t5_completely_empty_session_works() {
     let engine = engine_with_script("empty", vec!["", "", ""]);
     engine.start_streaming_session("s1".into()).unwrap();
     for _ in 0..3 {
-        let r = engine.feed_streaming_chunk("s1".into(), vec![0.0; 8000]).unwrap();
+        let r = engine
+            .feed_streaming_chunk("s1".into(), vec![0.0; 8000])
+            .unwrap();
         assert_eq!(r.committed_text, "");
         assert_eq!(r.tentative_text, "");
     }
@@ -242,10 +264,8 @@ fn t5_completely_empty_session_works() {
 fn t6_speech_resume_after_silence_appends_correctly() {
     // 2 chunks of speech, 10 chunks of silence, 3 more chunks of
     // speech that extends the transcript.
-    let mut hypotheses: Vec<String> = vec![
-        "first sentence".to_string(),
-        "first sentence".to_string(),
-    ];
+    let mut hypotheses: Vec<String> =
+        vec!["first sentence".to_string(), "first sentence".to_string()];
     for _ in 0..10 {
         hypotheses.push("first sentence".to_string());
     }
@@ -260,7 +280,9 @@ fn t6_speech_resume_after_silence_appends_correctly() {
     engine.start_streaming_session("s1".into()).unwrap();
 
     for _ in 0..hypotheses.len() {
-        let _ = engine.feed_streaming_chunk("s1".into(), vec![0.0; 8000]).unwrap();
+        let _ = engine
+            .feed_streaming_chunk("s1".into(), vec![0.0; 8000])
+            .unwrap();
     }
 
     let final_text = engine.finish_streaming_session("s1".into()).unwrap();
@@ -300,7 +322,9 @@ fn t7_long_session_doesnt_grow_unboundedly() {
 
     let mut last_committed_len = 0;
     for _ in 0..hypotheses.len() {
-        let r = engine.feed_streaming_chunk("s1".into(), vec![0.0; 8000]).unwrap();
+        let r = engine
+            .feed_streaming_chunk("s1".into(), vec![0.0; 8000])
+            .unwrap();
         assert!(
             r.committed_text.len() >= last_committed_len,
             "committed text shrank!"
@@ -327,15 +351,23 @@ fn t8_concurrent_sessions_are_isolated() {
     engine.start_streaming_session("b".into()).unwrap();
 
     // Drive session A two passes.
-    let _ = engine.feed_streaming_chunk("a".into(), vec![0.0; 8000]).unwrap();
-    let a2 = engine.feed_streaming_chunk("a".into(), vec![0.0; 8000]).unwrap();
+    let _ = engine
+        .feed_streaming_chunk("a".into(), vec![0.0; 8000])
+        .unwrap();
+    let a2 = engine
+        .feed_streaming_chunk("a".into(), vec![0.0; 8000])
+        .unwrap();
     assert_eq!(a2.committed_text, "alpha");
 
     // Session B is still empty.
-    let b1 = engine.feed_streaming_chunk("b".into(), vec![0.0; 8000]).unwrap();
+    let b1 = engine
+        .feed_streaming_chunk("b".into(), vec![0.0; 8000])
+        .unwrap();
     assert_eq!(b1.committed_text, "", "session B got A's committed text");
 
-    let b2 = engine.feed_streaming_chunk("b".into(), vec![0.0; 8000]).unwrap();
+    let b2 = engine
+        .feed_streaming_chunk("b".into(), vec![0.0; 8000])
+        .unwrap();
     assert_eq!(b2.committed_text, "alpha");
 
     let a_final = engine.finish_streaming_session("a".into()).unwrap();
@@ -349,20 +381,23 @@ fn t8_concurrent_sessions_are_isolated() {
 
 #[test]
 fn t9_reset_clears_model_and_la2_state() {
-    let engine = engine_with_script(
-        "reset",
-        vec!["foo", "foo bar", "foo bar baz"],
-    );
+    let engine = engine_with_script("reset", vec!["foo", "foo bar", "foo bar baz"]);
     engine.start_streaming_session("s1".into()).unwrap();
 
-    let _ = engine.feed_streaming_chunk("s1".into(), vec![0.0; 8000]).unwrap();
-    let r2 = engine.feed_streaming_chunk("s1".into(), vec![0.0; 8000]).unwrap();
+    let _ = engine
+        .feed_streaming_chunk("s1".into(), vec![0.0; 8000])
+        .unwrap();
+    let r2 = engine
+        .feed_streaming_chunk("s1".into(), vec![0.0; 8000])
+        .unwrap();
     assert_eq!(r2.committed_text, "foo");
 
     engine.reset_streaming_session("s1".into()).unwrap();
 
     // After reset, the next pass should start fresh and commit nothing.
-    let r3 = engine.feed_streaming_chunk("s1".into(), vec![0.0; 8000]).unwrap();
+    let r3 = engine
+        .feed_streaming_chunk("s1".into(), vec![0.0; 8000])
+        .unwrap();
     assert_eq!(r3.committed_text, "", "reset did not clear committed");
     assert_eq!(r3.tentative_text, "foo");
 }
@@ -373,7 +408,10 @@ fn t9_reset_clears_model_and_la2_state() {
 
 #[test]
 fn t10_provider_error_propagates_session_recoverable() {
-    let tmp = std::env::temp_dir().join(format!("parakatt-streaming-e2e-error-{}", std::process::id()));
+    let tmp = std::env::temp_dir().join(format!(
+        "parakatt-streaming-e2e-error-{}",
+        std::process::id()
+    ));
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(&tmp).unwrap();
 
@@ -385,14 +423,14 @@ fn t10_provider_error_propagates_session_recoverable() {
         active_mode: "dictation".to_string(),
     };
     let engine = Engine::new(config).expect("Engine ok");
-    let provider = Box::new(
-        ScriptedStreamingProvider::new(vec!["a", "a b", "a b c"])
-            .with_error_at(1),
-    );
+    let provider =
+        Box::new(ScriptedStreamingProvider::new(vec!["a", "a b", "a b c"]).with_error_at(1));
     engine.install_streaming_provider(provider).unwrap();
 
     engine.start_streaming_session("s1".into()).unwrap();
-    let r1 = engine.feed_streaming_chunk("s1".into(), vec![0.0; 8000]).unwrap();
+    let r1 = engine
+        .feed_streaming_chunk("s1".into(), vec![0.0; 8000])
+        .unwrap();
     assert_eq!(r1.tentative_text, "a");
 
     // Second feed errors.
@@ -400,7 +438,9 @@ fn t10_provider_error_propagates_session_recoverable() {
     assert!(r2.is_err(), "expected error from scripted provider");
 
     // The session must still be usable: the third feed succeeds.
-    let r3 = engine.feed_streaming_chunk("s1".into(), vec![0.0; 8000]).unwrap();
+    let r3 = engine
+        .feed_streaming_chunk("s1".into(), vec![0.0; 8000])
+        .unwrap();
     // Note that the cursor advanced past the error so the third
     // hypothesis ("a b c") is what comes back.
     assert!(r3.committed_text.contains("a") || r3.tentative_text.contains("a"));
@@ -415,7 +455,10 @@ fn t10_provider_error_propagates_session_recoverable() {
 
 #[test]
 fn lifecycle_streaming_without_model_returns_error() {
-    let tmp = std::env::temp_dir().join(format!("parakatt-streaming-e2e-nomodel-{}", std::process::id()));
+    let tmp = std::env::temp_dir().join(format!(
+        "parakatt-streaming-e2e-nomodel-{}",
+        std::process::id()
+    ));
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(&tmp).unwrap();
     let config = EngineConfig {
@@ -491,11 +534,7 @@ fn buffered_preview_update_without_stt_errors() {
     // cleanly with "No STT model loaded".
     let engine = engine_with_script("bp_no_stt", vec!["a"]);
     engine.buffered_preview_start("s1".into()).unwrap();
-    let res = engine.buffered_preview_update(
-        "s1".into(),
-        vec![0.5; 8000],
-        16_000,
-    );
+    let res = engine.buffered_preview_update("s1".into(), vec![0.5; 8000], 16_000);
     assert!(res.is_err());
     let msg = format!("{:?}", res.unwrap_err());
     assert!(

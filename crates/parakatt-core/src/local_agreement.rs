@@ -113,11 +113,7 @@ impl LocalAgreement2 {
         // Tentative tail = everything in the current hypothesis past
         // what we now consider committed.
         let new_committed_count = self.committed.len();
-        let tentative: Vec<Token> = current
-            .iter()
-            .skip(new_committed_count)
-            .cloned()
-            .collect();
+        let tentative: Vec<Token> = current.iter().skip(new_committed_count).cloned().collect();
 
         // Remember this hypothesis so the next update can find the
         // common prefix with it.
@@ -177,10 +173,7 @@ impl LocalAgreement2 {
             // Insert a single space between tokens unless the new
             // token is a standalone punctuation mark, in which case
             // we attach it to the previous token without a space.
-            let attaches = matches!(
-                tok.text.as_str(),
-                "." | "," | "!" | "?" | ";" | ":" | ")"
-            );
+            let attaches = matches!(tok.text.as_str(), "." | "," | "!" | "?" | ";" | ":" | ")");
             if !attaches {
                 self.committed_text.push(' ');
             }
@@ -313,11 +306,7 @@ mod tests {
         // Pass 2: capitalized + punctuation. Should still match.
         let mut la = LocalAgreement2::new();
         la.update(tokens(&["hello", "world"]));
-        let r = la.update(vec![
-            tok("Hello,"),
-            tok("World!"),
-            tok("more"),
-        ]);
+        let r = la.update(vec![tok("Hello,"), tok("World!"), tok("more")]);
         // Hello, and World! match by normalized form, so they commit.
         assert_eq!(r.newly_committed.len(), 2);
         // The committed text uses the casing from the LATER (more
@@ -374,7 +363,11 @@ mod tests {
         // Pass 1+2 establish the long committed prefix.
         la.update(tokens(&["the", "quick", "brown", "fox", "jumps", "over"]));
         let r2 = la.update(tokens(&["the", "quick", "brown", "fox", "jumps", "over"]));
-        assert_eq!(r2.newly_committed.len(), 6, "first round should commit all 6");
+        assert_eq!(
+            r2.newly_committed.len(),
+            6,
+            "first round should commit all 6"
+        );
         assert_eq!(la.committed_text(), "the quick brown fox jumps over");
 
         // Now the chunk fires, consumes most audio, leaves overlap.
@@ -383,8 +376,14 @@ mod tests {
         // 6 tokens committed and won't budge until the new
         // hypothesis grows past 6 tokens.
         let r3 = la.update(tokens(&["jumps", "over"]));
-        assert!(r3.newly_committed.is_empty(), "should not commit anything new on shrunk hypothesis");
-        assert!(r3.tentative.is_empty(), "tentative is empty because curr is shorter than committed");
+        assert!(
+            r3.newly_committed.is_empty(),
+            "should not commit anything new on shrunk hypothesis"
+        );
+        assert!(
+            r3.tentative.is_empty(),
+            "tentative is empty because curr is shorter than committed"
+        );
         // LA-2 is now stuck — committed_text is still the old
         // long prefix and the new hypothesis can't add anything.
         // The user would see the old committed text frozen.
@@ -393,7 +392,10 @@ mod tests {
         // Even adding more new audio doesn't help until we exceed
         // the committed length:
         let r4 = la.update(tokens(&["jumps", "over", "lazy"]));
-        assert!(r4.newly_committed.is_empty(), "still stuck — 3 new tokens < 6 committed");
+        assert!(
+            r4.newly_committed.is_empty(),
+            "still stuck — 3 new tokens < 6 committed"
+        );
         assert!(r4.tentative.is_empty());
     }
 
@@ -412,7 +414,10 @@ mod tests {
 
         // Now LA-2 starts fresh on the new short hypothesis.
         let r1 = la.update(tokens(&["three", "four"]));
-        assert!(r1.newly_committed.is_empty(), "first pass after reset commits nothing");
+        assert!(
+            r1.newly_committed.is_empty(),
+            "first pass after reset commits nothing"
+        );
         assert_eq!(r1.tentative.len(), 2);
 
         let r2 = la.update(tokens(&["three", "four", "five"]));

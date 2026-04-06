@@ -253,7 +253,10 @@ fn vad_continuous_speech_one_segment() {
 
 #[test]
 fn vad_voiced_range_helpers() {
-    let r = VoicedRange { start: 100, end: 250 };
+    let r = VoicedRange {
+        start: 100,
+        end: 250,
+    };
     assert_eq!(r.len(), 150);
     assert!(!r.is_empty());
 
