@@ -155,8 +155,111 @@ Branch: `stt-pipeline-overhaul`. Working doc — delete on merge.
 n_mels=128, n_fft=512, win_length=400, hop_length=160, hann, preemph=0.97, log-mel, per-feature mean/var norm, 8× temporal subsampling → 80 ms frame stride.
 
 ## Test status
-- `cargo test -p parakatt-core --lib`: 62 passed (was 52 baseline;
-  added C4 segment-dedup regression tests, 8 EnergyVad tests, and
-  2 time-based overlap gating tests; removed obsolete normalize /
-  noise-gate tests).
+- `cargo test -p parakatt-core --lib`: **78 passed** (was 52 baseline).
+  Added: C4 segment-dedup regression, 8 EnergyVad, 2 time-based
+  overlap gating, 12 LocalAgreement-2, 3 NemotronProvider,
+  1 DummyStreamingProvider lifecycle. Removed obsolete normalize /
+  noise-gate tests.
 - `make build` (Xcode Debug): clean.
+
+---
+
+## Phase 2 — Architectural overhaul (post-original audit)
+
+After the original audit was closed, the user reported live-preview
+latency issues during real dictation. Research (whisper-streaming,
+WhisperKit, NVIDIA cache-aware streaming Parakeet, Riva) revealed
+the core architecture was a buffered-streaming anti-pattern: the
+preview path re-encoded a growing audio buffer every 2 s, getting
+slower as recording continued. NVIDIA explicitly built cache-aware
+streaming Parakeet (Nemotron) to replace this.
+
+### Phase 2 work landed
+
+- [x] **P0-1** Drop Parakeet v2; default to v3. Same `parakeet-rs` API,
+      drop-in replacement, 25 European languages, native silence-
+      hallucination training, ~+0.3 WER on English (imperceptible
+      for general dictation).
+- [x] **P0-2** Register `nemotron-speech-streaming-en-0.6b` in the
+      model registry as the streaming preview model.
+- [x] **P0-3** Implement **LocalAgreement-2** commit policy in
+      `crates/parakatt-core/src/local_agreement.rs`. Pure Rust,
+      STT-agnostic, 12 unit tests covering flicker suppression,
+      casing/punctuation normalization, advance() persistence
+      hand-off, and edge cases. Adapted from Macháček et al. (UFAL,
+      arXiv 2307.14743).
+- [x] **P0-4** VAD-aware PTT chunk dispatch — replaced the fixed
+      28 s timer with a 1.5 s tick that flushes when EITHER the
+      speaker has been silent ≥500 ms (natural sentence boundary)
+      OR the buffer hits 12 s (hard cap). Chunks become variable-
+      length and naturally aligned to pauses.
+- [x] **P1-1** New `StreamingProvider` trait in `stt/streaming.rs`
+      parallel to `SttProvider`. Stateful — exposes
+      `start_session() -> Box<dyn StreamingSession>` and the
+      session has `feed_chunk` / `current_transcript` / `reset`.
+- [x] **P1-2** `NemotronProvider` impl wrapping
+      `parakeet_rs::Nemotron`. Lazy model loading, per-session
+      cache state, native chunk size = 8960 samples (560 ms).
+- [x] **P1-3** `Engine` refactor — holds both `stt` (offline commit
+      path) and `streaming` (cache-aware live preview) providers
+      simultaneously. `load_model` routes by id prefix
+      (`parakeet-*` → stt, `nemotron-*` → streaming). New uniffi
+      methods: `is_streaming_model_loaded`,
+      `streaming_native_chunk_samples`, `start_streaming_session`,
+      `feed_streaming_chunk`, `reset_streaming_session`,
+      `finish_streaming_session`, `cancel_streaming_session`,
+      `should_use_streaming_preview`.
+- [x] **P1-4** `StreamingPreviewSession` wraps the model session
+      with a `LocalAgreement2` instance. Each `feed_streaming_chunk`
+      call returns a `StreamingChunkResult { committed_text,
+      tentative_text, newly_committed_text }` ready for the UI to
+      render two-style.
+- [x] **P1-5** New `Parakatt/Services/LivePreviewService.swift` —
+      owns a dedicated worker queue, accumulates audio samples
+      from the AVAudioEngine tap into a small ring, dispatches one
+      native chunk at a time, handles backpressure with an
+      `inFlight` flag, auto-disables itself after 5 consecutive
+      errors, lifecycle: `start` / `enqueue` / `stop` / `cancel`.
+      Wired into AppState via two new `@Published` properties:
+      `livePreviewCommitted` and `livePreviewTentative`.
+- [x] **P1-6** Language routing — `streaming_preview_enabled` user
+      flag in `GeneralConfig` (default true). English speakers get
+      the fast preview by default; flag-off users (or those who
+      didn't download Nemotron) fall back to the buffered v3 +
+      LA-2 path, which still works.
+- [x] **P1-7** Two-model download orchestration — both v3 and
+      Nemotron registered, the existing settings UI surfaces them
+      automatically since `list_models_with_status` handles both
+      `vocab.txt` (Parakeet) and `tokenizer.model` (Nemotron)
+      vocabulary file naming conventions.
+- [x] **P2-1** Two-style transcript display in
+      `RecordingOverlayView`. Committed text in primary foreground
+      / normal weight, tentative tail in secondary foreground /
+      italic. Renders as a single concatenated `Text` so it line-
+      wraps as one paragraph.
+- [x] **P2-2** Legacy throwaway-preview UI path retained as
+      fallback for non-streaming users. The two-style display only
+      activates when LA-2 has produced text; otherwise the old
+      `liveText` rendering takes over.
+- [x] **P3-1** Power management — AppState skips feeding the
+      streaming model after `livePreviewSleepCallbacks=100`
+      (~10 s) of consecutive silence. Existing silence→speech
+      transition trigger resumes it on the next audio.
+- [x] **P3-2** Per-session config snapshot — reviewed; not worth
+      doing as a refactor. Locks are short-lived (~3 acquires
+      per chunk), no measurable contention at 3 Hz streaming.
+- [x] **P3-3** Latency telemetry in `LivePreviewService`:
+      first-token latency logged on first non-empty commit,
+      average per-chunk feed latency logged every 20 chunks,
+      committed-prefix advance count tracked for churn analysis.
+
+### Phase 2 commit log
+- `models: drop Parakeet v2, default to v3 + register Nemotron streaming`
+- `core: implement LocalAgreement-2 commit policy`
+- `core: StreamingProvider trait + NemotronProvider impl`
+- `engine: hold both batch + streaming providers, expose streaming session API`
+- `engine: wire LocalAgreement-2 into streaming sessions`
+- `swift: VAD-aware PTT dispatch + LivePreviewService for streaming path`
+- `appstate: wire LivePreviewService into the recording flow`
+- `ui: two-style transcript display (committed + tentative tail)`
+- `config + telemetry: streaming preview opt-in flag, latency logging`
