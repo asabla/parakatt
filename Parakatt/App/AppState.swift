@@ -1468,6 +1468,11 @@ class AppState: ObservableObject {
     private var silentCallbackCount = 0
     /// Threshold: callbacks are ~every 100ms, so 50 = ~5 seconds of silence.
     private let silenceCallbackThreshold = 50
+    /// After this many consecutive silent callbacks (~10 s) we stop
+    /// feeding the streaming preview model to save CPU/battery. The
+    /// silence→speech transition trigger in appendAudioSamples will
+    /// resume it on the next sound.
+    private let livePreviewSleepCallbacks: Int = 100
 
     /// Threshold for warning about long push-to-talk recordings (5 minutes).
     private let longRecordingWarningSamples = 5 * 60 * 16000
@@ -1482,8 +1487,12 @@ class AppState: ObservableObject {
         // Feed the cache-aware streaming preview in parallel. The
         // service does its own backpressure (drops if a feed is
         // already in flight) so we can call it on every audio
-        // callback without queue pile-up.
-        if livePreviewActive {
+        // callback without queue pile-up. Power saver: if the user
+        // has been silent for ≥livePreviewSleepCallbacks ticks
+        // (~10 s) we skip feeding the model entirely. The silence→
+        // speech transition trigger below will kick the service
+        // again as soon as audio resumes.
+        if livePreviewActive && silentCallbackCount < livePreviewSleepCallbacks {
             livePreview?.enqueue(samples)
         }
 

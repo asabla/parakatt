@@ -58,6 +58,15 @@ pub struct GeneralConfig {
     /// e.g., {"com.microsoft.VSCode": "code", "com.apple.mail": "email"}
     #[serde(default)]
     pub app_mode_defaults: std::collections::HashMap<String, String>,
+    /// Whether the cache-aware streaming live preview is enabled
+    /// for this user. Defaults to true so English speakers get the
+    /// fast preview by default; users who don't want the extra ~1.2 GB
+    /// model can flip this off and the preview falls back to the
+    /// buffered v3 + LA-2 path. Streaming preview is also auto-disabled
+    /// at runtime when no Nemotron model is downloaded — this flag
+    /// is the user's expressed preference, not a hard gate.
+    #[serde(default = "default_true")]
+    pub streaming_preview_enabled: bool,
 }
 
 fn default_chunk_duration() -> u32 {
@@ -83,6 +92,7 @@ impl Default for GeneralConfig {
             llm_max_words: default_llm_max_words(),
             debug_mode: false,
             app_mode_defaults: std::collections::HashMap::new(),
+            streaming_preview_enabled: true,
         }
     }
 }

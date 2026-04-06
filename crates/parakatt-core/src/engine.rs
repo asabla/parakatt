@@ -237,12 +237,28 @@ impl Engine {
 
     /// Whether a cache-aware streaming model (e.g. Nemotron) is
     /// loaded. The Swift side uses this to decide whether to spawn
-    /// the live-preview worker thread.
+    /// the live-preview worker thread. Independent of the user's
+    /// streaming-preview opt-in flag — call
+    /// [`should_use_streaming_preview`] for the combined check.
     pub fn is_streaming_model_loaded(&self) -> bool {
         self.streaming
             .lock()
             .map(|g| g.as_ref().is_some_and(|p| p.is_loaded()) || g.is_some())
             .unwrap_or(false)
+    }
+
+    /// Combined check: streaming model is loaded AND the user has
+    /// opted into the streaming preview path. The Swift side uses
+    /// this to decide whether to call `start_streaming_session` for
+    /// each PTT recording.
+    pub fn should_use_streaming_preview(&self) -> bool {
+        if !self.is_streaming_model_loaded() {
+            return false;
+        }
+        self.config
+            .lock()
+            .map(|c| c.general.streaming_preview_enabled)
+            .unwrap_or(true)
     }
 
     /// Native chunk size in samples for the loaded streaming model,
@@ -646,6 +662,25 @@ impl Engine {
             .lock()
             .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
         cfg.general.show_overlay = enabled;
+        cfg.save(&self.config_dir)
+    }
+
+    /// Get whether the cache-aware streaming live preview is enabled.
+    pub fn get_streaming_preview_enabled(&self) -> Result<bool, CoreError> {
+        let config = self
+            .config
+            .lock()
+            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
+        Ok(config.general.streaming_preview_enabled)
+    }
+
+    /// Set and persist the streaming-preview opt-in flag.
+    pub fn set_streaming_preview_enabled(&self, enabled: bool) -> Result<(), CoreError> {
+        let mut cfg = self
+            .config
+            .lock()
+            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
+        cfg.general.streaming_preview_enabled = enabled;
         cfg.save(&self.config_dir)
     }
 
