@@ -220,6 +220,13 @@ class MeetingSessionService {
     private let micLock = NSLock()
     private let systemLock = NSLock()
 
+    /// Per-source gain applied before summing the two streams.
+    /// −6 dB (≈ 0.5012) is the standard headroom for an additive mix
+    /// of two roughly-equal sources. Without this, mic + system audio
+    /// sums clipped constantly when both speakers were talking,
+    /// distorting the audio fed into Parakeet.
+    private static let mixGainPerSource: Float = 0.5012
+
     /// Maximum pending samples per source (60s at 16kHz). Prevents unbounded
     /// memory growth if one source is much faster than the other.
     private let maxPendingSamples = 60 * 16_000
@@ -263,9 +270,12 @@ class MeetingSessionService {
         }
 
         var mixed = [Float](repeating: 0, count: mixCount)
+        let g = Self.mixGainPerSource
         for i in 0..<mixCount {
-            // Additive mix with clipping protection.
-            let sum = micPendingSamples[i] + systemPendingSamples[i]
+            // −6 dB per source before sum so a fully-loud mic + a
+            // fully-loud system source still fits in [-1, 1] without
+            // hard clipping. Saturation guard remains as a safety net.
+            let sum = micPendingSamples[i] * g + systemPendingSamples[i] * g
             mixed[i] = max(-1.0, min(1.0, sum))
         }
 
@@ -343,12 +353,15 @@ class MeetingSessionService {
         micLock.lock()
         systemLock.lock()
 
+        let g = Self.mixGainPerSource
         var remaining: [Float] = []
         if micPendingSamples.count > systemPendingSamples.count {
-            // Mix what we can, then pass mic-only audio.
+            // Mix what we can, then pass mic-only audio (no gain
+            // reduction needed for the solo tail since there's nothing
+            // to clip against).
             let mixCount = systemPendingSamples.count
             for i in 0..<mixCount {
-                let sum = micPendingSamples[i] + systemPendingSamples[i]
+                let sum = micPendingSamples[i] * g + systemPendingSamples[i] * g
                 remaining.append(max(-1.0, min(1.0, sum)))
             }
             remaining.append(contentsOf: micPendingSamples[mixCount...])
@@ -357,7 +370,7 @@ class MeetingSessionService {
         } else if systemPendingSamples.count > micPendingSamples.count {
             let mixCount = micPendingSamples.count
             for i in 0..<mixCount {
-                let sum = micPendingSamples[i] + systemPendingSamples[i]
+                let sum = micPendingSamples[i] * g + systemPendingSamples[i] * g
                 remaining.append(max(-1.0, min(1.0, sum)))
             }
             remaining.append(contentsOf: systemPendingSamples[mixCount...])
@@ -367,7 +380,7 @@ class MeetingSessionService {
             // Equal length — just mix normally.
             let count = micPendingSamples.count
             for i in 0..<count {
-                let sum = micPendingSamples[i] + systemPendingSamples[i]
+                let sum = micPendingSamples[i] * g + systemPendingSamples[i] * g
                 remaining.append(max(-1.0, min(1.0, sum)))
             }
             micPendingSamples.removeAll()

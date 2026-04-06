@@ -1351,16 +1351,25 @@ class AppState: ObservableObject {
 
     // MARK: - Directories
 
+    private func appSupportDirectory() -> URL {
+        // Falls back to ~/Library/Application Support if the platform
+        // ever decides to return an empty array (which it doesn't on
+        // any sane macOS install, but `.first!` was a real crash path).
+        if let url = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            return url
+        }
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        return home.appendingPathComponent("Library/Application Support")
+    }
+
     private func modelsDirectory() -> URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let dir = appSupport.appendingPathComponent("Parakatt/models")
+        let dir = appSupportDirectory().appendingPathComponent("Parakatt/models")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }
 
     private func configDirectory() -> URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let dir = appSupport.appendingPathComponent("Parakatt/config")
+        let dir = appSupportDirectory().appendingPathComponent("Parakatt/config")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }

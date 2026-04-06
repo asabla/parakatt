@@ -11,14 +11,29 @@ import Carbon
 /// Logs which strategy was used for debugging.
 class TextInsertionService {
 
+    /// Pending clipboard restore work item, captured so we can cancel
+    /// it from `deinit` if the service is torn down before the timer
+    /// fires (otherwise the closure outlives `self` and races on
+    /// `savedItems`).
+    private var pendingRestore: DispatchWorkItem?
+
+    deinit {
+        pendingRestore?.cancel()
+        pendingRestore = nil
+    }
+
     /// Insert text into the focused application. Returns false if all strategies fail.
     @discardableResult
     func insertText(_ text: String) -> Bool {
         guard !text.isEmpty else { return false }
 
-        NSLog("[Parakatt] Inserting text (%d chars), AXIsProcessTrusted=%d", text.count, AXIsProcessTrusted())
+        let trusted = AXIsProcessTrusted()
+        NSLog("[Parakatt] Inserting text (%d chars), AXIsProcessTrusted=%d", text.count, trusted)
 
-        if insertViaAccessibility(text) {
+        // Only attempt the AX path when we actually have permission;
+        // otherwise it always fails after a noisy round-trip and we
+        // skip straight to clipboard paste.
+        if trusted, insertViaAccessibility(text) {
             NSLog("[Parakatt] Text inserted via Accessibility API (%d chars)", text.count)
             return true
         }
@@ -52,7 +67,10 @@ class TextInsertionService {
             NSLog("[Parakatt] AX Strategy: no focused element (error=%d)", copyResult.rawValue)
             return false
         }
-
+        guard CFGetTypeID(element) == AXUIElementGetTypeID() else {
+            NSLog("[Parakatt] AX Strategy: focused element is not an AXUIElement")
+            return false
+        }
         let axElement = element as! AXUIElement
 
         var settable: DarwinBoolean = false
@@ -150,7 +168,9 @@ class TextInsertionService {
         let expectedCount = changeCountAfterSet
         let items = savedItems
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+        // Cancel any in-flight restore so we don't race two fires.
+        pendingRestore?.cancel()
+        let work = DispatchWorkItem { [weak self] in
             let pasteboard = NSPasteboard.general
             // Only restore if nothing else has touched the clipboard since we set it.
             if pasteboard.changeCount == expectedCount {
@@ -161,6 +181,11 @@ class TextInsertionService {
                     }
                 }
             }
+            self?.pendingRestore = nil
         }
+        pendingRestore = work
+        // 1.0s instead of 0.5s gives slow machines a more reliable
+        // window before the user might manually copy something else.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: work)
     }
 }
