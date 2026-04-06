@@ -85,9 +85,22 @@ class MeetingSessionService {
             self?.appendSystemSamples(samples)
         }
 
-        // Start both audio captures.
-        try micCapture.startCapture()
-        try systemCapture.startCapture(processID: processID)
+        // Start both audio captures. If either throws, unwind the
+        // pieces that already started so we don't leak the Rust session
+        // or leave one capture running on its own.
+        do {
+            try micCapture.startCapture()
+        } catch {
+            bridge.cancelSession(sessionId: sessionId)
+            throw error
+        }
+        do {
+            try systemCapture.startCapture(processID: processID)
+        } catch {
+            micCapture.stopCapture()
+            bridge.cancelSession(sessionId: sessionId)
+            throw error
+        }
 
         isActive = true
         startTime = Date()

@@ -16,6 +16,23 @@ class AudioCaptureService {
     private let targetSampleRate: Double = 16_000
     private let engineLock = NSLock()
     private var deviceListenerInstalled = false
+
+    /// Pre-roll ring buffer. macOS spins down the mic after a few
+    /// seconds of inactivity, so the first 2-5 s of audio after a
+    /// hotkey press are usually lost to cold-start. When `prewarm()`
+    /// has been called we keep the engine running and accumulate the
+    /// last `prerollSamples` of audio in this ring; on the next
+    /// `startCapture()` we emit the ring's contents first so the
+    /// transcription captures speech that started ~500 ms before
+    /// the user actually pressed the hotkey.
+    private var prerollRing: [Float] = []
+    private let prerollLock = NSLock()
+    /// 500 ms at 16 kHz mono.
+    private let prerollSamples: Int = 8_000
+    /// When true the tap callback fills `prerollRing` instead of
+    /// invoking `onAudioSamples`. Flipped to false at the start of
+    /// `startCapture()` after the ring has been drained.
+    private var deliveryEnabled = true
     /// Retained `Unmanaged.toOpaque()` pointer for the device-change
     /// listener's C callback. Stored so we can release it on teardown
     /// instead of relying on `passUnretained`, which would let us
@@ -35,13 +52,68 @@ class AudioCaptureService {
     /// Currently selected device ID (nil = system default).
     private var selectedDeviceUID: String?
 
+    /// Start the audio engine in pre-roll mode without delivering
+    /// samples to `onAudioSamples`. The tap fills a 500 ms ring
+    /// buffer that is drained by the next `startCapture()` so the
+    /// user gets ~500 ms of audio captured before they actually
+    /// pressed their dictation hotkey.
+    ///
+    /// Safe to call repeatedly; no-op if the engine is already
+    /// running. Failures are non-fatal — we just lose the pre-roll
+    /// benefit and `startCapture()` cold-starts as before.
+    func prewarm() {
+        engineLock.lock()
+        let alreadyOn = audioEngine != nil
+        engineLock.unlock()
+        if alreadyOn { return }
+
+        prerollLock.lock()
+        prerollRing.removeAll(keepingCapacity: true)
+        prerollLock.unlock()
+
+        deliveryEnabled = false
+        do {
+            try startEngine()
+            NSLog("[Parakatt] Audio capture PRE-WARM started (500 ms ring)")
+        } catch {
+            // Pre-warm is best-effort; restore the default delivery
+            // flag so a later normal startCapture() still works.
+            deliveryEnabled = true
+            NSLog("[Parakatt] Audio capture pre-warm failed: %@", error.localizedDescription)
+        }
+    }
+
     /// Start a recording session.
     ///
     /// Uses the macOS system default input device unless the user has
     /// explicitly selected a specific device via the Input Device menu.
     /// This means connecting AirPods (which changes the system default)
     /// will automatically use AirPods — no manual selection needed.
+    ///
+    /// If `prewarm()` was previously called, the 500 ms ring buffer
+    /// is drained to `onAudioSamples` first so the recording starts
+    /// half a second before the hotkey was actually pressed.
     func startCapture() throws {
+        // Fast path: if we're currently warm (engine running, not
+        // delivering), just flip the delivery flag and emit the ring.
+        engineLock.lock()
+        let warmRunning = (audioEngine != nil) && !deliveryEnabled
+        engineLock.unlock()
+        if warmRunning {
+            drainPrerollAndEnableDelivery()
+            NSLog("[Parakatt] Audio capture STARTED (warm — pre-roll drained)")
+            return
+        }
+
+        deliveryEnabled = true
+        try startEngine()
+        NSLog("[Parakatt] Audio capture STARTED")
+    }
+
+    /// Internal helper that builds the AVAudioEngine, installs the
+    /// tap, and starts everything. Used by both `startCapture()` and
+    /// `prewarm()`. Caller is responsible for setting `deliveryEnabled`.
+    private func startEngine() throws {
         teardown()
         tapCallbackCount = 0
         engineLock.lock()
@@ -107,7 +179,6 @@ class AudioCaptureService {
         engineLock.unlock()
 
         installDeviceChangeListener()
-        NSLog("[Parakatt] Audio capture STARTED")
     }
 
     /// Stop the current recording session and tear down the audio engine.
@@ -406,6 +477,19 @@ class AudioCaptureService {
         guard count > 0 else { return }
         let samples = Array(UnsafeBufferPointer(start: data[0], count: count))
 
+        if !deliveryEnabled {
+            // Pre-warm path: keep the most recent prerollSamples in
+            // a ring so the next startCapture() can drain them as
+            // pre-roll. Bounded — we discard the oldest samples.
+            prerollLock.lock()
+            prerollRing.append(contentsOf: samples)
+            if prerollRing.count > prerollSamples {
+                prerollRing.removeFirst(prerollRing.count - prerollSamples)
+            }
+            prerollLock.unlock()
+            return
+        }
+
         tapCallbackCount += 1
         if tapCallbackCount == 1 || tapCallbackCount % 100 == 0 {
             let maxAmp = samples.map { abs($0) }.max() ?? 0
@@ -415,6 +499,24 @@ class AudioCaptureService {
         }
 
         onAudioSamples?(samples)
+    }
+
+    /// Called from `startCapture()` when we were running in pre-warm
+    /// mode. Flush the ring buffer to `onAudioSamples` and flip the
+    /// delivery flag so future tap callbacks go straight through.
+    private func drainPrerollAndEnableDelivery() {
+        prerollLock.lock()
+        let preroll = prerollRing
+        prerollRing.removeAll(keepingCapacity: true)
+        prerollLock.unlock()
+
+        deliveryEnabled = true
+        if !preroll.isEmpty {
+            NSLog("[Parakatt] Draining %.0fms of pre-roll audio (%d samples)",
+                  Double(preroll.count) * 1000.0 / targetSampleRate,
+                  preroll.count)
+            onAudioSamples?(preroll)
+        }
     }
 
     // MARK: - Device selection helpers
