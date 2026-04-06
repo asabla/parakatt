@@ -1181,6 +1181,7 @@ class AppState: ObservableObject {
 
     private func startStreamingUpdates() {
         streamingTimer?.invalidate()
+        lastStreamingSampleCount = 0
         streamingTimer = Timer.scheduledTimer(withTimeInterval: streamingInterval, repeats: true) { [weak self] _ in
             self?.updateLiveTranscription()
         }
@@ -1189,9 +1190,21 @@ class AppState: ObservableObject {
     private func stopStreamingUpdates() {
         streamingTimer?.invalidate()
         streamingTimer = nil
+        lastStreamingSampleCount = 0
     }
 
     private var isStreamTranscribing = false
+    /// Sample count of the last buffer we ran the streaming preview on.
+    /// Used to skip re-transcribing essentially the same audio when the
+    /// user goes silent for a few seconds — re-running Parakeet on a
+    /// frozen buffer produces slightly different decodings each pass
+    /// (the model isn't bit-deterministic on edge inputs), which made
+    /// the live preview flicker between alternates.
+    private var lastStreamingSampleCount: Int = 0
+    /// Minimum new audio (in samples) required since the last preview
+    /// pass before we'll re-transcribe. 0.5 s at 16 kHz — anything
+    /// less is almost certainly just silence accumulating.
+    private let minNewSamplesForRestream = 8000
 
     private func updateLiveTranscription() {
         guard isRecording, let bridge, !isStreamTranscribing else { return }
@@ -1202,6 +1215,16 @@ class AppState: ObservableObject {
         audioBufferLock.unlock()
 
         guard snapshot.count >= minSamplesForStreaming else { return }
+
+        // Skip ticks where the buffer hasn't grown by enough audio to
+        // matter. Without this, every 2 s of silence after speech
+        // would re-decode the exact same waveform and surface a
+        // flickering "alternate" decoding to the user.
+        let newSamples = snapshot.count - lastStreamingSampleCount
+        if lastStreamingSampleCount > 0 && newSamples < minNewSamplesForRestream {
+            return
+        }
+        lastStreamingSampleCount = snapshot.count
 
         // Limit snapshot to last 30 seconds to avoid OOM on very long recordings
         let maxSamples = 30 * 16000
