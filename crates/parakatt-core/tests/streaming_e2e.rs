@@ -524,3 +524,25 @@ fn buffered_preview_reset_clears_committed() {
     let r = engine.buffered_preview_finish("s1".into()).unwrap();
     assert_eq!(r, "");
 }
+
+#[test]
+fn buffered_preview_reset_unknown_errors() {
+    let engine = engine_with_script("bp_reset_unknown", vec!["a"]);
+    assert!(engine.buffered_preview_reset("nope".into()).is_err());
+}
+
+#[test]
+fn buffered_preview_lifecycle_supports_repeated_reset() {
+    // The buffered preview path resets its LA-2 buffer every time
+    // a chunk fires (so the next preview window starts fresh on
+    // the new shorter audio tail). Verify reset is idempotent
+    // and the session stays usable.
+    let engine = engine_with_script("bp_lifecycle", vec!["a"]);
+    engine.buffered_preview_start("s1".into()).unwrap();
+    for _ in 0..10 {
+        engine.buffered_preview_reset("s1".into()).unwrap();
+    }
+    // Still ok after the resets.
+    let final_text = engine.buffered_preview_finish("s1".into()).unwrap();
+    assert_eq!(final_text, "");
+}
