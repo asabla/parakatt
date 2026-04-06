@@ -10,6 +10,7 @@ use crate::download::{DownloadProgress, DownloadState};
 use crate::llm::{LlmProvider, LlmRequest};
 use crate::models;
 use crate::modes;
+use crate::local_agreement::{LocalAgreement2, Token};
 use crate::session::{ChunkResult, SessionManager};
 use crate::storage::{Storage, StoredTranscription, TranscriptionQuery};
 use crate::stt::nemotron::NemotronProvider;
@@ -18,8 +19,18 @@ use crate::stt::streaming::{StreamingProvider, StreamingSession};
 use crate::stt::SttProvider;
 use crate::{
     AppContext, CoreError, EngineConfig, HotkeyConfig, ModeConfig, ModelInfo, ReplacementRule,
-    TimestampedSegment, TranscriptionResult,
+    StreamingChunkResult, TimestampedSegment, TranscriptionResult,
 };
+
+/// Per-session bundle: the underlying streaming model state PLUS
+/// the LocalAgreement-2 commit policy that converts the model's
+/// flickering hypotheses into committed + tentative text. This
+/// keeps the LA-2 state co-located with the streaming session so
+/// resetting one resets the other automatically.
+struct StreamingPreviewSession {
+    inner: Box<dyn StreamingSession>,
+    la2: LocalAgreement2,
+}
 
 /// The main engine exposed to Swift via UniFFI.
 ///
@@ -49,8 +60,9 @@ pub struct Engine {
     /// loaded at the same time, neither is required.
     streaming: Mutex<Option<Box<dyn StreamingProvider>>>,
     /// Active streaming sessions keyed by Swift-supplied session id.
-    /// Each session owns its own per-recording cache state.
-    streaming_sessions: Mutex<std::collections::HashMap<String, Box<dyn StreamingSession>>>,
+    /// Each session owns its own per-recording cache state plus a
+    /// LocalAgreement-2 commit policy.
+    streaming_sessions: Mutex<std::collections::HashMap<String, StreamingPreviewSession>>,
     llm: Mutex<Option<Arc<dyn LlmProvider>>>,
     dictionary: Mutex<Dictionary>,
     download_progress: Arc<Mutex<DownloadProgress>>,
@@ -266,29 +278,71 @@ impl Engine {
                 "Streaming session already exists: {session_id}"
             )));
         }
-        sessions_guard.insert(session_id, session);
+        sessions_guard.insert(
+            session_id,
+            StreamingPreviewSession {
+                inner: session,
+                la2: LocalAgreement2::new(),
+            },
+        );
         Ok(())
     }
 
     /// Feed a chunk of 16 kHz mono audio to a streaming session.
-    /// Returns the FULL running transcript so the Swift side can
-    /// hand it directly to LocalAgreement-2 for the commit policy.
+    ///
+    /// The Rust side runs LocalAgreement-2 internally so the Swift
+    /// caller gets pre-baked committed/tentative slices and doesn't
+    /// have to re-implement LA-2.
     pub fn feed_streaming_chunk(
         &self,
         session_id: String,
         audio_samples: Vec<f32>,
-    ) -> Result<String, CoreError> {
+    ) -> Result<StreamingChunkResult, CoreError> {
         let mut sessions_guard = self.streaming_sessions.lock().map_err(|e| {
             CoreError::TranscriptionFailed(format!("Streaming sessions lock poisoned: {e}"))
         })?;
         let session = sessions_guard.get_mut(&session_id).ok_or_else(|| {
             CoreError::TranscriptionFailed(format!("Streaming session not found: {session_id}"))
         })?;
-        session.feed_chunk(&audio_samples)?;
-        Ok(session.current_transcript())
+        session.inner.feed_chunk(&audio_samples)?;
+
+        // Tokenize the model's running transcript on whitespace and
+        // hand it to LA-2 as a fresh hypothesis. We don't have
+        // per-token timing from the streaming model — that's fine,
+        // LA-2's commit policy works on text-only tokens.
+        let full = session.inner.current_transcript();
+        let hypothesis: Vec<Token> = full
+            .split_whitespace()
+            .map(|w| Token {
+                text: w.to_string(),
+                start_secs: 0.0,
+                end_secs: 0.0,
+            })
+            .collect();
+        let agreement = session.la2.update(hypothesis);
+
+        let newly_committed_text = agreement
+            .newly_committed
+            .iter()
+            .map(|t| t.text.as_str())
+            .collect::<Vec<_>>()
+            .join(" ");
+        let tentative_text = agreement
+            .tentative
+            .iter()
+            .map(|t| t.text.as_str())
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        Ok(StreamingChunkResult {
+            committed_text: session.la2.committed_text().to_string(),
+            tentative_text,
+            newly_committed_text,
+        })
     }
 
     /// Reset a streaming session in place (new utterance, same handle).
+    /// Both the model state AND the LocalAgreement-2 buffer are reset.
     pub fn reset_streaming_session(&self, session_id: String) -> Result<(), CoreError> {
         let mut sessions_guard = self.streaming_sessions.lock().map_err(|e| {
             CoreError::TranscriptionFailed(format!("Streaming sessions lock poisoned: {e}"))
@@ -296,12 +350,13 @@ impl Engine {
         let session = sessions_guard.get_mut(&session_id).ok_or_else(|| {
             CoreError::TranscriptionFailed(format!("Streaming session not found: {session_id}"))
         })?;
-        session.reset();
+        session.inner.reset();
+        session.la2.reset();
         Ok(())
     }
 
     /// Close and discard a streaming session, returning the final
-    /// transcript that was accumulated.
+    /// committed transcript (LocalAgreement-2 stable prefix).
     pub fn finish_streaming_session(&self, session_id: String) -> Result<String, CoreError> {
         let mut sessions_guard = self.streaming_sessions.lock().map_err(|e| {
             CoreError::TranscriptionFailed(format!("Streaming sessions lock poisoned: {e}"))
@@ -309,7 +364,15 @@ impl Engine {
         let session = sessions_guard.remove(&session_id).ok_or_else(|| {
             CoreError::TranscriptionFailed(format!("Streaming session not found: {session_id}"))
         })?;
-        Ok(session.current_transcript())
+        // On finish we accept the model's full running transcript as
+        // the final answer (everything that was tentative now becomes
+        // canonical, since there will be no more passes).
+        let full = session.inner.current_transcript();
+        Ok(if full.is_empty() {
+            session.la2.committed_text().to_string()
+        } else {
+            full
+        })
     }
 
     /// Cancel a streaming session without returning text.
