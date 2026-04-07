@@ -1,4 +1,5 @@
 import Cocoa
+import ParakattCore
 import SwiftUI
 
 @MainActor
@@ -11,6 +12,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var onboardingWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Initialize the Rust core's logger BEFORE constructing anything
+        // that may log. Without this, every `log::info!`/`warn!`/`error!`
+        // inside parakatt-core is silently dropped — which is exactly how
+        // issue #23 stayed invisible: the storage failures *were* logged,
+        // but no Rust log subscriber was ever installed. Output goes to
+        // stderr, which Console.app captures alongside our NSLog lines.
+        ParakattCore.initLogging(defaultLevel: "info")
+
         permissionService = PermissionService()
         permissionService?.requestPermissionsIfNeeded()
 

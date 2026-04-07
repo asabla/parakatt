@@ -15,6 +15,38 @@ pub mod vad;
 
 uniffi::setup_scaffolding!();
 
+/// Initialize the Rust core's logger so `log::info!` / `log::warn!` /
+/// `log::error!` calls actually reach somewhere a human can read.
+///
+/// Without this, `env_logger` is in `Cargo.toml` but no `Log`
+/// implementation is registered, so every log call inside the core is
+/// silently dropped — which was the original reason issue #23 was
+/// invisible: the storage failures *were* being logged via
+/// `log::warn!`, but those messages went into the void.
+///
+/// Output goes to stderr. For terminal launches that lands in the
+/// terminal directly; for bundled `.app` launches macOS captures it
+/// into the unified logging system, where it's visible in Console.app
+/// alongside the Swift `NSLog` lines (filter on the process name).
+///
+/// Safe to call multiple times — the underlying `try_init` is a no-op
+/// if a logger has already been installed (e.g. during tests).
+///
+/// `default_level` is one of `"error"`, `"warn"`, `"info"`, `"debug"`,
+/// `"trace"`. The `RUST_LOG` env var, if set, overrides it. If
+/// `default_level` is `None` we default to `"info"`.
+#[uniffi::export]
+pub fn init_logging(default_level: Option<String>) {
+    let level = default_level.as_deref().unwrap_or("info");
+    let env = env_logger::Env::default().default_filter_or(level);
+    let _ = env_logger::Builder::from_env(env)
+        .format_timestamp_millis()
+        .format_module_path(false)
+        .target(env_logger::Target::Stderr)
+        .try_init();
+    log::info!("parakatt-core logger initialized (level={level})");
+}
+
 /// Errors exposed across the FFI boundary.
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum CoreError {
