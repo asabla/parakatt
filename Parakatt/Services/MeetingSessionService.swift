@@ -51,6 +51,14 @@ class MeetingSessionService {
     /// Accumulated full transcript (updated after each chunk).
     private(set) var accumulatedText: String = ""
 
+    /// Number of chunks that have been dispatched (mic+sys mixed).
+    private var chunksDispatched: Int = 0
+    /// Number of chunks that failed during processChunk. Used to detect
+    /// the "every chunk silently failed" pathology that issue #23 was
+    /// about — if all chunks fail, the user gets an error on stop()
+    /// instead of a quietly empty transcript.
+    private var chunksFailed: Int = 0
+
     /// Elapsed time since session start.
     var elapsedTime: TimeInterval {
         guard let startTime else { return 0 }
@@ -105,6 +113,8 @@ class MeetingSessionService {
         isActive = true
         startTime = Date()
         chunkIndex = 0
+        chunksDispatched = 0
+        chunksFailed = 0
         accumulatedText = ""
         activeMode = mode
         activeContext = context
@@ -140,18 +150,35 @@ class MeetingSessionService {
             // Process the final chunk synchronously.
             self.processRemainingChunkSync()
 
+            // Diagnostic: if every chunk we dispatched failed, the
+            // session almost certainly produced nothing useful. Tell
+            // the user *before* finish_session runs so they don't get
+            // a misleading "session ended" message followed by silence.
+            let dispatched = self.chunksDispatched
+            let failed = self.chunksFailed
+            if dispatched > 0 && failed == dispatched {
+                let msg = "All \(dispatched) chunks failed to process — meeting transcript will be empty. Check logs."
+                NSLog("[Parakatt] %@", msg)
+                DispatchQueue.main.async {
+                    self.onError?(msg)
+                }
+            } else if failed > 0 {
+                NSLog("[Parakatt] Meeting completed with %d/%d chunks failed", failed, dispatched)
+            }
+
             // Now finish the session (applies dictionary + LLM, persists).
             do {
                 let result = try self.bridge.finishSession(
                     sessionId: self.sessionId,
                     mode: mode,
-                    context: context
+                    context: context,
+                    source: "meeting"
                 )
                 DispatchQueue.main.async {
                     self.onSessionFinished?(result)
                 }
-                NSLog("[Parakatt] Meeting session FINISHED (%.0fs, %d chunks)",
-                      result.durationSecs, self.chunkIndex)
+                NSLog("[Parakatt] Meeting session FINISHED (%.0fs, %d chunks, %d failed)",
+                      result.durationSecs, self.chunkIndex, failed)
             } catch {
                 DispatchQueue.main.async {
                     self.onError?("Failed to finish session: \(error.localizedDescription)")
@@ -198,11 +225,20 @@ class MeetingSessionService {
                 NSLog("[Parakatt] Final chunk %d LLM degraded (raw text used): %@", currentIndex, llmErr)
             }
             DispatchQueue.main.async { [weak self] in
-                self?.onChunkTranscribed?(result.text, acc, result.segments)
+                guard let self else { return }
+                self.chunksDispatched += 1
+                self.accumulatedText = acc
+                self.onChunkTranscribed?(result.text, acc, result.segments)
             }
             NSLog("[Parakatt] Final chunk %d processed: %d samples", currentIndex, chunkSamples.count)
         } catch {
             NSLog("[Parakatt] Final chunk %d failed: %@", currentIndex, error.localizedDescription)
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.chunksDispatched += 1
+                self.chunksFailed += 1
+                self.onError?("Final chunk \(currentIndex) failed: \(error.localizedDescription)")
+            }
         }
     }
 
@@ -358,11 +394,21 @@ class MeetingSessionService {
                     NSLog("[Parakatt] Chunk %d LLM degraded (raw text used): %@", currentIndex, llmErr)
                 }
                 DispatchQueue.main.async {
+                    self.chunksDispatched += 1
                     self.accumulatedText = acc
                     self.onChunkTranscribed?(result.text, acc, result.segments)
                 }
             } catch {
                 NSLog("[Parakatt] Chunk %d failed: %@", currentIndex, error.localizedDescription)
+                DispatchQueue.main.async {
+                    self.chunksDispatched += 1
+                    self.chunksFailed += 1
+                    // Surface every chunk failure to the UI. The
+                    // previous behavior was to swallow these into
+                    // NSLog, which is exactly the silent-failure mode
+                    // that hid issue #23.
+                    self.onError?("Chunk \(currentIndex) failed: \(error.localizedDescription)")
+                }
             }
         }
     }

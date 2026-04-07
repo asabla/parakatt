@@ -182,8 +182,12 @@ impl Engine {
         // 4. LLM post-processing (if mode has a system prompt and LLM is configured)
         result.llm_error = self.apply_llm(&mut result.text, &mode, &ctx)?;
 
-        // Auto-save to history.
-        self.auto_save_transcription(&result, "push_to_talk", &mode, "mic", &ctx);
+        // Auto-save to history. A storage failure here doesn't fail the
+        // transcription itself — the user already has the text — but we
+        // log it as an error so silent persistence loss is visible.
+        if let Err(e) = self.auto_save_transcription(&result, "push_to_talk", &mode, "mic", &ctx) {
+            log::error!("Push-to-talk auto-save failed: {e}");
+        }
 
         Ok(result)
     }
@@ -1257,21 +1261,83 @@ impl Engine {
         session_id: String,
         audio_samples: Vec<f32>,
         sample_rate: u32,
-        _chunk_index: u32,
+        chunk_index: u32,
         chunk_overlap_secs: f64,
         mode: String,
         context: Option<AppContext>,
     ) -> Result<ChunkResult, CoreError> {
-        // Preprocess audio (validate sample rate, trim leading/trailing silence).
-        // The full original chunk duration is what advances the session
-        // timeline; the trimmed offset is how much we have to add back to
-        // STT-returned timestamps so they refer to the chunk's real time
-        // base instead of the trimmed buffer's time base.
+        // Session chunks are deliberately NOT routed through
+        // `audio::preprocess`. That helper runs `EnergyVad` (tuned for
+        // close-mic push-to-talk at ~ -36 dBFS) and trims leading /
+        // trailing silence. For meetings — especially the system-audio
+        // half of the mix, which we attenuate -6 dB before summing —
+        // typical voice levels sit *below* that VAD threshold, so the
+        // entire chunk gets rejected as "silence" and the meeting
+        // produces an empty transcript even though there was real
+        // audio in the buffer. Issue #23 was exactly this. Parakeet
+        // already handles intra-chunk silence internally, so we just
+        // validate format and pass the buffer straight through.
         let chunk_duration_secs = audio_samples.len() as f64 / sample_rate as f64;
-        let processed = crate::audio::preprocess(&audio_samples, sample_rate)?;
-        let leading_trim_secs = processed.leading_trim_secs;
+        log::info!(
+            "session '{}' chunk {} in: {} samples ({:.1}s @ {}Hz, overlap={:.1}s)",
+            session_id,
+            chunk_index,
+            audio_samples.len(),
+            chunk_duration_secs,
+            sample_rate,
+            chunk_overlap_secs
+        );
 
-        // Run STT on this chunk.
+        if sample_rate != crate::audio::TARGET_SAMPLE_RATE {
+            return Err(CoreError::AudioError(format!(
+                "Expected {}Hz audio, got {}Hz. Resample before sending to engine.",
+                crate::audio::TARGET_SAMPLE_RATE,
+                sample_rate
+            )));
+        }
+        if audio_samples.is_empty() {
+            log::warn!(
+                "session '{}' chunk {}: empty audio buffer, skipping",
+                session_id,
+                chunk_index
+            );
+            let mut mgr = self.sessions.lock().map_err(|e| {
+                CoreError::TranscriptionFailed(format!("Session lock poisoned: {e}"))
+            })?;
+            let mut chunk_result = mgr.add_chunk_with_overlap(
+                &session_id,
+                "",
+                chunk_duration_secs,
+                chunk_overlap_secs,
+                Vec::new(),
+            )?;
+            chunk_result.llm_error = None;
+            return Ok(chunk_result);
+        }
+
+        // Quick RMS log so we can see in stderr/Console.app whether
+        // the chunk that reached us actually contains signal — this
+        // is the single most useful number when debugging "no speech
+        // detected" reports.
+        let rms = {
+            let sum_sq: f64 = audio_samples.iter().map(|s| (*s as f64).powi(2)).sum();
+            (sum_sq / audio_samples.len() as f64).sqrt()
+        };
+        let peak = audio_samples
+            .iter()
+            .copied()
+            .fold(0.0_f32, |a, b| a.max(b.abs()));
+        log::info!(
+            "session '{}' chunk {} levels: rms={:.4} ({:.1} dBFS), peak={:.4} ({:.1} dBFS)",
+            session_id,
+            chunk_index,
+            rms,
+            20.0 * rms.max(1e-9).log10(),
+            peak,
+            20.0 * (peak.max(1e-9) as f64).log10()
+        );
+
+        // Run STT on this chunk (full buffer, no VAD trim).
         let stt_guard = self
             .stt
             .lock()
@@ -1279,18 +1345,8 @@ impl Engine {
         let stt = stt_guard
             .as_ref()
             .ok_or_else(|| CoreError::TranscriptionFailed("No STT model loaded".into()))?;
-        let mut stt_result = stt.transcribe(&processed.samples, sample_rate)?;
+        let stt_result = stt.transcribe(&audio_samples, sample_rate)?;
         drop(stt_guard);
-
-        // Shift segment timestamps so they reference the start of the
-        // *original* (un-trimmed) chunk, not the trimmed waveform that
-        // was actually fed into the model.
-        if leading_trim_secs > 0.0 {
-            for seg in stt_result.segments.iter_mut() {
-                seg.start_secs += leading_trim_secs;
-                seg.end_secs += leading_trim_secs;
-            }
-        }
 
         // Remove filler words and apply dictionary replacements per-chunk.
         let ctx = context.unwrap_or_default();
@@ -1317,7 +1373,19 @@ impl Engine {
             chunk_overlap_secs,
             stt_result.segments,
         )?;
-        chunk_result.llm_error = llm_error;
+        chunk_result.llm_error = llm_error.clone();
+        log::info!(
+            "session '{}' chunk {} out: {} chars, {} segments{}",
+            session_id,
+            chunk_index,
+            chunk_result.text.len(),
+            chunk_result.segments.len(),
+            if llm_error.is_some() {
+                " (LLM degraded)"
+            } else {
+                ""
+            }
+        );
         Ok(chunk_result)
     }
 
@@ -1356,7 +1424,21 @@ impl Engine {
         } else {
             "mixed"
         };
-        self.auto_save_transcription(&result, src, &mode, input, &ctx);
+
+        log::info!(
+            "Finishing session '{}' ({:.1}s, {} segments, {} chars) — persisting",
+            session_id,
+            result.duration_secs,
+            result.segments.len(),
+            result.text.len()
+        );
+
+        // For meeting sessions a persistence failure is the bug we're
+        // trying to make non-silent (issue #23). Propagate it so the
+        // Swift layer can surface an error to the user instead of
+        // returning a successful-looking TranscriptionResult that was
+        // never actually saved.
+        self.auto_save_transcription(&result, src, &mode, input, &ctx)?;
 
         Ok(result)
     }
@@ -1700,7 +1782,13 @@ impl Engine {
         Ok(None)
     }
 
-    /// Auto-save a transcription result to storage. Failures are logged, not propagated.
+    /// Auto-save a transcription result to storage.
+    ///
+    /// Returns `Ok(Some(id))` on a successful save, `Ok(None)` if the
+    /// transcription was deliberately skipped (e.g. empty text and not a
+    /// meeting), and `Err(...)` if persistence actually failed. Callers
+    /// are expected to surface the error so the UI can react instead of
+    /// silently producing no history entry.
     fn auto_save_transcription(
         &self,
         result: &TranscriptionResult,
@@ -1708,23 +1796,43 @@ impl Engine {
         mode: &str,
         audio_source: &str,
         context: &AppContext,
-    ) {
-        if result.text.trim().is_empty() {
-            return;
+    ) -> Result<Option<String>, CoreError> {
+        let is_meeting = source == "meeting";
+        let trimmed_empty = result.text.trim().is_empty();
+
+        // Push-to-talk: an empty transcript is a normal "user said nothing"
+        // outcome — skip silently as before. Meetings, on the other hand,
+        // run for minutes; an empty result there is almost always a bug
+        // (silent capture, VAD over-rejection, all chunks failing) and we
+        // want a row in the DB anyway so the user can see *something*
+        // happened and we have a breadcrumb to debug from.
+        if trimmed_empty && !is_meeting {
+            log::debug!("Skipping auto-save: empty push-to-talk result");
+            return Ok(None);
+        }
+
+        if trimmed_empty && is_meeting {
+            log::warn!(
+                "Meeting session produced empty transcript ({:.1}s, {} segments) — saving placeholder row for diagnostics",
+                result.duration_secs,
+                result.segments.len()
+            );
         }
 
         let now = chrono::Utc::now().to_rfc3339();
         let title = format!(
             "{} {}",
-            if source == "meeting" {
-                "Meeting"
-            } else {
-                "Note"
-            },
+            if is_meeting { "Meeting" } else { "Note" },
             chrono::Utc::now().format("%Y-%m-%d %H:%M")
         );
 
         let app_context_json = serde_json::to_string(context).ok();
+
+        let text = if trimmed_empty {
+            "[no speech detected]".to_string()
+        } else {
+            result.text.clone()
+        };
 
         let transcription = StoredTranscription {
             id: uuid::Uuid::new_v4().to_string(),
@@ -1735,26 +1843,47 @@ impl Engine {
             audio_source: Some(audio_source.to_string()),
             app_context: app_context_json,
             title: Some(title),
-            text: result.text.clone(),
+            text,
         };
 
-        if let Ok(storage) = self.storage.lock() {
-            if let Err(e) = storage.save(&transcription) {
-                log::warn!("Failed to auto-save transcription: {e}");
-            } else {
-                log::info!(
-                    "Saved transcription '{}' with {} segments",
-                    transcription.id,
-                    result.segments.len()
+        let storage = self.storage.lock().map_err(|e| {
+            // Lock poisoning used to silently swallow the entire save —
+            // see issue #23. Surface it loudly so callers can react.
+            log::error!("Storage lock poisoned during auto-save: {e}");
+            CoreError::TranscriptionFailed(format!("Storage lock poisoned: {e}"))
+        })?;
+
+        storage.save(&transcription).map_err(|e| {
+            log::error!(
+                "Failed to auto-save transcription {}: {e}",
+                transcription.id
+            );
+            CoreError::TranscriptionFailed(format!("Failed to save transcription: {e}"))
+        })?;
+
+        log::info!(
+            "Saved {} transcription '{}' ({:.1}s, {} segments, {} chars)",
+            source,
+            transcription.id,
+            result.duration_secs,
+            result.segments.len(),
+            transcription.text.len()
+        );
+
+        if !result.segments.is_empty() {
+            if let Err(e) = storage.save_segments(&transcription.id, &result.segments, None) {
+                // Segment-save failure is non-fatal: the transcript row
+                // is already in the DB and renderable as flat text. Log
+                // it loudly but don't unwind the whole save.
+                log::error!(
+                    "Failed to save {} segments for {}: {e}",
+                    result.segments.len(),
+                    transcription.id
                 );
-                if !result.segments.is_empty() {
-                    if let Err(e) = storage.save_segments(&transcription.id, &result.segments, None)
-                    {
-                        log::warn!("Failed to save segments: {e}");
-                    }
-                }
             }
         }
+
+        Ok(Some(transcription.id))
     }
 
     /// Set up the LLM provider based on current config.
