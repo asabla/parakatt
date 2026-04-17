@@ -1070,6 +1070,24 @@ class AppState: ObservableObject {
             if errorMessage == nil {
                 errorMessage = "System-audio tap is delivering empty buffers. This usually means the selected output device isn't the one your meeting app is using."
             }
+        case .empty(let forSeconds) where forSeconds >= 2.0:
+            // Intermediate state: tap isn't delivering yet but it's early
+            // days. Let the user know we're mic-only for now without
+            // escalating all the way to a hard error.
+            let since = systemSilentSince ?? Date()
+            systemSilentSince = since
+            if case .systemEmpty = meetingAudioStatus { return }
+            if case .bothSilent = meetingAudioStatus { return }
+            meetingAudioStatus = .systemSilent(since: since)
+        case .silent(let forSeconds) where forSeconds >= 2.0:
+            let since = systemSilentSince ?? Date()
+            systemSilentSince = since
+            if case .systemEmpty = meetingAudioStatus { return }
+            if case .bothSilent = meetingAudioStatus { return }
+            meetingAudioStatus = .systemSilent(since: since)
+        case .ok:
+            systemSilentSince = nil
+            meetingAudioStatus = .healthy
         default:
             break
         }

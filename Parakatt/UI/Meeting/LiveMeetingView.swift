@@ -73,11 +73,11 @@ struct LiveMeetingView: View {
     private func audioStatusChip(_ status: MeetingAudioStatus) -> (String, Color, String) {
         switch status {
         case .unknown:
-            return ("Starting…", .secondary, "waveform")
+            return ("Listening…", .secondary, "waveform")
         case .healthy:
-            return ("Both sources OK", .green, "waveform.badge.mic")
+            return ("Mic + system OK", .green, "waveform.badge.mic")
         case .systemSilent:
-            return ("Only your voice", .orange, "person.wave.2")
+            return ("Mic only", .orange, "person.wave.2")
         case .bothSilent:
             return ("No audio detected", .orange, "mic.slash")
         case .systemEmpty:
@@ -165,11 +165,11 @@ struct LiveMeetingView: View {
             Text("Listening…")
                 .font(.title3)
                 .foregroundStyle(.secondary)
-            Text("Transcribed segments will appear here as chunks finish processing.")
+            Text("The first batch of transcribed text arrives after about 30 seconds of audio. Later chunks land every 28s.")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
-                .frame(maxWidth: 320)
+                .frame(maxWidth: 360)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(24)
