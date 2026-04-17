@@ -96,28 +96,64 @@ struct LiveMeetingView: View {
             if appState.meetingSegments.isEmpty {
                 emptyStateView
             } else {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 8) {
-                            ForEach(Array(appState.meetingSegments.enumerated()), id: \.offset) { idx, segment in
-                                segmentRow(segment, isLatest: isLatestChunk(segment))
-                                    .id(idx)
+                VStack(spacing: 0) {
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            LazyVStack(alignment: .leading, spacing: 8) {
+                                ForEach(Array(appState.meetingSegments.enumerated()), id: \.offset) { idx, segment in
+                                    segmentRow(segment, isLatest: isLatestChunk(segment))
+                                        .id(idx)
+                                }
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                        }
+                        .onChange(of: appState.meetingSegments.count) { _, newCount in
+                            if newCount > 0 {
+                                withAnimation(.easeOut(duration: 0.2)) {
+                                    proxy.scrollTo(newCount - 1, anchor: .bottom)
+                                }
                             }
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
                     }
-                    .onChange(of: appState.meetingSegments.count) { _, newCount in
-                        if newCount > 0 {
-                            withAnimation(.easeOut(duration: 0.2)) {
-                                proxy.scrollTo(newCount - 1, anchor: .bottom)
-                            }
-                        }
-                    }
+                    nextChunkIndicator
                 }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// Small footer strip shown above the action buttons once text is
+    /// flowing. Gives the user continuous feedback between chunks so the
+    /// UI never sits idle — mic level bars + a progress bar ticking toward
+    /// the next batch arrival.
+    private var nextChunkIndicator: some View {
+        let elapsed = appState.meetingElapsedTime
+        let first = appState.meetingFirstChunkSecs
+        let interval = appState.meetingChunkIntervalSecs
+        let sinceLast: Double
+        if elapsed < first {
+            sinceLast = elapsed
+        } else {
+            sinceLast = fmod(elapsed - first, interval)
+        }
+        let target = elapsed < first ? first : interval
+        let fraction = target > 0 ? min(sinceLast / target, 1) : 0
+        let remaining = max(0, Int(target - sinceLast))
+
+        return HStack(spacing: 10) {
+            MeetingAudioLevelBars(level: appState.meetingMicLevel, tint: .accentColor)
+            ProgressView(value: fraction)
+                .progressViewStyle(.linear)
+                .frame(maxWidth: .infinity)
+            Text("next in \(remaining)s")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(width: 80, alignment: .trailing)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(.ultraThinMaterial)
     }
 
     private func isLatestChunk(_ segment: TimestampedSegment) -> Bool {
@@ -158,21 +194,52 @@ struct LiveMeetingView: View {
     }
 
     private var emptyStateView: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "waveform")
-                .font(.system(size: 32))
-                .foregroundStyle(.tertiary)
-            Text("Listening…")
-                .font(.title3)
-                .foregroundStyle(.secondary)
-            Text("The first batch of transcribed text arrives after about 30 seconds of audio. Later chunks land every 28s.")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 360)
+        VStack(spacing: 18) {
+            VStack(spacing: 10) {
+                Image(systemName: "waveform")
+                    .font(.system(size: 32))
+                    .foregroundStyle(.tertiary)
+                Text("Listening…")
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+                Text("Parakeet transcribes in ~30s batches. You'll see text here shortly.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 360)
+            }
+
+            // Live mic level so the user has immediate feedback that audio
+            // is being captured even before the first chunk transcribes.
+            MeetingAudioLevelBars(level: appState.meetingMicLevel, tint: .accentColor)
+
+            // Progress bar ticking toward the first chunk dispatch.
+            firstChunkProgressBar
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(24)
+    }
+
+    private var firstChunkProgressBar: some View {
+        let target = appState.meetingFirstChunkSecs
+        let elapsed = min(appState.meetingElapsedTime, target)
+        let fraction = target > 0 ? elapsed / target : 0
+        let remaining = max(0, Int(target - elapsed))
+
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("First batch")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text(remaining > 0 ? "\(remaining)s until first text" : "Transcribing now…")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            ProgressView(value: fraction)
+                .progressViewStyle(.linear)
+        }
+        .frame(maxWidth: 360)
     }
 
     // MARK: - Footer
@@ -215,5 +282,38 @@ struct LiveMeetingView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+    }
+}
+
+/// Five-bar equaliser driven by a 0…1 level. Visually analogous to the
+/// RecordingOverlay's bars but tuned for the larger live-meeting window.
+@available(macOS 14.2, *)
+private struct MeetingAudioLevelBars: View {
+    let level: Float
+    let tint: Color
+    private let barCount = 5
+    private let barWidth: CGFloat = 4
+    private let barSpacing: CGFloat = 3
+    private let maxHeight: CGFloat = 24
+    private let minHeight: CGFloat = 4
+    private let multipliers: [Float] = [0.4, 0.75, 1.0, 0.75, 0.4]
+
+    var body: some View {
+        HStack(spacing: barSpacing) {
+            ForEach(0..<barCount, id: \.self) { i in
+                let barLevel = CGFloat(level * multipliers[i])
+                let height = minHeight + (maxHeight - minHeight) * barLevel
+                RoundedRectangle(cornerRadius: barWidth / 2)
+                    .fill(tint)
+                    .frame(width: barWidth, height: height)
+            }
+        }
+        .frame(height: maxHeight)
+        .animation(
+            NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+                ? nil
+                : .easeOut(duration: 0.1),
+            value: level
+        )
     }
 }
