@@ -53,6 +53,16 @@ class MeetingSessionService {
     private var isActive = false
     private var chunkTimer: Timer?
     private var startTime: Date?
+    /// Absolute timestamp at which capture started. Used as the reference
+    /// point when a source has never delivered samples — otherwise the
+    /// `lastSystemReceivedAt > 0` check in mixPendingSamples treats a
+    /// never-delivering source as "not stale" and mic samples pile up.
+    private var captureStartedAt: CFAbsoluteTime = 0
+    /// Watchdog timer that fires every 2s independent of the system-audio
+    /// tap's IOProc. On macOS 26 we've observed the tap register cleanly
+    /// but never deliver callbacks — this timer surfaces that via
+    /// onSystemAudioHealth so the UI doesn't sit at "Starting…" forever.
+    private var healthWatchdog: Timer?
 
     /// Mode and context used for per-chunk LLM processing.
     private var activeMode: String = "dictation"
@@ -133,6 +143,7 @@ class MeetingSessionService {
 
         isActive = true
         startTime = Date()
+        captureStartedAt = CFAbsoluteTimeGetCurrent()
         chunkIndex = 0
         chunksDispatched = 0
         chunksFailed = 0
@@ -148,6 +159,17 @@ class MeetingSessionService {
             repeats: true
         ) { [weak self] _ in
             self?.dispatchChunk()
+        }
+
+        // Health watchdog — fires every 2s independent of the tap's IOProc.
+        // On macOS 26.3+ we've seen the tap register without ever delivering
+        // a callback; without this watchdog the UI would stay at .unknown
+        // until the first chunk dispatches 28s later.
+        healthWatchdog = Timer.scheduledTimer(
+            withTimeInterval: 2.0,
+            repeats: true
+        ) { [weak self] _ in
+            self?.tickHealthWatchdog()
         }
 
         NSLog("[Parakatt] Meeting session STARTED (id: %@)", sessionId)
@@ -198,6 +220,8 @@ class MeetingSessionService {
 
         chunkTimer?.invalidate()
         chunkTimer = nil
+        healthWatchdog?.invalidate()
+        healthWatchdog = nil
         micCapture.stopCapture()
         systemCapture.stopCapture()
 
@@ -309,6 +333,8 @@ class MeetingSessionService {
 
         chunkTimer?.invalidate()
         chunkTimer = nil
+        healthWatchdog?.invalidate()
+        healthWatchdog = nil
         micCapture.stopCapture()
         systemCapture.stopCapture()
         bridge.cancelSession(sessionId: sessionId)
@@ -418,8 +444,14 @@ class MeetingSessionService {
         systemLock.lock()
 
         let now = CFAbsoluteTimeGetCurrent()
-        let micStale = lastMicReceivedAt > 0 && (now - lastMicReceivedAt) > staleSourceThresholdSecs
-        let systemStale = lastSystemReceivedAt > 0 && (now - lastSystemReceivedAt) > staleSourceThresholdSecs
+        // Use captureStartedAt as the fallback reference when a source has
+        // never delivered (lastReceivedAt == 0). Without this, a source
+        // that never delivers is treated as "not stale" and samples from
+        // the other source pile up waiting for it forever.
+        let micReference = lastMicReceivedAt > 0 ? lastMicReceivedAt : captureStartedAt
+        let systemReference = lastSystemReceivedAt > 0 ? lastSystemReceivedAt : captureStartedAt
+        let micStale = captureStartedAt > 0 && (now - micReference) > staleSourceThresholdSecs
+        let systemStale = captureStartedAt > 0 && (now - systemReference) > staleSourceThresholdSecs
 
         let common = min(micPendingSamples.count, systemPendingSamples.count)
         var mixed: [Float] = []
@@ -576,6 +608,36 @@ class MeetingSessionService {
             mixBuffer.append(contentsOf: remaining)
             bufferLock.unlock()
         }
+    }
+
+    /// Fires every 2s independent of the tap's IOProc. Surfaces a synthetic
+    /// SystemAudioHealth so the UI transitions from .unknown to a meaningful
+    /// state quickly even when the tap never delivers a callback.
+    ///
+    /// On macOS 26 we've observed the Core Audio process tap register
+    /// successfully but never fire handleAudioCallback. Without this
+    /// watchdog the only signal would be the per-chunk RMS, which doesn't
+    /// land until t=28s when the first chunk dispatches.
+    private func tickHealthWatchdog() {
+        guard isActive, captureStartedAt > 0 else { return }
+        let now = CFAbsoluteTimeGetCurrent()
+        let refSys = lastSystemReceivedAt > 0 ? lastSystemReceivedAt : captureStartedAt
+        let sysSilentFor = now - refSys
+
+        // Only synthesize a health signal if the tap itself hasn't been
+        // speaking. If it has (lastSystemReceivedAt is recent), the real
+        // tap's onHealth will drive the UI.
+        if sysSilentFor > 2.0 {
+            let synthetic: SystemAudioHealth = .empty(forSeconds: sysSilentFor)
+            DispatchQueue.main.async { [weak self] in
+                self?.onSystemAudioHealth?(synthetic)
+            }
+        }
+
+        // Also drive mic-only mixing forward if the chunk timer hasn't
+        // fired yet — keeps the mix buffer ticking so dispatchChunk has
+        // audio ready even when system never delivers.
+        mixPendingSamples()
     }
 
     /// Compute per-source RMS for the just-finished chunk window and hand it
