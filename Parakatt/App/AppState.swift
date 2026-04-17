@@ -52,6 +52,16 @@ class AppState: ObservableObject {
     @Published var meetingElapsedTime: TimeInterval = 0
     @Published var meetingTranscription: String?
     @Published var meetingLatestChunk: String?
+    @Published var meetingAudioStatus: MeetingAudioStatus = .unknown
+
+    /// When the system-audio side first started reporting silent/empty.
+    /// Used to decide when to escalate to a user-visible warning.
+    private var systemSilentSince: Date?
+    /// Rolling signal-quality threshold (dBFS) below which a source counts
+    /// as "silent". -60 dBFS matches the tap health threshold.
+    private let meetingSilenceDbfsThreshold: Double = -60.0
+    /// Seconds of continuous system-silent before we surface a user warning.
+    private let meetingSilenceWarnAfterSecs: TimeInterval = 15
 
     // Behavior settings
     @Published var autoPaste = true
@@ -873,12 +883,22 @@ class AppState: ObservableObject {
             self?.meetingTranscription = accumulated
         }
 
+        session.onChunkHealth = { [weak self] micDbfs, sysDbfs in
+            self?.updateMeetingAudioStatus(micDbfs: micDbfs, sysDbfs: sysDbfs)
+        }
+
+        session.onSystemAudioHealth = { [weak self] health in
+            self?.applySystemAudioHealth(health)
+        }
+
         session.onSessionFinished = { [weak self] result in
             self?.isMeetingActive = false
             self?.meetingElapsedTimer?.invalidate()
             self?.meetingElapsedTimer = nil
             self?.meetingTranscription = result.text
             self?.meetingLatestChunk = nil
+            self?.meetingAudioStatus = .unknown
+            self?.systemSilentSince = nil
             self?.sendTranscriptionNotification(preview: result.text, source: "meeting")
             NSLog("[Parakatt] Meeting finished: %.0fs, %d chars", result.durationSecs, result.text.count)
         }
@@ -887,6 +907,7 @@ class AppState: ObservableObject {
             self?.isMeetingActive = false
             self?.meetingElapsedTimer?.invalidate()
             self?.meetingElapsedTimer = nil
+            self?.meetingAudioStatus = .error(message)
             self?.errorMessage = message
         }
 
@@ -931,8 +952,10 @@ class AppState: ObservableObject {
             meetingElapsedTimer = nil
 
             if let audioErr = error as? SystemAudioCaptureError, case .permissionDenied = audioErr {
+                meetingAudioStatus = .permissionDenied
                 promptForSystemAudioPermission()
             } else {
+                meetingAudioStatus = .error(error.localizedDescription)
                 errorMessage = "Failed to start meeting: \(error.localizedDescription)"
             }
         }
@@ -956,6 +979,57 @@ class AppState: ObservableObject {
         meetingElapsedTimer = nil
         meetingTranscription = nil
         meetingLatestChunk = nil
+        meetingAudioStatus = .unknown
+        systemSilentSince = nil
+    }
+
+    /// Apply a per-chunk RMS sample to the meeting audio-status state machine.
+    /// Runs on the main thread (callback is already marshalled there).
+    private func updateMeetingAudioStatus(micDbfs: Double?, sysDbfs: Double?) {
+        let micSilent = (micDbfs ?? -.infinity) < meetingSilenceDbfsThreshold
+        let sysSilent = (sysDbfs ?? -.infinity) < meetingSilenceDbfsThreshold
+
+        // If the existing status is a terminal "permissionDenied" / "error",
+        // leave it — subsequent chunk health can't contradict those.
+        if case .permissionDenied = meetingAudioStatus { return }
+        if case .error = meetingAudioStatus { return }
+
+        if micSilent && sysSilent {
+            meetingAudioStatus = .bothSilent
+            systemSilentSince = systemSilentSince ?? Date()
+        } else if sysSilent {
+            let since = systemSilentSince ?? Date()
+            systemSilentSince = since
+            meetingAudioStatus = .systemSilent(since: since)
+            if Date().timeIntervalSince(since) >= meetingSilenceWarnAfterSecs {
+                if errorMessage == nil {
+                    errorMessage = "No audio from other apps detected. If this is a meeting, confirm the other app is playing to the selected output device."
+                }
+            }
+        } else {
+            meetingAudioStatus = .healthy
+            systemSilentSince = nil
+        }
+    }
+
+    /// Apply a tap-level SystemAudioHealth sample. Note: the per-chunk RMS
+    /// path (updateMeetingAudioStatus) is the source of truth for "is the
+    /// transcript going to be mic-only?". This only escalates to .systemEmpty
+    /// when the tap itself reports persistent empty buffers — that's a
+    /// distinct failure mode (wrong output device, not just quiet audio).
+    private func applySystemAudioHealth(_ health: SystemAudioHealth) {
+        if case .permissionDenied = meetingAudioStatus { return }
+        if case .error = meetingAudioStatus { return }
+
+        switch health {
+        case .empty(let forSeconds) where forSeconds >= meetingSilenceWarnAfterSecs:
+            meetingAudioStatus = .systemEmpty
+            if errorMessage == nil {
+                errorMessage = "System-audio tap is delivering empty buffers. This usually means the selected output device isn't the one your meeting app is using."
+            }
+        default:
+            break
+        }
     }
 
     // MARK: - Transcription history
@@ -1665,4 +1739,29 @@ class AppState: ObservableObject {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }
+}
+
+/// UI-facing summary of meeting-time audio capture health.
+/// Driven by MeetingSessionService.onChunkHealth and the system-audio tap's
+/// own onHealth signal. Distinguishes "only your voice is being captured"
+/// from "everything is fine" so the user doesn't have to infer it from a
+/// missing transcript at the end.
+enum MeetingAudioStatus: Equatable {
+    /// No meeting active, or no signal observed yet.
+    case unknown
+    /// Both sources delivering signal above the silence threshold.
+    case healthy
+    /// Mic has signal but system audio has been silent or empty for a while.
+    /// `since` marks when we first noticed; use it to decide whether to
+    /// surface a warning to the user.
+    case systemSilent(since: Date)
+    /// Both mic and system are effectively silent. Usually transient.
+    case bothSilent
+    /// The system-audio tap reports empty buffers (e.g. wrong output device
+    /// is the aggregate's main, or no audio is playing).
+    case systemEmpty
+    /// User hasn't granted Screen & System Audio Recording.
+    case permissionDenied
+    /// Any other capture failure.
+    case error(String)
 }

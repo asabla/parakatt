@@ -17,6 +17,16 @@ class MeetingSessionService {
     var onSessionFinished: ((TranscriptionResult) -> Void)?
     /// Called if an error occurs during the session.
     var onError: ((String) -> Void)?
+    /// Called after each chunk dispatch with per-source signal levels. Lets
+    /// the UI detect "only own voice captured" conditions while a meeting is
+    /// still running (micRms > silence, systemRms at/near zero).
+    /// `dbfs` values, or nil if that source delivered zero samples this window.
+    var onChunkHealth: ((_ micDbfs: Double?, _ systemDbfs: Double?) -> Void)?
+    /// Forwards periodic health from the system-audio tap itself. Emitted
+    /// ~every 2s from the capture callback queue; hop to main before touching
+    /// UI state. Useful for distinguishing "tap delivers empty buffers" from
+    /// "tap delivers near-zero signal" from "all good".
+    var onSystemAudioHealth: ((SystemAudioHealth) -> Void)?
 
     // MARK: - Configuration
 
@@ -91,6 +101,14 @@ class MeetingSessionService {
         // Set up system audio capture callback.
         systemCapture.onAudioSamples = { [weak self] samples in
             self?.appendSystemSamples(samples)
+        }
+
+        // Forward tap-level health (empty/silent/ok) to the UI.
+        systemCapture.onHealth = { [weak self] health in
+            guard let self else { return }
+            DispatchQueue.main.async {
+                self.onSystemAudioHealth?(health)
+            }
         }
 
         // Start both audio captures. If either throws, unwind the
@@ -280,8 +298,30 @@ class MeetingSessionService {
     /// memory growth if one source is much faster than the other.
     private let maxPendingSamples = 60 * 16_000
 
+    /// If one source hasn't delivered any samples for this long, drain the
+    /// other source solo (no min-gate hold). This is what rescues a meeting
+    /// where system-audio capture is silently delivering nothing — without
+    /// this, mic samples pile up waiting for a system side that never shows.
+    private let staleSourceThresholdSecs: Double = 1.0
+
+    /// Absolute timestamp of the last delivered sample from each source.
+    /// Protected by the respective per-source lock (written under lock,
+    /// read inside mixPendingSamples which holds both).
+    private var lastMicReceivedAt: CFAbsoluteTime = 0
+    private var lastSystemReceivedAt: CFAbsoluteTime = 0
+
+    /// Running per-source RMS accumulators for the current chunk window.
+    /// Reset at each dispatchChunk. Used to surface per-source health to the UI.
+    private var chunkMicSumSq: Double = 0
+    private var chunkMicCount: Int = 0
+    private var chunkSystemSumSq: Double = 0
+    private var chunkSystemCount: Int = 0
+    private let chunkRmsLock = NSLock()
+
     private func appendMicSamples(_ samples: [Float]) {
+        let now = CFAbsoluteTimeGetCurrent()
         micLock.lock()
+        lastMicReceivedAt = now
         micPendingSamples.append(contentsOf: samples)
         if micPendingSamples.count > maxPendingSamples {
             let excess = micPendingSamples.count - maxPendingSamples
@@ -289,11 +329,21 @@ class MeetingSessionService {
             NSLog("[Parakatt] WARNING: Mic pending buffer overflow — dropped %d samples (%.1fs)", excess, Double(excess) / Double(sampleRate))
         }
         micLock.unlock()
+
+        var sumSq: Double = 0
+        for s in samples { sumSq += Double(s) * Double(s) }
+        chunkRmsLock.lock()
+        chunkMicSumSq += sumSq
+        chunkMicCount += samples.count
+        chunkRmsLock.unlock()
+
         mixPendingSamples()
     }
 
     private func appendSystemSamples(_ samples: [Float]) {
+        let now = CFAbsoluteTimeGetCurrent()
         systemLock.lock()
+        lastSystemReceivedAt = now
         systemPendingSamples.append(contentsOf: samples)
         if systemPendingSamples.count > maxPendingSamples {
             let excess = systemPendingSamples.count - maxPendingSamples
@@ -301,39 +351,61 @@ class MeetingSessionService {
             NSLog("[Parakatt] WARNING: System pending buffer overflow — dropped %d samples (%.1fs)", excess, Double(excess) / Double(sampleRate))
         }
         systemLock.unlock()
+
+        var sumSq: Double = 0
+        for s in samples { sumSq += Double(s) * Double(s) }
+        chunkRmsLock.lock()
+        chunkSystemSumSq += sumSq
+        chunkSystemCount += samples.count
+        chunkRmsLock.unlock()
+
         mixPendingSamples()
     }
 
-    /// Mix the shorter of the two pending buffers into the main mix buffer.
-    /// This ensures we don't get too far ahead on one source while the other
-    /// lags. Remaining samples stay pending until the other source catches up.
+    /// Mix pending samples into mixBuffer.
+    ///
+    /// Case 1 (steady state, both sources flowing): take the common prefix,
+    /// apply per-source gain, sum, clamp. Leave the tail pending for the
+    /// other source to catch up.
+    ///
+    /// Case 2 (one source stale > staleSourceThresholdSecs): drain the
+    /// active source solo at full amplitude — don't hold mic samples hostage
+    /// to a system-audio side that's empty-buffer delivering nothing.
     private func mixPendingSamples() {
         micLock.lock()
         systemLock.lock()
 
-        let mixCount = min(micPendingSamples.count, systemPendingSamples.count)
-        guard mixCount > 0 else {
-            systemLock.unlock()
-            micLock.unlock()
-            return
+        let now = CFAbsoluteTimeGetCurrent()
+        let micStale = lastMicReceivedAt > 0 && (now - lastMicReceivedAt) > staleSourceThresholdSecs
+        let systemStale = lastSystemReceivedAt > 0 && (now - lastSystemReceivedAt) > staleSourceThresholdSecs
+
+        let common = min(micPendingSamples.count, systemPendingSamples.count)
+        var mixed: [Float] = []
+        if common > 0 {
+            mixed.reserveCapacity(common)
+            let g = Self.mixGainPerSource
+            for i in 0..<common {
+                let sum = micPendingSamples[i] * g + systemPendingSamples[i] * g
+                mixed.append(max(-1.0, min(1.0, sum)))
+            }
+            micPendingSamples.removeFirst(common)
+            systemPendingSamples.removeFirst(common)
         }
 
-        var mixed = [Float](repeating: 0, count: mixCount)
-        let g = Self.mixGainPerSource
-        for i in 0..<mixCount {
-            // −6 dB per source before sum so a fully-loud mic + a
-            // fully-loud system source still fits in [-1, 1] without
-            // hard clipping. Saturation guard remains as a safety net.
-            let sum = micPendingSamples[i] * g + systemPendingSamples[i] * g
-            mixed[i] = max(-1.0, min(1.0, sum))
+        // Solo-drain the active side if the other is stale.
+        if systemStale && !micPendingSamples.isEmpty {
+            // System hasn't delivered in > threshold; pass mic through solo.
+            mixed.append(contentsOf: micPendingSamples)
+            micPendingSamples.removeAll()
+        } else if micStale && !systemPendingSamples.isEmpty {
+            mixed.append(contentsOf: systemPendingSamples)
+            systemPendingSamples.removeAll()
         }
-
-        micPendingSamples.removeFirst(mixCount)
-        systemPendingSamples.removeFirst(mixCount)
 
         systemLock.unlock()
         micLock.unlock()
 
+        guard !mixed.isEmpty else { return }
         bufferLock.lock()
         mixBuffer.append(contentsOf: mixed)
         bufferLock.unlock()
@@ -344,6 +416,7 @@ class MeetingSessionService {
     private func dispatchChunk() {
         // Flush any remaining pending samples (one source may be ahead).
         flushPendingSamples()
+        emitPerSourceChunkHealth()
 
         let samplesPerChunk = Int(chunkDurationSecs * Double(sampleRate))
         let overlapSamples = Int(overlapDurationSecs * Double(sampleRate))
@@ -460,6 +533,42 @@ class MeetingSessionService {
             bufferLock.lock()
             mixBuffer.append(contentsOf: remaining)
             bufferLock.unlock()
+        }
+    }
+
+    /// Compute per-source RMS for the just-finished chunk window and hand it
+    /// to the UI via onChunkHealth. Resets the accumulators so each chunk's
+    /// reading is independent. This is how the UI notices "mic is hot but
+    /// system is silent" without digging through NSLog.
+    private func emitPerSourceChunkHealth() {
+        chunkRmsLock.lock()
+        let micSum = chunkMicSumSq
+        let micCount = chunkMicCount
+        let sysSum = chunkSystemSumSq
+        let sysCount = chunkSystemCount
+        chunkMicSumSq = 0
+        chunkMicCount = 0
+        chunkSystemSumSq = 0
+        chunkSystemCount = 0
+        chunkRmsLock.unlock()
+
+        let micDbfs: Double?
+        if micCount > 0 {
+            let rms = sqrt(max(micSum / Double(micCount), 0))
+            micDbfs = 20.0 * log10(max(rms, 1e-9))
+        } else {
+            micDbfs = nil
+        }
+        let sysDbfs: Double?
+        if sysCount > 0 {
+            let rms = sqrt(max(sysSum / Double(sysCount), 0))
+            sysDbfs = 20.0 * log10(max(rms, 1e-9))
+        } else {
+            sysDbfs = nil
+        }
+
+        DispatchQueue.main.async { [weak self] in
+            self?.onChunkHealth?(micDbfs, sysDbfs)
         }
     }
 }

@@ -11,6 +11,10 @@ import Foundation
 @available(macOS 14.2, *)
 class SystemAudioCaptureService {
     var onAudioSamples: (([Float]) -> Void)?
+    /// Periodic health signal reflecting what the tap is actually delivering.
+    /// Emitted every ~2s from the capture callback queue. Lets the UI distinguish
+    /// "tap created but delivering nothing" from "audio is flowing cleanly".
+    var onHealth: ((SystemAudioHealth) -> Void)?
 
     private var tapID: AudioObjectID = AudioObjectID.max
     private var aggregateDeviceID: AudioObjectID = AudioObjectID.max
@@ -24,6 +28,20 @@ class SystemAudioCaptureService {
     private var emptyBufferCount = 0
     private var callbackCount = 0
     private var totalSamplesDelivered = 0
+
+    // Rolling RMS / health tracking (accessed only from callbackQueue).
+    private var rmsAccumSquares: Double = 0
+    private var rmsAccumCount: Int = 0
+    private var lastHealthEmitTime: CFAbsoluteTime = 0
+    private var lastNonSilentTime: CFAbsoluteTime = 0
+    private var lastNonEmptyTime: CFAbsoluteTime = 0
+    private let silenceThresholdDbfs: Double = -60.0
+    private let healthEmitIntervalSecs: Double = 2.0
+
+    // Remembered between startCapture/stopCapture so the output-device-change
+    // listener can rebuild the aggregate with the same target.
+    private var activeProcessID: pid_t?
+    private var outputChangeListener: AudioObjectPropertyListenerBlock?
 
     /// Start capturing system audio.
     /// - Parameter processID: If provided, capture audio from this process only.
@@ -55,8 +73,15 @@ class SystemAudioCaptureService {
         self.tapID = newTapID
 
         // 2. Create an aggregate device that includes the tap.
+        // The aggregate's main sub-device must be the one the user's other
+        // apps are actually rendering to — otherwise the tap delivers
+        // empty/silent buffers. We log the selected device so the problem is
+        // visible in the diagnostics bundle if capture goes silent.
         let outputDeviceID = try Self.defaultOutputDeviceID()
         let outputUID = try Self.deviceUID(for: outputDeviceID)
+        let outputName = Self.deviceName(for: outputDeviceID) ?? "(unknown)"
+        NSLog("[Parakatt] System audio: using output device '%@' (uid=%@)",
+              outputName, outputUID)
 
         let aggregateDesc: [String: Any] = [
             kAudioAggregateDeviceNameKey: "ParakattSystemAudioTap",
@@ -108,11 +133,22 @@ class SystemAudioCaptureService {
         emptyBufferCount = 0
         callbackCount = 0
         totalSamplesDelivered = 0
+        let now = CFAbsoluteTimeGetCurrent()
+        rmsAccumSquares = 0
+        rmsAccumCount = 0
+        lastHealthEmitTime = now
+        lastNonSilentTime = now
+        lastNonEmptyTime = now
 
         let osVersion = ProcessInfo.processInfo.operatingSystemVersion
         NSLog("[Parakatt] System audio capture STARTED via Core Audio tap (pid: %@, macOS %d.%d.%d)",
               processID.map { String($0) } ?? "all",
               osVersion.majorVersion, osVersion.minorVersion, osVersion.patchVersion)
+
+        // Remember target so we can rebuild after a default-output change
+        // (e.g. user plugs in AirPods mid-meeting).
+        activeProcessID = processID
+        registerOutputChangeListener()
     }
 
     func stopCapture() {
@@ -129,6 +165,7 @@ class SystemAudioCaptureService {
     private func handleAudioCallback(_ inputData: UnsafePointer<AudioBufferList>) {
         let bufferList = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: inputData))
 
+        var sawAnyData = false
         for buffer in bufferList {
             guard let data = buffer.mData, buffer.mDataByteSize > 0 else {
                 emptyBufferCount += 1
@@ -137,6 +174,7 @@ class SystemAudioCaptureService {
                 }
                 continue
             }
+            sawAnyData = true
             let sampleCount = Int(buffer.mDataByteSize) / MemoryLayout<Float>.size
             let floatPtr = data.bindMemory(to: Float.self, capacity: sampleCount)
             let samples = Array(UnsafeBufferPointer(start: floatPtr, count: sampleCount))
@@ -145,6 +183,54 @@ class SystemAudioCaptureService {
             // Resample to 16kHz for STT.
             resampleAndDeliver(samples: samples)
         }
+
+        if !sawAnyData {
+            // All buffers were empty — still tick the health emit clock so the
+            // UI learns about persistent empty-buffer conditions.
+            maybeEmitHealth(emptyThisTick: true, deliveredSamples: [])
+        }
+    }
+
+    /// Accumulate RMS and, if the emit interval has elapsed, call onHealth with
+    /// a classification of what the tap has been delivering. Runs on
+    /// callbackQueue — single-threaded access to the accumulator fields.
+    private func maybeEmitHealth(emptyThisTick: Bool, deliveredSamples: [Float]) {
+        let now = CFAbsoluteTimeGetCurrent()
+
+        if !emptyThisTick {
+            lastNonEmptyTime = now
+            var sumSq: Double = 0
+            for s in deliveredSamples {
+                sumSq += Double(s) * Double(s)
+            }
+            rmsAccumSquares += sumSq
+            rmsAccumCount += deliveredSamples.count
+        }
+
+        guard now - lastHealthEmitTime >= healthEmitIntervalSecs else { return }
+        lastHealthEmitTime = now
+
+        let health: SystemAudioHealth
+        let emptyDuration = now - lastNonEmptyTime
+        if emptyDuration >= healthEmitIntervalSecs {
+            health = .empty(forSeconds: emptyDuration)
+        } else if rmsAccumCount > 0 {
+            let meanSq = rmsAccumSquares / Double(rmsAccumCount)
+            let rms = sqrt(max(meanSq, 0))
+            let dbfs = 20.0 * log10(max(rms, 1e-9))
+            if dbfs >= silenceThresholdDbfs {
+                lastNonSilentTime = now
+                health = .ok(rmsDbfs: dbfs)
+            } else {
+                health = .silent(forSeconds: now - lastNonSilentTime)
+            }
+        } else {
+            health = .empty(forSeconds: emptyDuration)
+        }
+
+        rmsAccumSquares = 0
+        rmsAccumCount = 0
+        onHealth?(health)
     }
 
     // MARK: - Resampling
@@ -245,6 +331,7 @@ class SystemAudioCaptureService {
                   callbackCount, totalSamplesDelivered, Double(totalSamplesDelivered) / 16000.0)
         }
 
+        maybeEmitHealth(emptyThisTick: false, deliveredSamples: resampled)
         onAudioSamples?(resampled)
     }
 
@@ -262,6 +349,8 @@ class SystemAudioCaptureService {
         converter = nil
         stateLock.unlock()
 
+        unregisterOutputChangeListener()
+
         if let procID, aggID != AudioObjectID.max {
             AudioDeviceStop(aggID, procID)
             AudioDeviceDestroyIOProcID(aggID, procID)
@@ -273,6 +362,75 @@ class SystemAudioCaptureService {
 
         if tapIDLocal != AudioObjectID.max {
             AudioHardwareDestroyProcessTap(tapIDLocal)
+        }
+    }
+
+    // MARK: - Default-output-device listener
+
+    /// Register a property listener for the system's default output device.
+    /// When it changes (e.g. AirPods connect mid-meeting), the aggregate we
+    /// built from the old default won't capture anything, so we rebuild with
+    /// the new main sub-device.
+    private func registerOutputChangeListener() {
+        guard outputChangeListener == nil else { return }
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+            guard let self else { return }
+            self.callbackQueue.async { [weak self] in
+                self?.rebuildAfterOutputChange()
+            }
+        }
+        let err = AudioObjectAddPropertyListenerBlock(
+            AudioObjectID(kAudioObjectSystemObject),
+            &address,
+            callbackQueue,
+            block
+        )
+        if err == noErr {
+            outputChangeListener = block
+        } else {
+            NSLog("[Parakatt] System audio: output-change listener register FAILED (err=%d)", err)
+        }
+    }
+
+    private func unregisterOutputChangeListener() {
+        guard let block = outputChangeListener else { return }
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        AudioObjectRemovePropertyListenerBlock(
+            AudioObjectID(kAudioObjectSystemObject),
+            &address,
+            callbackQueue,
+            block
+        )
+        outputChangeListener = nil
+    }
+
+    /// Called from the output-change listener. Tears down the current tap +
+    /// aggregate and re-runs startCapture with the remembered processID so
+    /// the new default output becomes the tap's main sub-device.
+    private func rebuildAfterOutputChange() {
+        stateLock.lock()
+        let isActive = tapID != AudioObjectID.max
+        let pid = activeProcessID
+        stateLock.unlock()
+        guard isActive else { return }
+
+        NSLog("[Parakatt] System audio: default output changed — rebuilding aggregate")
+        teardown()
+        do {
+            try startCapture(processID: pid)
+        } catch {
+            NSLog("[Parakatt] System audio: rebuild FAILED: %@", error.localizedDescription)
+            // Signal health so the UI can show that capture went down.
+            onHealth?(.empty(forSeconds: 0))
         }
     }
 
@@ -344,6 +502,19 @@ class SystemAudioCaptureService {
         return uid as String
     }
 
+    private static func deviceName(for deviceID: AudioDeviceID) -> String? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioObjectPropertyName,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var name: Unmanaged<CFString>?
+        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        let err = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &name)
+        guard err == noErr, let cf = name?.takeRetainedValue() else { return nil }
+        return cf as String
+    }
+
     private static func deviceSampleRate(_ deviceID: AudioDeviceID) -> Double? {
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioDevicePropertyNominalSampleRate,
@@ -356,6 +527,19 @@ class SystemAudioCaptureService {
         guard err == noErr else { return nil }
         return sampleRate
     }
+}
+
+/// Health snapshot emitted periodically from the system-audio tap so the UI
+/// can distinguish "flowing" from "tap exists but delivers nothing".
+enum SystemAudioHealth {
+    /// Audio is flowing with signal above the silence threshold.
+    case ok(rmsDbfs: Double)
+    /// Buffers are arriving with data but the level is below the silence
+    /// threshold. `forSeconds` is how long we've been continuously silent.
+    case silent(forSeconds: Double)
+    /// Buffers are arriving empty (nil mData or zero byte size) or not at all.
+    /// `forSeconds` is how long since the last non-empty buffer.
+    case empty(forSeconds: Double)
 }
 
 enum SystemAudioCaptureError: Error, LocalizedError {
