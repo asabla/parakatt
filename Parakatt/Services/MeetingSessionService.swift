@@ -57,6 +57,9 @@ class MeetingSessionService {
     /// Mode and context used for per-chunk LLM processing.
     private var activeMode: String = "dictation"
     private var activeContext: AppContextInfo?
+    /// Remembered target process ID (if any) so pause/resume captures from
+    /// the same source the session originally started with.
+    private var activeProcessID: pid_t?
 
     /// Accumulated full transcript (updated after each chunk).
     private(set) var accumulatedText: String = ""
@@ -136,6 +139,7 @@ class MeetingSessionService {
         accumulatedText = ""
         activeMode = mode
         activeContext = context
+        activeProcessID = processID
 
         // Start the chunk dispatch timer on the main run loop.
         let chunkInterval = chunkDurationSecs - overlapDurationSecs
@@ -147,6 +151,44 @@ class MeetingSessionService {
         }
 
         NSLog("[Parakatt] Meeting session STARTED (id: %@)", sessionId)
+    }
+
+    /// Pause audio capture without ending the Rust session.
+    /// Leaves the chunk dispatch timer running so any audio already in the
+    /// mix buffer still gets processed — but no new audio is captured until
+    /// resume() is called. The session state (accumulated text, segments)
+    /// is preserved.
+    func pause() {
+        guard isActive else { return }
+        micCapture.stopCapture()
+        systemCapture.stopCapture()
+        NSLog("[Parakatt] Meeting session PAUSED")
+    }
+
+    /// Resume audio capture. Re-installs the sample callbacks and restarts
+    /// both mic and system captures.
+    func resume() throws {
+        guard isActive else { return }
+        micCapture.onAudioSamples = { [weak self] samples in
+            self?.appendMicSamples(samples)
+        }
+        systemCapture.onAudioSamples = { [weak self] samples in
+            self?.appendSystemSamples(samples)
+        }
+        systemCapture.onHealth = { [weak self] health in
+            guard let self else { return }
+            DispatchQueue.main.async {
+                self.onSystemAudioHealth?(health)
+            }
+        }
+        try micCapture.startCapture()
+        do {
+            try systemCapture.startCapture(processID: activeProcessID)
+        } catch {
+            micCapture.stopCapture()
+            throw error
+        }
+        NSLog("[Parakatt] Meeting session RESUMED")
     }
 
     /// Stop the meeting and finalize the transcription.

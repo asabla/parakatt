@@ -57,6 +57,7 @@ class MenuBarManager: NSObject {
     private var currentIconState: IconState = .idle
     private var settingsWindow: NSWindow?
     private var historyWindow: NSWindow?
+    private var liveMeetingWindow: NSWindow?
 
     private enum IconState: Equatable {
         case idle, loading, recording, processing, meeting
@@ -131,6 +132,10 @@ class MenuBarManager: NSObject {
             let srcMenuItem = NSMenuItem(title: "Meeting Audio Source", action: nil, keyEquivalent: "")
             srcMenuItem.submenu = srcMenu
             menu.addItem(srcMenuItem)
+
+            let liveItem = NSMenuItem(title: "Show Live Meeting Window", action: #selector(showLiveMeetingWindow), keyEquivalent: "l")
+            liveItem.target = self
+            menu.addItem(liveItem)
         }
 
         menu.addItem(.separator())
@@ -257,6 +262,24 @@ class MenuBarManager: NSObject {
                     view.toolTip = text
                 }
                 self.lastTranscriptionMenuItem.isEnabled = true
+            }
+            .store(in: &cancellables)
+
+        // Auto-open the live meeting window when a meeting starts, auto-close
+        // (but keep the window instance alive) when it ends. Mirrors the
+        // existing settings/history window pattern.
+        appState.$isMeetingActive
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isActive in
+                guard let self else { return }
+                if #available(macOS 14.2, *) {
+                    if isActive {
+                        self.openLiveMeetingWindow()
+                    } else {
+                        self.liveMeetingWindow?.orderOut(nil)
+                    }
+                }
             }
             .store(in: &cancellables)
     }
@@ -428,6 +451,41 @@ class MenuBarManager: NSObject {
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         historyWindow = window
+    }
+
+    /// Menu action: reveal the live meeting window.
+    /// Available on macOS 14.2+ (meeting feature requirement).
+    @objc private func showLiveMeetingWindow() {
+        if #available(macOS 14.2, *) {
+            openLiveMeetingWindow()
+        }
+    }
+
+    @available(macOS 14.2, *)
+    private func openLiveMeetingWindow() {
+        if let w = liveMeetingWindow {
+            w.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let view = LiveMeetingView().environmentObject(appState)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 720, height: 540),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Meeting Transcription"
+        window.contentView = NSHostingView(rootView: view)
+        window.setFrameAutosaveName("ParakattLiveMeeting")
+        if !window.setFrameUsingName("ParakattLiveMeeting") {
+            window.center()
+        }
+        window.isReleasedWhenClosed = false
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        liveMeetingWindow = window
     }
 
     @objc private func openSettings() {

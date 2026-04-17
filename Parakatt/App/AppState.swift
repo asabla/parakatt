@@ -49,9 +49,15 @@ class AppState: ObservableObject {
 
     // Meeting state
     @Published var isMeetingActive = false
+    @Published var isMeetingPaused = false
     @Published var meetingElapsedTime: TimeInterval = 0
     @Published var meetingTranscription: String?
     @Published var meetingLatestChunk: String?
+    @Published var meetingSegments: [TimestampedSegment] = []
+    /// Absolute-timestamp index (seconds) where the latest chunk's segments
+    /// begin. Lets the live view highlight "what just arrived" without
+    /// needing a separate copy of the latest chunk's segments.
+    @Published var meetingLatestChunkStartSecs: Double?
     @Published var meetingAudioStatus: MeetingAudioStatus = .unknown
 
     /// When the system-audio side first started reporting silent/empty.
@@ -878,9 +884,18 @@ class AppState: ObservableObject {
 
         let session = MeetingSessionService(bridge: bridge)
 
-        session.onChunkTranscribed = { [weak self] newText, accumulated, _ in
-            self?.meetingLatestChunk = newText
-            self?.meetingTranscription = accumulated
+        session.onChunkTranscribed = { [weak self] newText, accumulated, segments in
+            guard let self else { return }
+            self.meetingLatestChunk = newText
+            self.meetingTranscription = accumulated
+            if !segments.isEmpty {
+                // Segments carry absolute-to-session timestamps already.
+                // Track where the latest chunk starts so the live view can
+                // highlight the new arrivals.
+                let chunkStart = segments.first?.startSecs
+                self.meetingSegments.append(contentsOf: segments)
+                self.meetingLatestChunkStartSecs = chunkStart
+            }
         }
 
         session.onChunkHealth = { [weak self] micDbfs, sysDbfs in
@@ -897,7 +912,9 @@ class AppState: ObservableObject {
             self?.meetingElapsedTimer = nil
             self?.meetingTranscription = result.text
             self?.meetingLatestChunk = nil
+            self?.meetingLatestChunkStartSecs = nil
             self?.meetingAudioStatus = .unknown
+            self?.isMeetingPaused = false
             self?.systemSilentSince = nil
             self?.sendTranscriptionNotification(preview: result.text, source: "meeting")
             NSLog("[Parakatt] Meeting finished: %.0fs, %d chars", result.durationSecs, result.text.count)
@@ -913,8 +930,11 @@ class AppState: ObservableObject {
 
         meetingSession = session
         isMeetingActive = true
+        isMeetingPaused = false
         meetingTranscription = nil
         meetingLatestChunk = nil
+        meetingLatestChunkStartSecs = nil
+        meetingSegments = []
         meetingElapsedTime = 0
 
         // Start elapsed time updates.
@@ -975,12 +995,35 @@ class AppState: ObservableObject {
         guard isMeetingActive else { return }
         meetingSession?.cancel()
         isMeetingActive = false
+        isMeetingPaused = false
         meetingElapsedTimer?.invalidate()
         meetingElapsedTimer = nil
         meetingTranscription = nil
         meetingLatestChunk = nil
+        meetingLatestChunkStartSecs = nil
+        meetingSegments = []
         meetingAudioStatus = .unknown
         systemSilentSince = nil
+    }
+
+    /// Pause audio capture without ending the Rust session. The user keeps
+    /// looking at what they've captured so far; resume to continue.
+    @available(macOS 14.2, *)
+    func pauseMeeting() {
+        guard isMeetingActive, !isMeetingPaused else { return }
+        meetingSession?.pause()
+        isMeetingPaused = true
+    }
+
+    @available(macOS 14.2, *)
+    func resumeMeeting() {
+        guard isMeetingActive, isMeetingPaused else { return }
+        do {
+            try meetingSession?.resume()
+            isMeetingPaused = false
+        } catch {
+            errorMessage = "Failed to resume meeting: \(error.localizedDescription)"
+        }
     }
 
     /// Apply a per-chunk RMS sample to the meeting audio-status state machine.
