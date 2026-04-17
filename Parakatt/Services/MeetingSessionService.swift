@@ -27,6 +27,13 @@ class MeetingSessionService {
     /// UI state. Useful for distinguishing "tap delivers empty buffers" from
     /// "tap delivers near-zero signal" from "all good".
     var onSystemAudioHealth: ((SystemAudioHealth) -> Void)?
+    /// Peak mic amplitude for the last capture window, 0…1. Emitted every
+    /// mic callback so the UI has a live audio-level indicator during the
+    /// 28s before the first chunk transcribes.
+    var onMicLevel: ((Float) -> Void)?
+    /// Publicly visible chunk cadence so the UI can show a progress bar.
+    var chunkIntervalSecs: Double { chunkDurationSecs - overlapDurationSecs }
+    var firstChunkSecs: Double { chunkDurationSecs }
 
     // MARK: - Configuration
 
@@ -399,11 +406,24 @@ class MeetingSessionService {
         micLock.unlock()
 
         var sumSq: Double = 0
-        for s in samples { sumSq += Double(s) * Double(s) }
+        var peak: Float = 0
+        for s in samples {
+            sumSq += Double(s) * Double(s)
+            let a = abs(s)
+            if a > peak { peak = a }
+        }
         chunkRmsLock.lock()
         chunkMicSumSq += sumSq
         chunkMicCount += samples.count
         chunkRmsLock.unlock()
+
+        // Live mic level for the UI — gives the user immediate feedback
+        // that their voice is being picked up even before the first chunk
+        // transcribes at t=28s.
+        let level = peak
+        DispatchQueue.main.async { [weak self] in
+            self?.onMicLevel?(level)
+        }
 
         mixPendingSamples()
     }

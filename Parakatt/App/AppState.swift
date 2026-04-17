@@ -59,6 +59,15 @@ class AppState: ObservableObject {
     /// needing a separate copy of the latest chunk's segments.
     @Published var meetingLatestChunkStartSecs: Double?
     @Published var meetingAudioStatus: MeetingAudioStatus = .unknown
+    /// Live peak amplitude of the mic capture during a meeting, 0…1.
+    /// Driven from MeetingSessionService.onMicLevel. Smoothed client-side
+    /// to avoid visual jitter on short silences.
+    @Published var meetingMicLevel: Float = 0
+    /// Seconds of audio required before the first chunk transcribes.
+    /// Surfaced to the UI so it can draw a "until first batch" progress bar.
+    var meetingFirstChunkSecs: Double { 30.0 }
+    /// Seconds between subsequent chunk dispatches after the first.
+    var meetingChunkIntervalSecs: Double { 28.0 }
 
     /// When the system-audio side first started reporting silent/empty.
     /// Used to decide when to escalate to a user-visible warning.
@@ -906,6 +915,16 @@ class AppState: ObservableObject {
             self?.applySystemAudioHealth(health)
         }
 
+        session.onMicLevel = { [weak self] peak in
+            guard let self else { return }
+            // Exponential moving average to smooth the bars without losing
+            // responsiveness. Fast attack, slower release.
+            let prev = self.meetingMicLevel
+            let target = max(0, min(1, peak))
+            let alpha: Float = target > prev ? 0.6 : 0.2
+            self.meetingMicLevel = prev * (1 - alpha) + target * alpha
+        }
+
         session.onSessionFinished = { [weak self] result in
             self?.isMeetingActive = false
             self?.meetingElapsedTimer?.invalidate()
@@ -914,6 +933,7 @@ class AppState: ObservableObject {
             self?.meetingLatestChunk = nil
             self?.meetingLatestChunkStartSecs = nil
             self?.meetingAudioStatus = .unknown
+            self?.meetingMicLevel = 0
             self?.isMeetingPaused = false
             self?.systemSilentSince = nil
             self?.sendTranscriptionNotification(preview: result.text, source: "meeting")
@@ -1003,6 +1023,7 @@ class AppState: ObservableObject {
         meetingLatestChunkStartSecs = nil
         meetingSegments = []
         meetingAudioStatus = .unknown
+        meetingMicLevel = 0
         systemSilentSince = nil
     }
 
