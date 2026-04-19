@@ -55,6 +55,14 @@ class MeetingSessionService {
     private let bridge: CoreBridge
 
     private var mixBuffer: [Float] = []
+    /// When `dualStreamEnabled`, these hold the same wall-clock window as
+    /// `mixBuffer` would, but kept per-source so we can dispatch mic and
+    /// system to Rust independently and tag segments by speaker.
+    private var micChunkBuffer: [Float] = []
+    private var systemChunkBuffer: [Float] = []
+    /// Whether this session should dispatch mic and system as separate
+    /// chunks (captured at `start()` from the speaker-labels setting).
+    private var dualStreamEnabled: Bool = false
     private let bufferLock = NSLock()
     private var chunkIndex: UInt32 = 0
     private var isActive = false
@@ -107,8 +115,15 @@ class MeetingSessionService {
     ///   - processID: Specific process to capture system audio from, or nil for all.
     ///   - mode: The active transcription mode (used for per-chunk LLM processing).
     ///   - context: App context (used for per-chunk LLM processing).
-    func start(processID: pid_t? = nil, mode: String = "dictation", context: AppContextInfo? = nil) throws {
+    func start(
+        processID: pid_t? = nil,
+        mode: String = "dictation",
+        context: AppContextInfo? = nil,
+        speakerLabelsEnabled: Bool = false
+    ) throws {
         guard !isActive else { return }
+
+        self.dualStreamEnabled = speakerLabelsEnabled
 
         // Start session in the Rust engine.
         try bridge.startSession(sessionId: sessionId)
@@ -474,6 +489,48 @@ class MeetingSessionService {
         let systemStale = captureStartedAt > 0 && (now - systemReference) > staleSourceThresholdSecs
 
         let common = min(micPendingSamples.count, systemPendingSamples.count)
+
+        if dualStreamEnabled {
+            // Dual-stream path: keep mic and system samples separate so the
+            // engine can transcribe each source independently and tag mic
+            // segments as "Me". Both per-source chunk buffers must stay in
+            // lock-step length-wise so a matching `sliceIndex` covers the
+            // same wall-clock window on both sides.
+            var micBlock: [Float] = []
+            var systemBlock: [Float] = []
+            if common > 0 {
+                micBlock = Array(micPendingSamples.prefix(common))
+                systemBlock = Array(systemPendingSamples.prefix(common))
+                micPendingSamples.removeFirst(common)
+                systemPendingSamples.removeFirst(common)
+            }
+            // Stale-side solo drain: keep the active side's audio and pad
+            // the stale side with silence so the two per-source buffers
+            // stay length-synced. The stale side's STT will simply emit
+            // zero segments for that window.
+            if systemStale && !micPendingSamples.isEmpty {
+                let micTail = Array(micPendingSamples)
+                micPendingSamples.removeAll()
+                micBlock.append(contentsOf: micTail)
+                systemBlock.append(contentsOf: [Float](repeating: 0, count: micTail.count))
+            } else if micStale && !systemPendingSamples.isEmpty {
+                let sysTail = Array(systemPendingSamples)
+                systemPendingSamples.removeAll()
+                systemBlock.append(contentsOf: sysTail)
+                micBlock.append(contentsOf: [Float](repeating: 0, count: sysTail.count))
+            }
+
+            systemLock.unlock()
+            micLock.unlock()
+
+            guard !micBlock.isEmpty else { return }
+            bufferLock.lock()
+            micChunkBuffer.append(contentsOf: micBlock)
+            systemChunkBuffer.append(contentsOf: systemBlock)
+            bufferLock.unlock()
+            return
+        }
+
         var mixed: [Float] = []
         if common > 0 {
             mixed.reserveCapacity(common)
@@ -508,6 +565,11 @@ class MeetingSessionService {
     // MARK: - Chunk dispatch
 
     private func dispatchChunk() {
+        if dualStreamEnabled {
+            dispatchSourceChunks()
+            return
+        }
+
         // Flush any remaining pending samples (one source may be ahead).
         flushPendingSamples()
         emitPerSourceChunkHealth()
@@ -580,11 +642,140 @@ class MeetingSessionService {
         }
     }
 
+    /// Dual-stream dispatch: pull the same wall-clock slice from both
+    /// per-source buffers and send mic + system to Rust as separate
+    /// chunks tagged with their source. Rust's session manager shares
+    /// the offset across sources for the matching `sliceIndex`.
+    private func dispatchSourceChunks() {
+        flushPendingSamples()
+        emitPerSourceChunkHealth()
+
+        let samplesPerChunk = Int(chunkDurationSecs * Double(sampleRate))
+        let overlapSamples = Int(overlapDurationSecs * Double(sampleRate))
+
+        bufferLock.lock()
+        let available = min(micChunkBuffer.count, systemChunkBuffer.count)
+        guard available >= Int(Double(sampleRate) * 0.1) else {
+            bufferLock.unlock()
+            return
+        }
+
+        let takeCount = min(samplesPerChunk, available)
+        let micChunk = Array(micChunkBuffer.prefix(takeCount))
+        let systemChunk = Array(systemChunkBuffer.prefix(takeCount))
+        let consumed = max(0, takeCount - overlapSamples)
+        if consumed > 0 {
+            micChunkBuffer.removeFirst(consumed)
+            systemChunkBuffer.removeFirst(consumed)
+        }
+        bufferLock.unlock()
+
+        let currentIndex = chunkIndex
+        chunkIndex += 1
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self, self.isActive || currentIndex == self.chunkIndex - 1 else { return }
+
+            let chunkOverlap = currentIndex > 0 ? self.overlapDurationSecs : 0.0
+            var failed = false
+            var allSegments: [TimestampedSegment] = []
+            var combinedText = ""
+
+            do {
+                let micResult = try self.bridge.processSourceChunk(
+                    sessionId: self.sessionId,
+                    source: .mic,
+                    sliceIndex: currentIndex,
+                    audioSamples: micChunk,
+                    sampleRate: self.sampleRate,
+                    chunkOverlapSecs: chunkOverlap,
+                    mode: self.activeMode,
+                    context: self.activeContext
+                )
+                allSegments.append(contentsOf: micResult.segments)
+                if !micResult.text.isEmpty { combinedText = micResult.text }
+                if let llmErr = micResult.llmError {
+                    NSLog("[Parakatt] Slice %d mic LLM degraded: %@", currentIndex, llmErr)
+                }
+            } catch {
+                NSLog("[Parakatt] Slice %d mic failed: %@", currentIndex, error.localizedDescription)
+                failed = true
+            }
+
+            do {
+                let sysResult = try self.bridge.processSourceChunk(
+                    sessionId: self.sessionId,
+                    source: .system,
+                    sliceIndex: currentIndex,
+                    audioSamples: systemChunk,
+                    sampleRate: self.sampleRate,
+                    chunkOverlapSecs: chunkOverlap,
+                    mode: self.activeMode,
+                    context: self.activeContext
+                )
+                allSegments.append(contentsOf: sysResult.segments)
+                if !sysResult.text.isEmpty {
+                    combinedText = combinedText.isEmpty
+                        ? sysResult.text
+                        : combinedText + " " + sysResult.text
+                }
+                if let llmErr = sysResult.llmError {
+                    NSLog("[Parakatt] Slice %d system LLM degraded: %@", currentIndex, llmErr)
+                }
+            } catch {
+                NSLog("[Parakatt] Slice %d system failed: %@", currentIndex, error.localizedDescription)
+                failed = true
+            }
+
+            allSegments.sort { $0.startSecs < $1.startSecs }
+            let acc = (try? self.bridge.getSessionText(sessionId: self.sessionId)) ?? ""
+            DispatchQueue.main.async {
+                self.chunksDispatched += 1
+                if failed { self.chunksFailed += 1 }
+                self.accumulatedText = acc
+                self.onChunkTranscribed?(combinedText, acc, allSegments)
+                if failed {
+                    self.onError?("Slice \(currentIndex) had one or more source failures")
+                }
+            }
+        }
+    }
+
     /// Flush any remaining pending samples from one source that the other
     /// hasn't caught up with yet. Uses zero-padding for the missing source.
     private func flushPendingSamples() {
         micLock.lock()
         systemLock.lock()
+
+        if dualStreamEnabled {
+            // Keep sources separate. Pad the shorter side with silence so
+            // the two per-source chunk buffers stay length-synced.
+            let micCount = micPendingSamples.count
+            let sysCount = systemPendingSamples.count
+            var micTail: [Float] = []
+            var sysTail: [Float] = []
+            if micCount >= sysCount {
+                micTail = Array(micPendingSamples)
+                sysTail = Array(systemPendingSamples)
+                sysTail.append(contentsOf: [Float](repeating: 0, count: micCount - sysCount))
+            } else {
+                sysTail = Array(systemPendingSamples)
+                micTail = Array(micPendingSamples)
+                micTail.append(contentsOf: [Float](repeating: 0, count: sysCount - micCount))
+            }
+            micPendingSamples.removeAll()
+            systemPendingSamples.removeAll()
+            systemLock.unlock()
+            micLock.unlock()
+
+            if !micTail.isEmpty {
+                bufferLock.lock()
+                micChunkBuffer.append(contentsOf: micTail)
+                systemChunkBuffer.append(contentsOf: sysTail)
+                bufferLock.unlock()
+            }
+            return
+        }
 
         let g = Self.mixGainPerSource
         var remaining: [Float] = []

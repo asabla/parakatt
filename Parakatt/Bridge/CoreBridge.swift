@@ -88,6 +88,16 @@ class CoreBridge {
         try engine.setDebugMode(enabled: enabled)
     }
 
+    /// Get whether meeting transcripts are tagged by speaker.
+    func getSpeakerLabelsEnabled() throws -> Bool {
+        try engine.getSpeakerLabelsEnabled()
+    }
+
+    /// Enable or disable speaker labelling for meetings.
+    func setSpeakerLabelsEnabled(_ enabled: Bool) throws {
+        try engine.setSpeakerLabelsEnabled(enabled: enabled)
+    }
+
     /// Get whether auto-paste after transcription is enabled.
     func getAutoPaste() throws -> Bool {
         try engine.getAutoPaste()
@@ -280,6 +290,39 @@ class CoreBridge {
             audioSamples: audioSamples,
             sampleRate: sampleRate,
             chunkIndex: chunkIndex,
+            mode: mode,
+            context: ctx
+        )
+    }
+
+    /// Dispatch a chunk tagged with its audio source for the
+    /// speaker-labelled meeting pipeline. Pair a mic and a system
+    /// call with the same `sliceIndex` to cover one wall-clock slice.
+    func processSourceChunk(
+        sessionId: String,
+        source: ChunkSource,
+        sliceIndex: UInt32,
+        audioSamples: [Float],
+        sampleRate: UInt32,
+        chunkOverlapSecs: Double = 0.0,
+        mode: String,
+        context: AppContextInfo?
+    ) throws -> ChunkResult {
+        let ctx = context.map {
+            AppContext(
+                appBundleId: $0.appBundleId,
+                appName: $0.appName,
+                selectedText: $0.selectedText,
+                windowTitle: $0.windowTitle
+            )
+        }
+        return try engine.processSourceChunk(
+            sessionId: sessionId,
+            source: source,
+            sliceIndex: sliceIndex,
+            audioSamples: audioSamples,
+            sampleRate: sampleRate,
+            chunkOverlapSecs: chunkOverlapSecs,
             mode: mode,
             context: ctx
         )

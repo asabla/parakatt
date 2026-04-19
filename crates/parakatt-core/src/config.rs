@@ -67,6 +67,12 @@ pub struct GeneralConfig {
     /// is the user's expressed preference, not a hard gate.
     #[serde(default = "default_true")]
     pub streaming_preview_enabled: bool,
+    /// Whether to label transcript segments by speaker in meetings.
+    /// When on, the mic channel is tagged "Me" and system audio is
+    /// run through a diarizer. Off by default — enabling it prompts
+    /// the user to download the diarization models.
+    #[serde(default)]
+    pub speaker_labels_enabled: bool,
 }
 
 fn default_chunk_duration() -> u32 {
@@ -93,6 +99,7 @@ impl Default for GeneralConfig {
             debug_mode: false,
             app_mode_defaults: std::collections::HashMap::new(),
             streaming_preview_enabled: true,
+            speaker_labels_enabled: false,
         }
     }
 }
