@@ -18,8 +18,8 @@ use crate::stt::parakeet::ParakeetProvider;
 use crate::stt::streaming::{StreamingProvider, StreamingSession};
 use crate::stt::SttProvider;
 use crate::{
-    AppContext, CoreError, EngineConfig, HotkeyConfig, ModeConfig, ModelInfo, ReplacementRule,
-    StreamingChunkResult, TimestampedSegment, TranscriptionResult,
+    AppContext, ChunkSource, CoreError, EngineConfig, HotkeyConfig, ModeConfig, ModelInfo,
+    ReplacementRule, StreamingChunkResult, TimestampedSegment, TranscriptionResult,
 };
 
 /// Per-session bundle: the underlying streaming model state PLUS
@@ -839,6 +839,25 @@ impl Engine {
         cfg.save(&self.config_dir)
     }
 
+    /// Get whether speaker labels are enabled for meeting transcripts.
+    pub fn get_speaker_labels_enabled(&self) -> Result<bool, CoreError> {
+        let config = self
+            .config
+            .lock()
+            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
+        Ok(config.general.speaker_labels_enabled)
+    }
+
+    /// Set and persist the speaker-labels opt-in flag.
+    pub fn set_speaker_labels_enabled(&self, enabled: bool) -> Result<(), CoreError> {
+        let mut cfg = self
+            .config
+            .lock()
+            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
+        cfg.general.speaker_labels_enabled = enabled;
+        cfg.save(&self.config_dir)
+    }
+
     /// Get the preferred audio source bundle ID for meeting capture.
     pub fn get_preferred_audio_source(&self) -> Result<Option<String>, CoreError> {
         let config = self
@@ -1386,6 +1405,114 @@ impl Engine {
                 ""
             }
         );
+        Ok(chunk_result)
+    }
+
+    /// Process a chunk from a single audio source (mic or system) for
+    /// the speaker-labelled meeting pipeline.
+    ///
+    /// `slice_index` is shared across sources for the same wall-clock
+    /// window — Swift dispatches mic and system with matching indices
+    /// so the session manager can line up their segments. Mic segments
+    /// are tagged `"Me"`; system segments currently stay un-labelled
+    /// (diarization will fill those in once model support lands).
+    ///
+    /// `ChunkSource::Mixed` delegates to `process_chunk_with_overlap`
+    /// for backward compatibility with the legacy mixed-stream flow.
+    #[allow(clippy::too_many_arguments)]
+    pub fn process_source_chunk(
+        &self,
+        session_id: String,
+        source: ChunkSource,
+        slice_index: u32,
+        audio_samples: Vec<f32>,
+        sample_rate: u32,
+        chunk_overlap_secs: f64,
+        mode: String,
+        context: Option<AppContext>,
+    ) -> Result<ChunkResult, CoreError> {
+        if source == ChunkSource::Mixed {
+            return self.process_chunk_with_overlap(
+                session_id,
+                audio_samples,
+                sample_rate,
+                slice_index,
+                chunk_overlap_secs,
+                mode,
+                context,
+            );
+        }
+
+        let chunk_duration_secs = audio_samples.len() as f64 / sample_rate as f64;
+        log::info!(
+            "session '{}' slice {} source={:?}: {} samples ({:.1}s @ {}Hz, overlap={:.1}s)",
+            session_id,
+            slice_index,
+            source,
+            audio_samples.len(),
+            chunk_duration_secs,
+            sample_rate,
+            chunk_overlap_secs
+        );
+
+        if sample_rate != crate::audio::TARGET_SAMPLE_RATE {
+            return Err(CoreError::AudioError(format!(
+                "Expected {}Hz audio, got {}Hz. Resample before sending to engine.",
+                crate::audio::TARGET_SAMPLE_RATE,
+                sample_rate
+            )));
+        }
+
+        if audio_samples.is_empty() {
+            let mut mgr = self.sessions.lock().map_err(|e| {
+                CoreError::TranscriptionFailed(format!("Session lock poisoned: {e}"))
+            })?;
+            return mgr.add_chunk_with_source(
+                &session_id,
+                source,
+                slice_index,
+                "",
+                chunk_duration_secs,
+                chunk_overlap_secs,
+                Vec::new(),
+            );
+        }
+
+        // Run STT on this chunk.
+        let stt_guard = self
+            .stt
+            .lock()
+            .map_err(|e| CoreError::TranscriptionFailed(format!("STT lock poisoned: {e}")))?;
+        let stt = stt_guard
+            .as_ref()
+            .ok_or_else(|| CoreError::TranscriptionFailed("No STT model loaded".into()))?;
+        let stt_result = stt.transcribe(&audio_samples, sample_rate)?;
+        drop(stt_guard);
+
+        let ctx = context.unwrap_or_default();
+        let mut chunk_text = crate::filler::remove_fillers(&stt_result.text);
+        let dict_guard = self.dictionary.lock().map_err(|e| {
+            CoreError::TranscriptionFailed(format!("Dictionary lock poisoned: {e}"))
+        })?;
+        chunk_text = dict_guard.apply(&chunk_text, &ctx, &mode);
+        drop(dict_guard);
+
+        let llm_error = self.apply_llm(&mut chunk_text, &mode, &ctx)?;
+
+        let mut mgr = self
+            .sessions
+            .lock()
+            .map_err(|e| CoreError::TranscriptionFailed(format!("Session lock poisoned: {e}")))?;
+        let mut chunk_result = mgr.add_chunk_with_source(
+            &session_id,
+            source,
+            slice_index,
+            &chunk_text,
+            chunk_duration_secs,
+            chunk_overlap_secs,
+            stt_result.segments,
+        )?;
+        chunk_result.llm_error = llm_error;
         Ok(chunk_result)
     }
 

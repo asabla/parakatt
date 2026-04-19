@@ -82,6 +82,7 @@ class AppState: ObservableObject {
     @Published var autoPaste = true
     @Published var showRecordingOverlay = true
     @Published var debugMode = false
+    @Published var speakerLabelsEnabled = false
 
     // Audio source selection (meeting mode)
     @Published var selectedAudioSourcePID: pid_t?
@@ -211,6 +212,7 @@ class AppState: ObservableObject {
             if let ap = try? bridge?.getAutoPaste() { autoPaste = ap }
             if let so = try? bridge?.getShowOverlay() { showRecordingOverlay = so }
             if let dm = try? bridge?.getDebugMode() { debugMode = dm }
+            if let sl = try? bridge?.getSpeakerLabelsEnabled() { speakerLabelsEnabled = sl }
 
             // Load API key from Keychain (not config file)
             loadLlmApiKeyFromKeychain()
@@ -722,6 +724,7 @@ class AppState: ObservableObject {
             if let ap = try? bridge?.getAutoPaste() { autoPaste = ap }
             if let so = try? bridge?.getShowOverlay() { showRecordingOverlay = so }
             if let dm = try? bridge?.getDebugMode() { debugMode = dm }
+            if let sl = try? bridge?.getSpeakerLabelsEnabled() { speakerLabelsEnabled = sl }
             loadLlmApiKeyFromKeychain()
             NSLog("[Parakatt] Loaded profile: %@", name)
         } catch {
@@ -860,6 +863,15 @@ class AppState: ObservableObject {
         }
     }
 
+    func setSpeakerLabelsEnabled(_ enabled: Bool) {
+        speakerLabelsEnabled = enabled
+        do {
+            try bridge?.setSpeakerLabelsEnabled(enabled)
+        } catch {
+            NSLog("[Parakatt] Failed to save speaker_labels_enabled setting: %@", error.localizedDescription)
+        }
+    }
+
     func setShowOverlay(_ enabled: Bool) {
         showRecordingOverlay = enabled
         do {
@@ -967,7 +979,12 @@ class AppState: ObservableObject {
 
         do {
             let context = contextService?.currentContext()
-            try session.start(processID: selectedAudioSourcePID, mode: activeMode, context: context)
+            try session.start(
+                processID: selectedAudioSourcePID,
+                mode: activeMode,
+                context: context,
+                speakerLabelsEnabled: speakerLabelsEnabled
+            )
             if let name = selectedAudioSourceName {
                 NSLog("[Parakatt] Meeting capturing audio from: %@", name)
             }
@@ -980,7 +997,12 @@ class AppState: ObservableObject {
                       selectedAudioSourcePID ?? 0)
                 do {
                     let context = contextService?.currentContext()
-                    try session.start(processID: nil, mode: activeMode, context: context)
+                    try session.start(
+                        processID: nil,
+                        mode: activeMode,
+                        context: context,
+                        speakerLabelsEnabled: speakerLabelsEnabled
+                    )
                     return
                 } catch {
                     // Fall through to error handling below
