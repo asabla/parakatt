@@ -107,6 +107,7 @@ impl Storage {
                     start_secs REAL NOT NULL,
                     end_secs REAL NOT NULL,
                     chunk_index INTEGER,
+                    speaker TEXT,
                     FOREIGN KEY (transcription_id) REFERENCES transcriptions(id) ON DELETE CASCADE
                 );
                 CREATE INDEX IF NOT EXISTS idx_segments_transcription
@@ -121,6 +122,29 @@ impl Storage {
                 ",
             )
             .map_err(|e| CoreError::IoError(format!("Database migration failed: {e}")))?;
+
+        // Speaker column added after initial release — add it to existing
+        // databases. SQLite has no "ADD COLUMN IF NOT EXISTS", so probe first.
+        let has_speaker: bool = self
+            .conn
+            .prepare("PRAGMA table_info(transcript_segments)")
+            .and_then(|mut stmt| {
+                let names: Vec<String> = stmt
+                    .query_map([], |row| row.get::<_, String>(1))?
+                    .filter_map(|r| r.ok())
+                    .collect();
+                Ok(names.iter().any(|n| n == "speaker"))
+            })
+            .map_err(|e| {
+                CoreError::IoError(format!("Failed to inspect transcript_segments: {e}"))
+            })?;
+        if !has_speaker {
+            self.conn
+                .execute_batch("ALTER TABLE transcript_segments ADD COLUMN speaker TEXT;")
+                .map_err(|e| {
+                    CoreError::IoError(format!("Failed to add speaker column: {e}"))
+                })?;
+        }
 
         Ok(())
     }
@@ -321,8 +345,8 @@ impl Storage {
         let mut stmt = self
             .conn
             .prepare(
-                "INSERT INTO transcript_segments (transcription_id, text, start_secs, end_secs, chunk_index)
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                "INSERT INTO transcript_segments (transcription_id, text, start_secs, end_secs, chunk_index, speaker)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             )
             .map_err(|e| CoreError::IoError(format!("Failed to prepare segment insert: {e}")))?;
 
@@ -333,6 +357,7 @@ impl Storage {
                 seg.start_secs,
                 seg.end_secs,
                 chunk_index,
+                seg.speaker,
             ])
             .map_err(|e| CoreError::IoError(format!("Failed to save segment: {e}")))?;
         }
@@ -348,7 +373,7 @@ impl Storage {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT text, start_secs, end_secs FROM transcript_segments
+                "SELECT text, start_secs, end_secs, speaker FROM transcript_segments
                  WHERE transcription_id = ?1 ORDER BY start_secs ASC",
             )
             .map_err(|e| CoreError::IoError(format!("Failed to query segments: {e}")))?;
@@ -359,6 +384,7 @@ impl Storage {
                     text: row.get(0)?,
                     start_secs: row.get(1)?,
                     end_secs: row.get(2)?,
+                    speaker: row.get(3)?,
                 })
             })
             .map_err(|e| CoreError::IoError(format!("Failed to query segments: {e}")))?;
@@ -676,11 +702,13 @@ mod tests {
                 text: "hello".to_string(),
                 start_secs: 0.0,
                 end_secs: 1.5,
+                speaker: None,
             },
             TimestampedSegment {
                 text: "world".to_string(),
                 start_secs: 1.5,
                 end_secs: 3.0,
+                speaker: None,
             },
         ];
 
@@ -704,12 +732,83 @@ mod tests {
             text: "test text".to_string(),
             start_secs: 0.0,
             end_secs: 2.0,
+            speaker: None,
         }];
         storage.save_segments(&id, &segments, Some(0)).unwrap();
 
         storage.delete(&id).unwrap();
         let loaded = storage.get_segments(&id).unwrap();
         assert!(loaded.is_empty());
+    }
+
+    #[test]
+    fn test_segments_roundtrip_speaker() {
+        let (storage, _dir) = temp_storage();
+        let t = sample_transcription("meeting", "mixed speakers");
+        let id = storage.save(&t).unwrap();
+
+        let segments = vec![
+            TimestampedSegment {
+                text: "mic says hi".to_string(),
+                start_secs: 0.0,
+                end_secs: 1.0,
+                speaker: Some("Me".to_string()),
+            },
+            TimestampedSegment {
+                text: "remote reply".to_string(),
+                start_secs: 1.0,
+                end_secs: 2.0,
+                speaker: Some("Speaker 1".to_string()),
+            },
+            TimestampedSegment {
+                text: "unlabelled".to_string(),
+                start_secs: 2.0,
+                end_secs: 3.0,
+                speaker: None,
+            },
+        ];
+        storage.save_segments(&id, &segments, None).unwrap();
+
+        let loaded = storage.get_segments(&id).unwrap();
+        assert_eq!(loaded.len(), 3);
+        assert_eq!(loaded[0].speaker, Some("Me".to_string()));
+        assert_eq!(loaded[1].speaker, Some("Speaker 1".to_string()));
+        assert_eq!(loaded[2].speaker, None);
+    }
+
+    #[test]
+    fn test_migration_adds_speaker_column_to_legacy_db() {
+        use tempfile::tempdir;
+        let dir = tempdir().unwrap();
+
+        // Hand-craft a DB with the pre-speaker schema to simulate an upgrade.
+        {
+            let db_path = dir.path().join("transcriptions.db");
+            let conn = Connection::open(&db_path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE transcript_segments (
+                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                     transcription_id TEXT NOT NULL,
+                     text TEXT NOT NULL,
+                     start_secs REAL NOT NULL,
+                     end_secs REAL NOT NULL,
+                     chunk_index INTEGER
+                 );",
+            )
+            .unwrap();
+        }
+
+        // Re-open via Storage::open — migration must ADD COLUMN speaker.
+        let storage = Storage::open(dir.path()).unwrap();
+        let has_speaker: bool = storage
+            .conn
+            .prepare("PRAGMA table_info(transcript_segments)")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .any(|n| n == "speaker");
+        assert!(has_speaker, "speaker column was not added by migration");
     }
 
     #[test]

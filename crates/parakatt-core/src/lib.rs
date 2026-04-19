@@ -66,6 +66,19 @@ pub enum CoreError {
     IoError(String),
 }
 
+/// Which audio stream a chunk came from. In meetings with speaker
+/// labels enabled, the mic and system-audio buffers are sent through
+/// STT separately so we can tag the mic stream as "Me" deterministically
+/// and leave the system stream for diarization to split into
+/// `Speaker 1`, `Speaker 2`, … `Mixed` is the legacy path (single
+/// blended buffer, no speaker tagging).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, uniffi::Enum)]
+pub enum ChunkSource {
+    Mixed,
+    Mic,
+    System,
+}
+
 /// A sentence-level timestamp segment from STT.
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct TimestampedSegment {
@@ -74,6 +87,9 @@ pub struct TimestampedSegment {
     pub start_secs: f64,
     /// End time in seconds relative to the audio start.
     pub end_secs: f64,
+    /// Speaker label (e.g. "Me", "Speaker 1"). `None` for transcripts
+    /// produced before diarization was enabled or when the toggle is off.
+    pub speaker: Option<String>,
 }
 
 /// Output of one `feed_streaming_chunk` call.

@@ -459,6 +459,7 @@ mod tests {
             text: "hello".into(),
             start_secs: 1.5,
             end_secs: 2.0,
+            speaker: None,
         };
         let t: Token = (&seg).into();
         assert_eq!(t.text, "hello");
