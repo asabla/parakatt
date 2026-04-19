@@ -173,10 +173,32 @@ struct TranscriptionDetailView: View {
         }
     }
 
+    /// True if any segment has a speaker label — used to decide whether
+    /// to render the extra speaker column. Old transcriptions and
+    /// push-to-talk recordings have no speaker data and keep the
+    /// cleaner two-column layout.
+    private var hasSpeakerLabels: Bool {
+        segments.contains { $0.speaker != nil }
+    }
+
+    /// Deterministic hue for a speaker label. Same name → same color
+    /// every time the view renders.
+    private func speakerColor(_ name: String) -> Color {
+        var hasher = Hasher()
+        hasher.combine(name)
+        let hash = UInt64(bitPattern: Int64(hasher.finalize()))
+        let hue = Double(hash % 360) / 360.0
+        return Color(hue: hue, saturation: 0.55, brightness: 0.85)
+    }
+
     private var timelineView: some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(segments.enumerated()), id: \.offset) { index, segment in
                 HStack(alignment: .top, spacing: 12) {
+                    if hasSpeakerLabels {
+                        speakerBadge(segment.speaker)
+                    }
+
                     // Timestamp label
                     Text(formatTimestamp(segment.startSecs))
                         .font(.system(.caption, design: .monospaced))
@@ -186,12 +208,12 @@ struct TranscriptionDetailView: View {
                     // Timeline dot and line
                     VStack(spacing: 0) {
                         Circle()
-                            .fill(Color.accentColor.opacity(0.7))
+                            .fill(dotColor(for: segment.speaker))
                             .frame(width: 8, height: 8)
                             .padding(.top, 4)
                         if index < segments.count - 1 {
                             Rectangle()
-                                .fill(Color.accentColor.opacity(0.2))
+                                .fill(dotColor(for: segment.speaker).opacity(0.25))
                                 .frame(width: 2)
                                 .frame(maxHeight: .infinity)
                         }
@@ -210,6 +232,23 @@ struct TranscriptionDetailView: View {
         .padding(20)
     }
 
+    @ViewBuilder
+    private func speakerBadge(_ speaker: String?) -> some View {
+        let label = speaker ?? "—"
+        let color = speaker.map(speakerColor) ?? Color.secondary.opacity(0.5)
+        Text(label)
+            .font(.system(.caption, weight: .medium))
+            .foregroundStyle(color)
+            .lineLimit(1)
+            .frame(width: 76, alignment: .trailing)
+            .padding(.top, 1)
+    }
+
+    private func dotColor(for speaker: String?) -> Color {
+        guard let speaker else { return Color.accentColor.opacity(0.7) }
+        return speakerColor(speaker)
+    }
+
     // MARK: - Export
 
     private func exportMarkdown() {
@@ -225,7 +264,8 @@ struct TranscriptionDetailView: View {
                 bodyText = item.text
             } else {
                 bodyText = segments.map { seg in
-                    "[\(formatTimestamp(seg.startSecs))] \(seg.text)"
+                    let speaker = seg.speaker.map { "**\($0):** " } ?? ""
+                    return "[\(formatTimestamp(seg.startSecs))] \(speaker)\(seg.text)"
                 }.joined(separator: "\n\n")
             }
 
@@ -264,12 +304,16 @@ struct TranscriptionDetailView: View {
             ]
 
             if !segments.isEmpty {
-                dict["segments"] = segments.map { seg in
-                    [
+                dict["segments"] = segments.map { seg -> [String: Any] in
+                    var s: [String: Any] = [
                         "text": seg.text,
                         "start_secs": seg.startSecs,
                         "end_secs": seg.endSecs,
-                    ] as [String: Any]
+                    ]
+                    if let speaker = seg.speaker {
+                        s["speaker"] = speaker
+                    }
+                    return s
                 }
             }
 
