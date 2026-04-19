@@ -5,7 +5,7 @@
 /// overlap-deduplication stitches the results into a continuous transcript.
 use std::collections::HashMap;
 
-use crate::{CoreError, TimestampedSegment};
+use crate::{ChunkSource, CoreError, TimestampedSegment};
 
 /// Result of processing a single audio chunk.
 ///
@@ -55,10 +55,20 @@ struct SessionState {
     /// Normalized text of the last few segments from the previous chunk,
     /// used for segment-level overlap dedup.
     prev_trailing_segments: Vec<String>,
+    /// Per-source trailing segments. Used by `add_chunk_with_source` so
+    /// mic and system audio keep independent overlap tails — a system
+    /// chunk's overlap must never dedup against a mic chunk and vice
+    /// versa. `Mixed` uses `prev_trailing_segments` above.
+    prev_trailing_by_source: HashMap<ChunkSource, Vec<String>>,
     /// Number of chunks processed so far.
     chunk_count: u32,
     /// Total audio duration processed (seconds).
     total_duration_secs: f64,
+    /// Offsets for slices already seen by at least one source. When the
+    /// second source (mic vs. system) arrives for the same slice_index,
+    /// we reuse the stored offset so segments line up by wall-clock time
+    /// and `total_duration_secs` does not double-advance.
+    known_slice_offsets: HashMap<u32, f64>,
     /// All segments accumulated across chunks, with absolute timestamps.
     accumulated_segments: Vec<TimestampedSegment>,
     /// Sentence count for paragraph breaking.
@@ -93,8 +103,10 @@ impl SessionManager {
                 accumulated_text: String::new(),
                 prev_trailing_words: Vec::new(),
                 prev_trailing_segments: Vec::new(),
+                prev_trailing_by_source: HashMap::new(),
                 chunk_count: 0,
                 total_duration_secs: 0.0,
+                known_slice_offsets: HashMap::new(),
                 accumulated_segments: Vec::new(),
                 sentence_count: 0,
                 last_active: std::time::Instant::now(),
@@ -261,6 +273,7 @@ impl SessionManager {
                     text: seg.text.clone(),
                     start_secs: chunk_offset_secs + seg.start_secs,
                     end_secs: chunk_offset_secs + seg.end_secs,
+                    speaker: seg.speaker.clone(),
                 });
 
                 let trimmed = seg.text.trim();
@@ -303,15 +316,184 @@ impl SessionManager {
         })
     }
 
+    /// Add a chunk tagged with its audio source, for the speaker-labelled
+    /// meeting pipeline. Mic and system audio are sent as separate chunks
+    /// per slice so the mic stream can be deterministically labelled "Me".
+    ///
+    /// `slice_index` is shared across sources for the same wall-clock
+    /// window — the first source to arrive with a given `slice_index`
+    /// advances `total_duration_secs`; a second source with the same
+    /// `slice_index` reuses the captured offset so segments line up by
+    /// time and we don't double-count duration.
+    ///
+    /// Per-source trailing caches keep mic and system overlap dedup
+    /// independent. `Mixed` delegates to `add_chunk_with_overlap` for
+    /// full backward compatibility.
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_chunk_with_source(
+        &mut self,
+        session_id: &str,
+        source: ChunkSource,
+        slice_index: u32,
+        raw_text: &str,
+        chunk_duration_secs: f64,
+        chunk_overlap_secs: f64,
+        mut segments: Vec<TimestampedSegment>,
+    ) -> Result<ChunkResult, CoreError> {
+        if source == ChunkSource::Mixed {
+            return self.add_chunk_with_overlap(
+                session_id,
+                raw_text,
+                chunk_duration_secs,
+                chunk_overlap_secs,
+                segments,
+            );
+        }
+
+        // Tag segments with their speaker based on source. Mic is always
+        // "Me". System is tagged as a single "Speaker 1" placeholder
+        // until real multi-speaker diarization (pyannote-seg + embedding
+        // clustering) lands — at which point this call site is where
+        // individual Speaker 2/3/… labels get attached.
+        let placeholder_label = match source {
+            ChunkSource::Mic => Some("Me"),
+            ChunkSource::System => Some("Speaker 1"),
+            ChunkSource::Mixed => None,
+        };
+        if let Some(label) = placeholder_label {
+            for seg in &mut segments {
+                if seg.speaker.is_none() {
+                    seg.speaker = Some(label.to_string());
+                }
+            }
+        }
+
+        let state = self.sessions.get_mut(session_id).ok_or_else(|| {
+            CoreError::TranscriptionFailed(format!("Session not found: {session_id}"))
+        })?;
+        state.last_active = std::time::Instant::now();
+
+        // Resolve the slice's absolute offset. First source to arrive for
+        // a given slice_index advances time; a second source reuses the
+        // captured offset.
+        let chunk_offset_secs = if let Some(&offset) = state.known_slice_offsets.get(&slice_index) {
+            offset
+        } else {
+            let offset = state.total_duration_secs;
+            state.known_slice_offsets.insert(slice_index, offset);
+            state.total_duration_secs += chunk_duration_secs;
+            offset
+        };
+
+        // Pull per-source trailing cache; this source's dedup is independent.
+        let trailing = state
+            .prev_trailing_by_source
+            .entry(source)
+            .or_default()
+            .clone();
+
+        // Dedup paths mirror add_chunk_with_overlap but use the per-source
+        // trailing cache. slice_index >= 1 gates overlap handling; slice 0
+        // is the session's first slice for this source.
+        let surviving_segments: Vec<TimestampedSegment>;
+        let new_text: String;
+
+        if chunk_overlap_secs > 0.0 && !segments.is_empty() && slice_index > 0 {
+            surviving_segments = segments
+                .iter()
+                .filter(|s| s.start_secs >= chunk_overlap_secs)
+                .cloned()
+                .collect();
+            new_text = surviving_segments
+                .iter()
+                .map(|s| s.text.trim())
+                .filter(|s| !s.is_empty())
+                .collect::<Vec<_>>()
+                .join(" ");
+        } else if !segments.is_empty() {
+            let normalized: Vec<String> =
+                segments.iter().map(|s| normalize_text(&s.text)).collect();
+            let segments_to_skip = if slice_index > 0 {
+                longest_matching_overlap(&trailing, &normalized)
+            } else {
+                0
+            };
+            surviving_segments = segments.iter().skip(segments_to_skip).cloned().collect();
+            new_text = surviving_segments
+                .iter()
+                .map(|s| s.text.trim())
+                .filter(|s| !s.is_empty())
+                .collect::<Vec<_>>()
+                .join(" ");
+        } else {
+            new_text = raw_text.to_string();
+            surviving_segments = Vec::new();
+        }
+
+        // Refresh per-source trailing cache.
+        if !segments.is_empty() {
+            let normalized: Vec<String> =
+                segments.iter().map(|s| normalize_text(&s.text)).collect();
+            let tail: Vec<String> = normalized
+                .iter()
+                .rev()
+                .take(OVERLAP_SEGMENT_COUNT)
+                .rev()
+                .cloned()
+                .collect();
+            state.prev_trailing_by_source.insert(source, tail);
+        }
+
+        // Accumulate segments with absolute timestamps. accumulated_text
+        // keeps the live preview usable — segments from both sources land
+        // here interleaved by arrival order, which is the same order the
+        // user heard them (mic and system are dispatched within ms of
+        // each other per slice).
+        for seg in &surviving_segments {
+            state.accumulated_segments.push(TimestampedSegment {
+                text: seg.text.clone(),
+                start_secs: chunk_offset_secs + seg.start_secs,
+                end_secs: chunk_offset_secs + seg.end_secs,
+                speaker: seg.speaker.clone(),
+            });
+
+            let trimmed = seg.text.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            if !state.accumulated_text.is_empty() {
+                state.accumulated_text.push(' ');
+            }
+            state.accumulated_text.push_str(trimmed);
+            state.sentence_count += 1;
+        }
+
+        state.chunk_count += 1;
+
+        Ok(ChunkResult {
+            text: new_text,
+            chunk_index: slice_index,
+            segments: surviving_segments,
+            chunk_offset_secs,
+            llm_error: None,
+        })
+    }
+
     /// Finish a session and return the full accumulated text + segments.
     /// Removes the session from the manager.
     pub fn finish(
         &mut self,
         session_id: &str,
     ) -> Result<(String, f64, Vec<TimestampedSegment>), CoreError> {
-        let state = self.sessions.remove(session_id).ok_or_else(|| {
+        let mut state = self.sessions.remove(session_id).ok_or_else(|| {
             CoreError::TranscriptionFailed(format!("Session not found: {session_id}"))
         })?;
+
+        // Dual-stream sessions interleave mic and system segments by
+        // arrival order, so enforce chronological order on finish.
+        state
+            .accumulated_segments
+            .sort_by(|a, b| a.start_secs.partial_cmp(&b.start_secs).unwrap_or(std::cmp::Ordering::Equal));
 
         Ok((
             state.accumulated_text,
@@ -599,6 +781,7 @@ mod tests {
             text: "hello world".into(),
             start_secs: 1.0,
             end_secs: 3.0,
+            speaker: None,
         }];
         let r1 = mgr
             .add_chunk("seg-test", "hello world", 30.0, seg1)
@@ -610,6 +793,7 @@ mod tests {
             text: "second sentence".into(),
             start_secs: 2.0,
             end_secs: 5.0,
+            speaker: None,
         }];
         let r2 = mgr
             .add_chunk("seg-test", "second sentence", 30.0, seg2)
@@ -644,6 +828,7 @@ mod tests {
             text: "As you can see with the".into(),
             start_secs: 0.0,
             end_secs: 2.0,
+            speaker: None,
         }];
         mgr.add_chunk("dedup-seg", "As you can see with the", 2.0, seg1)
             .unwrap();
@@ -658,11 +843,13 @@ mod tests {
                 text: "As you can see with the".into(),
                 start_secs: 0.0,
                 end_secs: 2.0,
+                speaker: None,
             },
             TimestampedSegment {
                 text: "pasted text above there is a duplicate.".into(),
                 start_secs: 2.0,
                 end_secs: 5.0,
+                speaker: None,
             },
         ];
         mgr.add_chunk(
@@ -724,21 +911,25 @@ mod tests {
                 text: "five".into(),
                 start_secs: 0.0,
                 end_secs: 1.0,
+                speaker: None,
             },
             TimestampedSegment {
                 text: "six".into(),
                 start_secs: 1.0,
                 end_secs: 2.0,
+                speaker: None,
             },
             TimestampedSegment {
                 text: "seven".into(),
                 start_secs: 2.0,
                 end_secs: 3.0,
+                speaker: None,
             },
             TimestampedSegment {
                 text: "eight".into(),
                 start_secs: 3.0,
                 end_secs: 4.0,
+                speaker: None,
             },
         ];
         mgr.add_chunk("misaligned", "five six seven eight", 4.0, seg1)
@@ -749,21 +940,25 @@ mod tests {
                 text: "seven".into(),
                 start_secs: 0.0,
                 end_secs: 1.0,
+                speaker: None,
             },
             TimestampedSegment {
                 text: "eight".into(),
                 start_secs: 1.0,
                 end_secs: 2.0,
+                speaker: None,
             },
             TimestampedSegment {
                 text: "nine ten".into(),
                 start_secs: 2.0,
                 end_secs: 4.0,
+                speaker: None,
             },
             TimestampedSegment {
                 text: "eleven twelve".into(),
                 start_secs: 4.0,
                 end_secs: 6.0,
+                speaker: None,
             },
         ];
         let r2 = mgr
@@ -804,6 +999,7 @@ mod tests {
             text: "first chunk content".into(),
             start_secs: 0.0,
             end_secs: 4.0,
+            speaker: None,
         }];
         mgr.add_chunk_with_overlap("time", "first chunk content", 4.0, 0.0, seg1)
             .unwrap();
@@ -817,11 +1013,13 @@ mod tests {
                 text: "this was already emitted".into(),
                 start_secs: 0.5,
                 end_secs: 2.0,
+                speaker: None,
             },
             TimestampedSegment {
                 text: "this is fresh content".into(),
                 start_secs: 2.5,
                 end_secs: 5.0,
+                speaker: None,
             },
         ];
         let r2 = mgr
@@ -860,6 +1058,7 @@ mod tests {
             text: "early content".into(),
             start_secs: 0.5,
             end_secs: 2.0,
+            speaker: None,
         }];
         let r = mgr
             .add_chunk_with_overlap("first", "early content", 4.0, 2.0, seg)
@@ -881,6 +1080,7 @@ mod tests {
             text: "Hello world".into(),
             start_secs: 0.0,
             end_secs: 1.0,
+            speaker: None,
         }];
         mgr.add_chunk("punct", "Hello world", 1.0, seg1).unwrap();
 
@@ -889,17 +1089,100 @@ mod tests {
                 text: "hello, world!".into(),
                 start_secs: 0.0,
                 end_secs: 1.0,
+                speaker: None,
             },
             TimestampedSegment {
                 text: "and more".into(),
                 start_secs: 1.0,
                 end_secs: 2.0,
+                speaker: None,
             },
         ];
         let r2 = mgr
             .add_chunk("punct", "hello, world! and more", 2.0, seg2)
             .unwrap();
         assert_eq!(r2.text, "and more");
+    }
+
+    #[test]
+    fn test_dual_source_chunk_time_and_speaker_tagging() {
+        use crate::{ChunkSource, TimestampedSegment};
+
+        let mut mgr = SessionManager::new();
+        mgr.start("dual").unwrap();
+
+        // Slice 0: mic and system arrive with matching slice_index.
+        let mic_seg = vec![TimestampedSegment {
+            text: "hi there".into(),
+            start_secs: 1.0,
+            end_secs: 2.0,
+            speaker: None,
+        }];
+        let sys_seg = vec![TimestampedSegment {
+            text: "remote reply".into(),
+            start_secs: 1.5,
+            end_secs: 3.0,
+            speaker: None,
+        }];
+
+        let r_mic = mgr
+            .add_chunk_with_source(
+                "dual",
+                ChunkSource::Mic,
+                0,
+                "hi there",
+                30.0,
+                0.0,
+                mic_seg,
+            )
+            .unwrap();
+        let r_sys = mgr
+            .add_chunk_with_source(
+                "dual",
+                ChunkSource::System,
+                0,
+                "remote reply",
+                30.0,
+                0.0,
+                sys_seg,
+            )
+            .unwrap();
+
+        // Both sources share the same offset; time only advances once.
+        assert_eq!(r_mic.chunk_offset_secs, 0.0);
+        assert_eq!(r_sys.chunk_offset_secs, 0.0);
+
+        // Slice 1: mic only — offset advances by the first slice's duration.
+        let mic2 = vec![TimestampedSegment {
+            text: "later".into(),
+            start_secs: 0.5,
+            end_secs: 1.5,
+            speaker: None,
+        }];
+        let r_mic2 = mgr
+            .add_chunk_with_source("dual", ChunkSource::Mic, 1, "later", 30.0, 0.0, mic2)
+            .unwrap();
+        assert_eq!(r_mic2.chunk_offset_secs, 30.0);
+
+        let (_text, duration, segs) = mgr.finish("dual").unwrap();
+        // Slice 0 + slice 1 = 60s, advanced once per slice regardless of
+        // how many sources contributed to each slice.
+        assert!((duration - 60.0).abs() < 0.001);
+
+        // Mic segments carry "Me", system segments carry the "Speaker 1"
+        // placeholder. Real multi-speaker splitting is a follow-up.
+        let me_segs: Vec<_> = segs.iter().filter(|s| s.speaker.as_deref() == Some("Me")).collect();
+        assert_eq!(me_segs.len(), 2);
+        let sys_segs: Vec<_> = segs
+            .iter()
+            .filter(|s| s.speaker.as_deref() == Some("Speaker 1"))
+            .collect();
+        assert_eq!(sys_segs.len(), 1);
+
+        // Segments must come back chronologically sorted — mic at 1.0,
+        // system at 1.5, mic at 30.5.
+        assert!(segs[0].start_secs < segs[1].start_secs);
+        assert!(segs[1].start_secs < segs[2].start_secs);
     }
 
     #[test]

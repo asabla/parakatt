@@ -77,6 +77,7 @@ impl SttProvider for ParakeetProvider {
                 text: t.text.trim().to_string(),
                 start_secs: t.start as f64,
                 end_secs: t.end as f64,
+                speaker: None,
             })
             .collect();
 
