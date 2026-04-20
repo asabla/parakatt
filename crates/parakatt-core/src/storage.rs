@@ -141,9 +141,7 @@ impl Storage {
         if !has_speaker {
             self.conn
                 .execute_batch("ALTER TABLE transcript_segments ADD COLUMN speaker TEXT;")
-                .map_err(|e| {
-                    CoreError::IoError(format!("Failed to add speaker column: {e}"))
-                })?;
+                .map_err(|e| CoreError::IoError(format!("Failed to add speaker column: {e}")))?;
         }
 
         Ok(())
