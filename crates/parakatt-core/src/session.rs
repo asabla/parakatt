@@ -491,9 +491,11 @@ impl SessionManager {
 
         // Dual-stream sessions interleave mic and system segments by
         // arrival order, so enforce chronological order on finish.
-        state
-            .accumulated_segments
-            .sort_by(|a, b| a.start_secs.partial_cmp(&b.start_secs).unwrap_or(std::cmp::Ordering::Equal));
+        state.accumulated_segments.sort_by(|a, b| {
+            a.start_secs
+                .partial_cmp(&b.start_secs)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         Ok((
             state.accumulated_text,
@@ -1126,15 +1128,7 @@ mod tests {
         }];
 
         let r_mic = mgr
-            .add_chunk_with_source(
-                "dual",
-                ChunkSource::Mic,
-                0,
-                "hi there",
-                30.0,
-                0.0,
-                mic_seg,
-            )
+            .add_chunk_with_source("dual", ChunkSource::Mic, 0, "hi there", 30.0, 0.0, mic_seg)
             .unwrap();
         let r_sys = mgr
             .add_chunk_with_source(
@@ -1171,7 +1165,10 @@ mod tests {
 
         // Mic segments carry "Me", system segments carry the "Speaker 1"
         // placeholder. Real multi-speaker splitting is a follow-up.
-        let me_segs: Vec<_> = segs.iter().filter(|s| s.speaker.as_deref() == Some("Me")).collect();
+        let me_segs: Vec<_> = segs
+            .iter()
+            .filter(|s| s.speaker.as_deref() == Some("Me"))
+            .collect();
         assert_eq!(me_segs.len(), 2);
         let sys_segs: Vec<_> = segs
             .iter()
