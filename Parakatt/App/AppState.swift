@@ -467,30 +467,33 @@ class AppState: ObservableObject {
                     return
                 }
 
-                // Wait for any in-flight chunk to complete.
-                self.pttChunkLock.lock()
+                // Wait for any in-flight chunk to complete, then run the
+                // tail under the same lock. Scoped so the lock is released
+                // before the (potentially slow) finishSession call below,
+                // even if a future edit adds an early return inside.
+                do {
+                    self.pttChunkLock.lock()
+                    defer { self.pttChunkLock.unlock() }
 
-                // Process remaining tail (if >= 0.1s of audio).
-                if remainingSamples.count >= Int(self.sttSampleRate / 10) {
-                    do {
-                        let result = try bridge.processChunk(
-                            sessionId: sessionId,
-                            audioSamples: remainingSamples,
-                            sampleRate: self.sttSampleRate,
-                            chunkIndex: currentIndex,
-                            mode: mode,
-                            context: context
-                        )
-                        NSLog("[Parakatt] PTT final chunk %d: \"%@\"", currentIndex, result.text)
-                    } catch {
-                        NSLog("[Parakatt] PTT final chunk failed: %@", error.localizedDescription)
+                    if remainingSamples.count >= Int(self.sttSampleRate / 10) {
+                        do {
+                            let result = try bridge.processChunk(
+                                sessionId: sessionId,
+                                audioSamples: remainingSamples,
+                                sampleRate: self.sttSampleRate,
+                                chunkIndex: currentIndex,
+                                mode: mode,
+                                context: context
+                            )
+                            NSLog("[Parakatt] PTT final chunk %d: \"%@\"", currentIndex, result.text)
+                        } catch {
+                            NSLog("[Parakatt] PTT final chunk failed: %@", error.localizedDescription)
+                        }
+                    } else {
+                        NSLog("[Parakatt] PTT tail too short (%.1fs), skipping",
+                              Double(remainingSamples.count) / Double(self.sttSampleRate))
                     }
-                } else {
-                    NSLog("[Parakatt] PTT tail too short (%.1fs), skipping",
-                          Double(remainingSamples.count) / Double(self.sttSampleRate))
                 }
-
-                self.pttChunkLock.unlock()
 
                 // Finish the session.
                 do {
