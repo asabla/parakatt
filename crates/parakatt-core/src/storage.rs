@@ -405,16 +405,36 @@ impl Storage {
     }
 
     /// Delete multiple transcriptions by IDs.
+    ///
+    /// Wrapped in a transaction so a mid-loop failure doesn't leave the
+    /// caller with a partially-deleted batch (and a stale UI list).
     pub fn delete_many(&self, ids: &[String]) -> Result<u32, CoreError> {
+        self.conn
+            .execute("BEGIN", [])
+            .map_err(|e| CoreError::IoError(format!("Failed to begin delete batch: {e}")))?;
+
         let mut count = 0u32;
         for id in ids {
-            self.conn
+            match self
+                .conn
                 .execute("DELETE FROM transcriptions WHERE id = ?1", params![id])
-                .map_err(|e| {
-                    CoreError::IoError(format!("Failed to delete transcription {id}: {e}"))
-                })?;
-            count += 1;
+            {
+                Ok(rows) => {
+                    count += rows as u32;
+                }
+                Err(e) => {
+                    let _ = self.conn.execute("ROLLBACK", []);
+                    return Err(CoreError::IoError(format!(
+                        "Failed to delete transcription {id}: {e}"
+                    )));
+                }
+            }
         }
+
+        self.conn
+            .execute("COMMIT", [])
+            .map_err(|e| CoreError::IoError(format!("Failed to commit delete batch: {e}")))?;
+
         Ok(count)
     }
 
