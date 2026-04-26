@@ -444,11 +444,12 @@ impl SessionManager {
             state.prev_trailing_by_source.insert(source, tail);
         }
 
-        // Accumulate segments with absolute timestamps. accumulated_text
-        // keeps the live preview usable — segments from both sources land
-        // here interleaved by arrival order, which is the same order the
-        // user heard them (mic and system are dispatched within ms of
-        // each other per slice).
+        // Accumulate segments with absolute timestamps, then re-sort the
+        // running buffer chronologically. Mic and system are dispatched
+        // per slice but can arrive at the engine out of order under load,
+        // so without this sort the live preview text would interleave
+        // sources in arrival order rather than wall-clock order.
+        let mut added_sentences: usize = 0;
         for seg in &surviving_segments {
             state.accumulated_segments.push(TimestampedSegment {
                 text: seg.text.clone(),
@@ -456,16 +457,25 @@ impl SessionManager {
                 end_secs: chunk_offset_secs + seg.end_secs,
                 speaker: seg.speaker.clone(),
             });
+            if !seg.text.trim().is_empty() {
+                added_sentences += 1;
+            }
+        }
 
-            let trimmed = seg.text.trim();
-            if trimmed.is_empty() {
-                continue;
-            }
-            if !state.accumulated_text.is_empty() {
-                state.accumulated_text.push(' ');
-            }
-            state.accumulated_text.push_str(trimmed);
-            state.sentence_count += 1;
+        if added_sentences > 0 {
+            state.accumulated_segments.sort_by(|a, b| {
+                a.start_secs
+                    .partial_cmp(&b.start_secs)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+            state.accumulated_text = state
+                .accumulated_segments
+                .iter()
+                .map(|s| s.text.trim())
+                .filter(|s| !s.is_empty())
+                .collect::<Vec<_>>()
+                .join(" ");
+            state.sentence_count += added_sentences;
         }
 
         state.chunk_count += 1;
