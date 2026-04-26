@@ -677,7 +677,7 @@ class MeetingSessionService {
             guard let self, self.isActive || currentIndex == self.chunkIndex - 1 else { return }
 
             let chunkOverlap = currentIndex > 0 ? self.overlapDurationSecs : 0.0
-            var failed = false
+            var failedSources: [String] = []
             var allSegments: [TimestampedSegment] = []
             var combinedText = ""
 
@@ -699,7 +699,7 @@ class MeetingSessionService {
                 }
             } catch {
                 NSLog("[Parakatt] Slice %d mic failed: %@", currentIndex, error.localizedDescription)
-                failed = true
+                failedSources.append("microphone")
             }
 
             do {
@@ -724,18 +724,19 @@ class MeetingSessionService {
                 }
             } catch {
                 NSLog("[Parakatt] Slice %d system failed: %@", currentIndex, error.localizedDescription)
-                failed = true
+                failedSources.append("system audio")
             }
 
             allSegments.sort { $0.startSecs < $1.startSecs }
             let acc = (try? self.bridge.getSessionText(sessionId: self.sessionId)) ?? ""
             DispatchQueue.main.async {
                 self.chunksDispatched += 1
-                if failed { self.chunksFailed += 1 }
+                if !failedSources.isEmpty { self.chunksFailed += 1 }
                 self.accumulatedText = acc
                 self.onChunkTranscribed?(combinedText, acc, allSegments)
-                if failed {
-                    self.onError?("Slice \(currentIndex) had one or more source failures")
+                if !failedSources.isEmpty {
+                    let sources = failedSources.joined(separator: " and ")
+                    self.onError?("Slice \(currentIndex): \(sources) dropped")
                 }
             }
         }
