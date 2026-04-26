@@ -423,7 +423,12 @@ impl Storage {
                     count += rows as u32;
                 }
                 Err(e) => {
-                    let _ = self.conn.execute("ROLLBACK", []);
+                    if let Err(rb) = self.conn.execute("ROLLBACK", []) {
+                        // ROLLBACK failure leaves the connection in an
+                        // open transaction state — surface it so the
+                        // next confused write has a breadcrumb.
+                        log::error!("delete_many ROLLBACK failed after {id} error: {rb}");
+                    }
                     return Err(CoreError::IoError(format!(
                         "Failed to delete transcription {id}: {e}"
                     )));
@@ -705,6 +710,43 @@ mod tests {
         let t = sample_transcription("push_to_talk", "delete me");
         let id = storage.save(&t).unwrap();
 
+        storage.delete(&id).unwrap();
+        assert!(storage.get(&id).is_err());
+    }
+
+    #[test]
+    fn test_delete_many_returns_actual_rows_deleted() {
+        // Regression guard: delete_many's count is rows actually deleted,
+        // not iterations attempted. A non-existent ID contributes 0, not 1.
+        let (storage, _dir) = temp_storage();
+        let id_a = storage
+            .save(&sample_transcription("push_to_talk", "a"))
+            .unwrap();
+        let id_b = storage
+            .save(&sample_transcription("push_to_talk", "b"))
+            .unwrap();
+
+        let count = storage
+            .delete_many(&[id_a.clone(), id_b.clone(), "does-not-exist".to_string()])
+            .unwrap();
+        assert_eq!(count, 2, "non-existent IDs must not inflate the count");
+        assert!(storage.get(&id_a).is_err());
+        assert!(storage.get(&id_b).is_err());
+    }
+
+    #[test]
+    fn test_delete_many_empty_input_is_noop() {
+        // Empty input should still cleanly open + commit a transaction
+        // without leaving the connection in a stuck state. Verified by
+        // running a successful DELETE afterwards.
+        let (storage, _dir) = temp_storage();
+        let id = storage
+            .save(&sample_transcription("push_to_talk", "still here"))
+            .unwrap();
+
+        let count = storage.delete_many(&[]).unwrap();
+        assert_eq!(count, 0);
+        // Connection still usable.
         storage.delete(&id).unwrap();
         assert!(storage.get(&id).is_err());
     }

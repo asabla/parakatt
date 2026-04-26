@@ -1193,6 +1193,64 @@ mod tests {
     }
 
     #[test]
+    fn test_dual_source_accumulated_text_chronological_on_out_of_order_arrival() {
+        // Regression guard: in dual-stream mode, mic and system can arrive
+        // at the engine in either order under load. The running
+        // accumulated_text (what get_session_text returns to the live
+        // preview) must reflect wall-clock order, not arrival order.
+        use crate::{ChunkSource, TimestampedSegment};
+
+        let mut mgr = SessionManager::new();
+        mgr.start("ordering").unwrap();
+
+        // Mic carries the *later* utterance (t=2.0). System carries the
+        // *earlier* utterance (t=0.5). Mic arrives FIRST at the engine.
+        let mic_seg = vec![TimestampedSegment {
+            text: "mic later".into(),
+            start_secs: 2.0,
+            end_secs: 3.0,
+            speaker: None,
+        }];
+        let sys_seg = vec![TimestampedSegment {
+            text: "system earlier".into(),
+            start_secs: 0.5,
+            end_secs: 1.5,
+            speaker: None,
+        }];
+
+        mgr.add_chunk_with_source(
+            "ordering",
+            ChunkSource::Mic,
+            0,
+            "mic later",
+            30.0,
+            0.0,
+            mic_seg,
+        )
+        .unwrap();
+        mgr.add_chunk_with_source(
+            "ordering",
+            ChunkSource::System,
+            0,
+            "system earlier",
+            30.0,
+            0.0,
+            sys_seg,
+        )
+        .unwrap();
+
+        // Live preview text must read chronologically: system_earlier
+        // (t=0.5) before mic_later (t=2.0), even though mic arrived first.
+        let acc = mgr.get_session_text("ordering").unwrap();
+        let sys_pos = acc.find("system earlier").expect("system text present");
+        let mic_pos = acc.find("mic later").expect("mic text present");
+        assert!(
+            sys_pos < mic_pos,
+            "live preview must be chronological, got: {acc}"
+        );
+    }
+
+    #[test]
     fn test_cleanup_stale_sessions_no_op_when_fresh() {
         let mut mgr = SessionManager::new();
         mgr.start("fresh").unwrap();
