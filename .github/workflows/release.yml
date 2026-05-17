@@ -29,7 +29,7 @@ jobs:
       - name: Install build tools
         run: |
           brew install xcodegen create-dmg
-          cargo install cargo-swift
+          cargo install cargo-swift --version 0.11.0 --locked
 
       - name: Build Rust core
         run: make rust

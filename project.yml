@@ -87,6 +87,10 @@ targets:
         embed: true
       - package: ParakattCore
       - package: HotKey
+    scheme:
+      testTargets:
+        - ParakattTests
+      gatherCoverageData: false
 
   ParakattTests:
     type: bundle.unit-test

@@ -24,7 +24,7 @@ See `CLAUDE.md` for detailed build commands and architecture overview.
 - Errors should use `CoreError` variants with descriptive messages
 
 ### Swift
-- Follow standard Swift conventions (enforced by SwiftFormat in CI)
+- Follow standard Swift conventions
 - Use `[weak self]` in closures that capture `self`
 - Update `@Published` properties on the main thread
 - Prefix log messages with `[Parakatt]` and a category (e.g., `[Parakatt] Engine`, `[Parakatt] Mic`)
@@ -41,7 +41,7 @@ Changes to the Rust public API require regenerating Swift bindings (`make swift-
 
 - `make test` runs Rust unit tests
 - `make test-integration` requires a downloaded model (~2.5GB)
-- CI runs `cargo fmt --check`, `cargo clippy`, `cargo test`, and `swiftformat --lint`
+- CI runs `cargo fmt --check`, `cargo clippy --all-targets --all-features`, `cargo test`, and the Swift `ParakattTests` bundle via `xcodebuild test`
 
 ## Pull Request Guidelines
 
