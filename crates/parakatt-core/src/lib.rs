@@ -11,6 +11,7 @@ pub mod modes;
 pub mod session;
 pub mod storage;
 pub mod stt;
+pub(crate) mod util;
 pub mod vad;
 
 uniffi::setup_scaffolding!();
