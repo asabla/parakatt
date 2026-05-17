@@ -21,13 +21,33 @@ private let signpostLog = OSLog(subsystem: "com.parakatt.app", category: .points
 /// `DispatchQueue.main.async`.
 @MainActor
 class AppState: ObservableObject {
+    // MARK: - Coordinators
+    //
+    // Long-term we want @Published state grouped by concern. PR 5 of
+    // the code-review backlog lands the SettingsCoordinator and
+    // ContextCoordinator (the smallest, most cohesive groups) plus
+    // skeletons for Recording / Meeting / Model. Follow-up PRs fill
+    // out the remaining three and migrate their state out of AppState.
+    //
+    // AppState forwards each coordinator's objectWillChange into its
+    // own so SwiftUI surfaces that observe `appState` keep updating
+    // when coordinator state changes. Views that want a Binding into
+    // a coordinator-owned field should use `$appState.settings.foo`
+    // rather than going through a computed shim on AppState.
+    @Published var settings = SettingsCoordinator()
+    @Published var context = ContextCoordinator()
+    @Published var recording = RecordingCoordinator()
+    @Published var meeting = MeetingCoordinator()
+    @Published var model = ModelCoordinator()
+
+    private var coordinatorCancellables = Set<AnyCancellable>()
+
     // MARK: - Published state
 
     @Published var isRecording = false
     @Published var isProcessing = false
     @Published var lastTranscription: String?
     @Published var liveTranscription: String?
-    @Published var activeMode = "dictation"
     @Published var isModelLoaded = false
     @Published var activeModelId: String?
     @Published var errorMessage: String?
@@ -78,15 +98,39 @@ class AppState: ObservableObject {
     /// Seconds of continuous system-silent before we surface a user warning.
     private let meetingSilenceWarnAfterSecs: TimeInterval = 15
 
-    // Behavior settings
-    @Published var autoPaste = true
-    @Published var showRecordingOverlay = true
-    @Published var debugMode = false
-    @Published var speakerLabelsEnabled = false
+    // Behavior settings live on SettingsCoordinator; these computed
+    // shims keep existing call sites (`appState.autoPaste = ...` etc.)
+    // working without touching every reference.
+    var autoPaste: Bool {
+        get { settings.autoPaste }
+        set { settings.autoPaste = newValue }
+    }
+    var showRecordingOverlay: Bool {
+        get { settings.showRecordingOverlay }
+        set { settings.showRecordingOverlay = newValue }
+    }
+    var debugMode: Bool {
+        get { settings.debugMode }
+        set { settings.debugMode = newValue }
+    }
+    var speakerLabelsEnabled: Bool {
+        get { settings.speakerLabelsEnabled }
+        set { settings.speakerLabelsEnabled = newValue }
+    }
+    var activeMode: String {
+        get { settings.activeMode }
+        set { settings.activeMode = newValue }
+    }
 
-    // Audio source selection (meeting mode)
-    @Published var selectedAudioSourcePID: pid_t?
-    @Published var selectedAudioSourceName: String?
+    // Audio source selection lives on ContextCoordinator.
+    var selectedAudioSourcePID: pid_t? {
+        get { context.selectedAudioSourcePID }
+        set { context.selectedAudioSourcePID = newValue }
+    }
+    var selectedAudioSourceName: String? {
+        get { context.selectedAudioSourceName }
+        set { context.selectedAudioSourceName = newValue }
+    }
 
     // MARK: - Services
 
@@ -157,6 +201,25 @@ class AppState: ObservableObject {
     private var livePreviewActive = false
 
     // MARK: - Lifecycle
+
+    init() {
+        // Forward each coordinator's objectWillChange into AppState's
+        // own so SwiftUI surfaces that observe `appState` (rather than
+        // a specific coordinator) keep updating when coordinator state
+        // changes. Without this, computed shims on AppState that read
+        // through to a coordinator wouldn't trigger view invalidation.
+        for inner in [
+            settings.objectWillChange,
+            context.objectWillChange,
+            recording.objectWillChange,
+            meeting.objectWillChange,
+            model.objectWillChange,
+        ] {
+            inner
+                .sink { [weak self] _ in self?.objectWillChange.send() }
+                .store(in: &coordinatorCancellables)
+        }
+    }
 
     /// Initialize the Rust engine, audio services, and load settings from config.
     func initializeEngine() {
@@ -652,22 +715,27 @@ class AppState: ObservableObject {
         }
     }
 
-    // MARK: - LLM
+    // MARK: - LLM (delegates to SettingsCoordinator)
 
-    @Published var llmProvider: String = ""
-    @Published var llmBaseUrl: String = "http://localhost:11434"
-    @Published var llmModel: String = "llama3.2"
-    @Published var llmApiKey: String = "" {
-        didSet {
-            // Persist API key to Keychain instead of config file
-            KeychainService.set(llmApiKey, forKey: "llm-api-key")
-        }
+    var llmProvider: String {
+        get { settings.llmProvider }
+        set { settings.llmProvider = newValue }
+    }
+    var llmBaseUrl: String {
+        get { settings.llmBaseUrl }
+        set { settings.llmBaseUrl = newValue }
+    }
+    var llmModel: String {
+        get { settings.llmModel }
+        set { settings.llmModel = newValue }
+    }
+    var llmApiKey: String {
+        get { settings.llmApiKey }
+        set { settings.llmApiKey = newValue }
     }
 
     func loadLlmApiKeyFromKeychain() {
-        if let key = KeychainService.get("llm-api-key") {
-            llmApiKey = key
-        }
+        settings.loadLlmApiKeyFromKeychain()
     }
 
     func configureLlm() {
