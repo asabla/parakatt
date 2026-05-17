@@ -15,8 +15,12 @@ uniffi = { version = "0.30", features = ["cli"] }
 # Async runtime
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
 
-# Speech-to-text (NVIDIA Parakeet via ONNX Runtime)
-parakeet-rs = { version = "0.3", features = ["cpu"] }
+# Speech-to-text (NVIDIA Parakeet via ONNX Runtime).
+# Pinned to an exact patch version: the Parakeet feature dimensions
+# (mel filterbank size, encoder hidden width, etc.) were verified
+# against 0.3.4 during the STT overhaul. A silent minor/patch bump
+# could shift them and regress accuracy without any compile-time signal.
+parakeet-rs = { version = "=0.3.4", features = ["cpu"] }
 
 # HTTP client (for remote APIs, Ollama, LM Studio)
 reqwest = { version = "0.12", features = ["json", "blocking"] }

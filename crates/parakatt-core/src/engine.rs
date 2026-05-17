@@ -36,18 +36,27 @@ struct StreamingPreviewSession {
 ///
 /// ## Lock ordering
 ///
-/// When acquiring multiple Mutexes, always follow this order to prevent deadlocks:
+/// When acquiring multiple Mutexes, always follow this order to prevent
+/// deadlocks. There is no compile-time enforcement — review every site
+/// that takes more than one lock against this list:
 ///   1. `config`
 ///   2. `stt`
 ///   3. `streaming`
 ///   4. `streaming_sessions`
-///   5. `llm`
-///   6. `dictionary`
-///   7. `sessions`
-///   8. `storage`
-///   9. `download_progress`
+///   5. `buffered_preview_la2`
+///   6. `llm`
+///   7. `dictionary`
+///   8. `sessions`
+///   9. `storage`
+///   10. `download_progress`
 ///
-/// Drop locks as soon as possible — especially before network I/O (e.g., `llm`).
+/// Drop locks as soon as possible — especially before network I/O
+/// (e.g., `llm`). Scope guards with explicit blocks or `drop()` rather
+/// than relying on end-of-function drop order.
+///
+/// Acquire every lock via [`crate::util::lock_named`] so that any
+/// poison failure is logged with a consistent breadcrumb and mapped
+/// to the appropriate `CoreError` variant.
 #[derive(uniffi::Object)]
 pub struct Engine {
     models_dir: PathBuf,
@@ -147,10 +156,7 @@ impl Engine {
         let leading_trim_secs = processed.leading_trim_secs;
 
         // 2. Run STT
-        let stt_guard = self
-            .stt
-            .lock()
-            .map_err(|e| CoreError::TranscriptionFailed(format!("STT lock poisoned: {e}")))?;
+        let stt_guard = crate::util::lock_named(&self.stt, "STT", CoreError::TranscriptionFailed)?;
 
         let stt = stt_guard
             .as_ref()
@@ -173,9 +179,11 @@ impl Engine {
 
         // 4. Apply dictionary replacements
         let ctx = context.unwrap_or_default();
-        let dict_guard = self.dictionary.lock().map_err(|e| {
-            CoreError::TranscriptionFailed(format!("Dictionary lock poisoned: {e}"))
-        })?;
+        let dict_guard = crate::util::lock_named(
+            &self.dictionary,
+            "Dictionary",
+            CoreError::TranscriptionFailed,
+        )?;
         result.text = dict_guard.apply(&result.text, &ctx, &mode);
         drop(dict_guard);
 
@@ -205,10 +213,8 @@ impl Engine {
 
         if model_id.starts_with("nemotron-") {
             let provider = NemotronProvider::new(&model_path, model_id)?;
-            let mut streaming_guard = self
-                .streaming
-                .lock()
-                .map_err(|e| CoreError::ModelLoadFailed(format!("Streaming lock poisoned: {e}")))?;
+            let mut streaming_guard =
+                crate::util::lock_named(&self.streaming, "Streaming", CoreError::ModelLoadFailed)?;
             *streaming_guard = Some(Box::new(provider));
             log::info!("Streaming provider registered: {}", model_id);
             return Ok(());
@@ -223,17 +229,12 @@ impl Engine {
             )));
         };
 
-        let mut stt_guard = self
-            .stt
-            .lock()
-            .map_err(|e| CoreError::ModelLoadFailed(format!("STT lock poisoned: {e}")))?;
+        let mut stt_guard = crate::util::lock_named(&self.stt, "STT", CoreError::ModelLoadFailed)?;
         *stt_guard = Some(provider);
 
         // Update config
-        let mut config_guard = self
-            .config
-            .lock()
-            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
+        let mut config_guard =
+            crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
         config_guard.stt.active_model = Some(model_id.to_string());
         if let Err(e) = config_guard.save(&self.config_dir) {
             log::warn!("Failed to persist active STT model to config: {e}");
@@ -294,19 +295,19 @@ impl Engine {
     /// Caller should pair this with [`finish_streaming_session`] or
     /// [`cancel_streaming_session`] to release model state.
     pub fn start_streaming_session(&self, session_id: String) -> Result<(), CoreError> {
-        let streaming_guard = self
-            .streaming
-            .lock()
-            .map_err(|e| CoreError::TranscriptionFailed(format!("Streaming lock poisoned: {e}")))?;
+        let streaming_guard =
+            crate::util::lock_named(&self.streaming, "Streaming", CoreError::TranscriptionFailed)?;
         let provider = streaming_guard
             .as_ref()
             .ok_or_else(|| CoreError::TranscriptionFailed("No streaming model loaded".into()))?;
         let session = provider.start_session()?;
         drop(streaming_guard);
 
-        let mut sessions_guard = self.streaming_sessions.lock().map_err(|e| {
-            CoreError::TranscriptionFailed(format!("Streaming sessions lock poisoned: {e}"))
-        })?;
+        let mut sessions_guard = crate::util::lock_named(
+            &self.streaming_sessions,
+            "Streaming sessions",
+            CoreError::TranscriptionFailed,
+        )?;
         if sessions_guard.contains_key(&session_id) {
             return Err(CoreError::TranscriptionFailed(format!(
                 "Streaming session already exists: {session_id}"
@@ -332,9 +333,11 @@ impl Engine {
         session_id: String,
         audio_samples: Vec<f32>,
     ) -> Result<StreamingChunkResult, CoreError> {
-        let mut sessions_guard = self.streaming_sessions.lock().map_err(|e| {
-            CoreError::TranscriptionFailed(format!("Streaming sessions lock poisoned: {e}"))
-        })?;
+        let mut sessions_guard = crate::util::lock_named(
+            &self.streaming_sessions,
+            "Streaming sessions",
+            CoreError::TranscriptionFailed,
+        )?;
         let session = sessions_guard.get_mut(&session_id).ok_or_else(|| {
             CoreError::TranscriptionFailed(format!("Streaming session not found: {session_id}"))
         })?;
@@ -378,9 +381,11 @@ impl Engine {
     /// Reset a streaming session in place (new utterance, same handle).
     /// Both the model state AND the LocalAgreement-2 buffer are reset.
     pub fn reset_streaming_session(&self, session_id: String) -> Result<(), CoreError> {
-        let mut sessions_guard = self.streaming_sessions.lock().map_err(|e| {
-            CoreError::TranscriptionFailed(format!("Streaming sessions lock poisoned: {e}"))
-        })?;
+        let mut sessions_guard = crate::util::lock_named(
+            &self.streaming_sessions,
+            "Streaming sessions",
+            CoreError::TranscriptionFailed,
+        )?;
         let session = sessions_guard.get_mut(&session_id).ok_or_else(|| {
             CoreError::TranscriptionFailed(format!("Streaming session not found: {session_id}"))
         })?;
@@ -392,9 +397,11 @@ impl Engine {
     /// Close and discard a streaming session, returning the final
     /// committed transcript (LocalAgreement-2 stable prefix).
     pub fn finish_streaming_session(&self, session_id: String) -> Result<String, CoreError> {
-        let mut sessions_guard = self.streaming_sessions.lock().map_err(|e| {
-            CoreError::TranscriptionFailed(format!("Streaming sessions lock poisoned: {e}"))
-        })?;
+        let mut sessions_guard = crate::util::lock_named(
+            &self.streaming_sessions,
+            "Streaming sessions",
+            CoreError::TranscriptionFailed,
+        )?;
         let session = sessions_guard.remove(&session_id).ok_or_else(|| {
             CoreError::TranscriptionFailed(format!("Streaming session not found: {session_id}"))
         })?;
@@ -426,9 +433,11 @@ impl Engine {
     /// Open a buffered preview session for the given id. Pair with
     /// [`buffered_preview_finish`] or [`buffered_preview_cancel`].
     pub fn buffered_preview_start(&self, session_id: String) -> Result<(), CoreError> {
-        let mut g = self.buffered_preview_la2.lock().map_err(|e| {
-            CoreError::TranscriptionFailed(format!("Buffered preview lock poisoned: {e}"))
-        })?;
+        let mut g = crate::util::lock_named(
+            &self.buffered_preview_la2,
+            "Buffered preview",
+            CoreError::TranscriptionFailed,
+        )?;
         if g.contains_key(&session_id) {
             return Err(CoreError::TranscriptionFailed(format!(
                 "Buffered preview session already exists: {session_id}"
@@ -453,10 +462,7 @@ impl Engine {
         let processed = crate::audio::preprocess(&audio_samples, sample_rate)?;
         let leading_trim_secs = processed.leading_trim_secs;
 
-        let stt_guard = self
-            .stt
-            .lock()
-            .map_err(|e| CoreError::TranscriptionFailed(format!("STT lock poisoned: {e}")))?;
+        let stt_guard = crate::util::lock_named(&self.stt, "STT", CoreError::TranscriptionFailed)?;
         let stt = stt_guard
             .as_ref()
             .ok_or_else(|| CoreError::TranscriptionFailed("No STT model loaded".into()))?;
@@ -488,9 +494,11 @@ impl Engine {
             })
             .collect();
 
-        let mut g = self.buffered_preview_la2.lock().map_err(|e| {
-            CoreError::TranscriptionFailed(format!("Buffered preview lock poisoned: {e}"))
-        })?;
+        let mut g = crate::util::lock_named(
+            &self.buffered_preview_la2,
+            "Buffered preview",
+            CoreError::TranscriptionFailed,
+        )?;
         let la2 = g.get_mut(&session_id).ok_or_else(|| {
             CoreError::TranscriptionFailed(format!(
                 "Buffered preview session not found: {session_id}"
@@ -523,9 +531,11 @@ impl Engine {
     /// text. The caller is then responsible for any final commit
     /// pass via the regular session API.
     pub fn buffered_preview_finish(&self, session_id: String) -> Result<String, CoreError> {
-        let mut g = self.buffered_preview_la2.lock().map_err(|e| {
-            CoreError::TranscriptionFailed(format!("Buffered preview lock poisoned: {e}"))
-        })?;
+        let mut g = crate::util::lock_named(
+            &self.buffered_preview_la2,
+            "Buffered preview",
+            CoreError::TranscriptionFailed,
+        )?;
         let la2 = g.remove(&session_id).ok_or_else(|| {
             CoreError::TranscriptionFailed(format!(
                 "Buffered preview session not found: {session_id}"
@@ -536,9 +546,11 @@ impl Engine {
 
     /// Reset a buffered preview session in place (clears LA-2 buffer).
     pub fn buffered_preview_reset(&self, session_id: String) -> Result<(), CoreError> {
-        let mut g = self.buffered_preview_la2.lock().map_err(|e| {
-            CoreError::TranscriptionFailed(format!("Buffered preview lock poisoned: {e}"))
-        })?;
+        let mut g = crate::util::lock_named(
+            &self.buffered_preview_la2,
+            "Buffered preview",
+            CoreError::TranscriptionFailed,
+        )?;
         let la2 = g.get_mut(&session_id).ok_or_else(|| {
             CoreError::TranscriptionFailed(format!(
                 "Buffered preview session not found: {session_id}"
@@ -584,10 +596,7 @@ impl Engine {
 
     /// Save a custom mode (add or update by name). Built-in modes are preserved.
     pub fn save_mode(&self, mode: ModeConfig) -> Result<(), CoreError> {
-        let mut cfg = self
-            .config
-            .lock()
-            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
+        let mut cfg = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
 
         // Initialize from defaults if modes list is empty
         if cfg.modes.is_empty() {
@@ -613,10 +622,7 @@ impl Engine {
             )));
         }
 
-        let mut cfg = self
-            .config
-            .lock()
-            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
+        let mut cfg = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
 
         if cfg.modes.is_empty() {
             cfg.modes = modes::default_modes();
@@ -628,10 +634,7 @@ impl Engine {
 
     /// Get per-app mode defaults as a list of [bundle_id, mode_name] pairs.
     pub fn get_app_mode_defaults(&self) -> Result<Vec<Vec<String>>, CoreError> {
-        let config = self
-            .config
-            .lock()
-            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
+        let config = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
         Ok(config
             .general
             .app_mode_defaults
@@ -642,10 +645,7 @@ impl Engine {
 
     /// Set a per-app mode default. Pass empty mode to remove.
     pub fn set_app_mode_default(&self, bundle_id: String, mode: String) -> Result<(), CoreError> {
-        let mut cfg = self
-            .config
-            .lock()
-            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
+        let mut cfg = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
         if mode.is_empty() {
             cfg.general.app_mode_defaults.remove(&bundle_id);
         } else {
@@ -657,10 +657,7 @@ impl Engine {
     /// Resolve which mode to use given an app context.
     /// Returns the per-app default if one exists, otherwise the active mode.
     pub fn resolve_mode_for_app(&self, bundle_id: Option<String>) -> Result<String, CoreError> {
-        let config = self
-            .config
-            .lock()
-            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
+        let config = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
         if let Some(bid) = &bundle_id {
             if let Some(mode) = config.general.app_mode_defaults.get(bid) {
                 return Ok(mode.clone());
@@ -671,17 +668,13 @@ impl Engine {
 
     /// Update the dictionary rules.
     pub fn set_dictionary_rules(&self, rules: Vec<ReplacementRule>) -> Result<(), CoreError> {
-        let mut dict_guard = self
-            .dictionary
-            .lock()
-            .map_err(|e| CoreError::ConfigError(format!("Dictionary lock poisoned: {e}")))?;
+        let mut dict_guard =
+            crate::util::lock_named(&self.dictionary, "Dictionary", CoreError::ConfigError)?;
         dict_guard.set_rules(rules.clone());
 
         // Persist to config
-        let mut config_guard = self
-            .config
-            .lock()
-            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
+        let mut config_guard =
+            crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
         config_guard.dictionary = rules;
         if let Err(e) = config_guard.save(&self.config_dir) {
             log::warn!("Failed to persist dictionary rules to config: {e}");
@@ -707,10 +700,7 @@ impl Engine {
 
     /// Save the current config as a named profile.
     pub fn save_profile(&self, name: String) -> Result<(), CoreError> {
-        let config = self
-            .config
-            .lock()
-            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
+        let config = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
         config.save_profile(&self.config_dir, &name)
     }
 
@@ -720,19 +710,14 @@ impl Engine {
 
         // Update dictionary
         {
-            let mut dict_guard = self
-                .dictionary
-                .lock()
-                .map_err(|e| CoreError::ConfigError(format!("Dictionary lock poisoned: {e}")))?;
+            let mut dict_guard =
+                crate::util::lock_named(&self.dictionary, "Dictionary", CoreError::ConfigError)?;
             dict_guard.set_rules(new_config.dictionary.clone());
         }
 
         // Save as active config and update state
         new_config.save(&self.config_dir)?;
-        let mut cfg = self
-            .config
-            .lock()
-            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
+        let mut cfg = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
         *cfg = new_config;
 
         log::info!("Loaded profile: {name}");
@@ -763,10 +748,7 @@ impl Engine {
 
     /// Get current hotkey configuration.
     pub fn get_hotkey_config(&self) -> Result<HotkeyConfig, CoreError> {
-        let config = self
-            .config
-            .lock()
-            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
+        let config = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
         Ok(HotkeyConfig {
             key: config.general.hotkey_key.clone(),
             modifiers: config.general.hotkey_modifiers.clone(),
@@ -776,10 +758,7 @@ impl Engine {
 
     /// Set and persist hotkey configuration.
     pub fn set_hotkey_config(&self, config: HotkeyConfig) -> Result<(), CoreError> {
-        let mut cfg = self
-            .config
-            .lock()
-            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
+        let mut cfg = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
         cfg.general.hotkey_key = config.key;
         cfg.general.hotkey_modifiers = config.modifiers;
         cfg.general.hotkey_mode = config.mode;
@@ -788,173 +767,119 @@ impl Engine {
 
     /// Get whether auto-paste is enabled.
     pub fn get_auto_paste(&self) -> Result<bool, CoreError> {
-        let config = self
-            .config
-            .lock()
-            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
+        let config = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
         Ok(config.general.auto_paste)
     }
 
     /// Set and persist auto-paste setting.
     pub fn set_auto_paste(&self, enabled: bool) -> Result<(), CoreError> {
-        let mut cfg = self
-            .config
-            .lock()
-            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
+        let mut cfg = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
         cfg.general.auto_paste = enabled;
         cfg.save(&self.config_dir)
     }
 
     /// Get whether the recording overlay is shown.
     pub fn get_show_overlay(&self) -> Result<bool, CoreError> {
-        let config = self
-            .config
-            .lock()
-            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
+        let config = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
         Ok(config.general.show_overlay)
     }
 
     /// Set and persist the recording overlay setting.
     pub fn set_show_overlay(&self, enabled: bool) -> Result<(), CoreError> {
-        let mut cfg = self
-            .config
-            .lock()
-            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
+        let mut cfg = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
         cfg.general.show_overlay = enabled;
         cfg.save(&self.config_dir)
     }
 
     /// Get whether the cache-aware streaming live preview is enabled.
     pub fn get_streaming_preview_enabled(&self) -> Result<bool, CoreError> {
-        let config = self
-            .config
-            .lock()
-            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
+        let config = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
         Ok(config.general.streaming_preview_enabled)
     }
 
     /// Set and persist the streaming-preview opt-in flag.
     pub fn set_streaming_preview_enabled(&self, enabled: bool) -> Result<(), CoreError> {
-        let mut cfg = self
-            .config
-            .lock()
-            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
+        let mut cfg = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
         cfg.general.streaming_preview_enabled = enabled;
         cfg.save(&self.config_dir)
     }
 
     /// Get whether speaker labels are enabled for meeting transcripts.
     pub fn get_speaker_labels_enabled(&self) -> Result<bool, CoreError> {
-        let config = self
-            .config
-            .lock()
-            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
+        let config = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
         Ok(config.general.speaker_labels_enabled)
     }
 
     /// Set and persist the speaker-labels opt-in flag.
     pub fn set_speaker_labels_enabled(&self, enabled: bool) -> Result<(), CoreError> {
-        let mut cfg = self
-            .config
-            .lock()
-            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
+        let mut cfg = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
         cfg.general.speaker_labels_enabled = enabled;
         cfg.save(&self.config_dir)
     }
 
     /// Get the preferred audio source bundle ID for meeting capture.
     pub fn get_preferred_audio_source(&self) -> Result<Option<String>, CoreError> {
-        let config = self
-            .config
-            .lock()
-            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
+        let config = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
         Ok(config.general.preferred_audio_source_bundle_id.clone())
     }
 
     /// Set and persist the preferred audio source bundle ID.
     pub fn set_preferred_audio_source(&self, bundle_id: Option<String>) -> Result<(), CoreError> {
-        let mut cfg = self
-            .config
-            .lock()
-            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
+        let mut cfg = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
         cfg.general.preferred_audio_source_bundle_id = bundle_id;
         cfg.save(&self.config_dir)
     }
 
     /// Get the chunk duration in seconds for meeting transcription.
     pub fn get_chunk_duration(&self) -> Result<u32, CoreError> {
-        let config = self
-            .config
-            .lock()
-            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
+        let config = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
         Ok(config.general.chunk_duration_secs)
     }
 
     /// Set and persist the chunk duration in seconds (10-120).
     pub fn set_chunk_duration(&self, secs: u32) -> Result<(), CoreError> {
         let clamped = secs.clamp(10, 120);
-        let mut cfg = self
-            .config
-            .lock()
-            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
+        let mut cfg = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
         cfg.general.chunk_duration_secs = clamped;
         cfg.save(&self.config_dir)
     }
 
     /// Get the maximum word count for LLM processing.
     pub fn get_llm_max_words(&self) -> Result<u32, CoreError> {
-        let config = self
-            .config
-            .lock()
-            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
+        let config = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
         Ok(config.general.llm_max_words)
     }
 
     /// Set and persist the maximum word count for LLM processing (500-10000).
     pub fn set_llm_max_words(&self, words: u32) -> Result<(), CoreError> {
         let clamped = words.clamp(500, 10000);
-        let mut cfg = self
-            .config
-            .lock()
-            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
+        let mut cfg = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
         cfg.general.llm_max_words = clamped;
         cfg.save(&self.config_dir)
     }
 
     /// Get whether debug mode is enabled.
     pub fn get_debug_mode(&self) -> Result<bool, CoreError> {
-        let config = self
-            .config
-            .lock()
-            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
+        let config = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
         Ok(config.general.debug_mode)
     }
 
     /// Set and persist debug mode.
     pub fn set_debug_mode(&self, enabled: bool) -> Result<(), CoreError> {
-        let mut cfg = self
-            .config
-            .lock()
-            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
+        let mut cfg = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
         cfg.general.debug_mode = enabled;
         cfg.save(&self.config_dir)
     }
 
     /// Get the retention period in days (0 = disabled).
     pub fn get_retention_days(&self) -> Result<u32, CoreError> {
-        let config = self
-            .config
-            .lock()
-            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
+        let config = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
         Ok(config.general.retention_days)
     }
 
     /// Set and persist the retention period in days (0 = disabled).
     pub fn set_retention_days(&self, days: u32) -> Result<(), CoreError> {
-        let mut cfg = self
-            .config
-            .lock()
-            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
+        let mut cfg = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
         cfg.general.retention_days = days;
         cfg.save(&self.config_dir)
     }
@@ -963,10 +888,7 @@ impl Engine {
     /// Returns the number of deleted transcriptions, or 0 if retention is disabled.
     pub fn run_retention_cleanup(&self) -> Result<u32, CoreError> {
         let days = {
-            let config = self
-                .config
-                .lock()
-                .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
+            let config = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
             config.general.retention_days
         };
 
@@ -974,10 +896,7 @@ impl Engine {
             return Ok(0);
         }
 
-        let storage = self
-            .storage
-            .lock()
-            .map_err(|e| CoreError::IoError(format!("Storage lock poisoned: {e}")))?;
+        let storage = crate::util::lock_named(&self.storage, "Storage", CoreError::IoError)?;
         let count = storage.delete_older_than(days)?;
         if count > 0 {
             log::info!(
@@ -1025,17 +944,12 @@ impl Engine {
         };
 
         // Update runtime state
-        let mut llm_guard = self
-            .llm
-            .lock()
-            .map_err(|e| CoreError::ConfigError(format!("LLM lock poisoned: {e}")))?;
+        let mut llm_guard = crate::util::lock_named(&self.llm, "LLM", CoreError::ConfigError)?;
         *llm_guard = llm;
 
         // Persist to config
-        let mut config_guard = self
-            .config
-            .lock()
-            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
+        let mut config_guard =
+            crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
         config_guard.llm.active_provider = if provider.is_empty() || provider == "none" {
             None
         } else {
@@ -1132,10 +1046,7 @@ impl Engine {
     /// Test the currently configured LLM connection. Returns the provider name
     /// on success or an error message on failure.
     pub fn test_llm_connection(&self) -> Result<String, CoreError> {
-        let llm_guard = self
-            .llm
-            .lock()
-            .map_err(|e| CoreError::LlmError(format!("LLM lock poisoned: {e}")))?;
+        let llm_guard = crate::util::lock_named(&self.llm, "LLM", CoreError::LlmError)?;
         let llm = llm_guard
             .as_ref()
             .ok_or_else(|| CoreError::LlmError("No LLM provider configured".into()))?;
@@ -1162,10 +1073,11 @@ impl Engine {
 
         // Check not already downloading
         {
-            let p = self
-                .download_progress
-                .lock()
-                .map_err(|e| CoreError::IoError(format!("Download progress lock poisoned: {e}")))?;
+            let p = crate::util::lock_named(
+                &self.download_progress,
+                "Download progress",
+                CoreError::IoError,
+            )?;
             if p.state == DownloadState::Downloading {
                 return Err(CoreError::IoError(
                     "A download is already in progress".into(),
@@ -1199,10 +1111,11 @@ impl Engine {
 
     /// Get current download progress. Poll this from Swift on a timer.
     pub fn get_download_progress(&self) -> Result<DownloadProgress, CoreError> {
-        let p = self
-            .download_progress
-            .lock()
-            .map_err(|e| CoreError::IoError(format!("Download progress lock poisoned: {e}")))?;
+        let p = crate::util::lock_named(
+            &self.download_progress,
+            "Download progress",
+            CoreError::IoError,
+        )?;
         Ok(p.clone())
     }
 
@@ -1216,10 +1129,8 @@ impl Engine {
 
         // Unload if this model is currently active
         {
-            let config_guard = self
-                .config
-                .lock()
-                .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
+            let config_guard =
+                crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
             if config_guard.stt.active_model.as_deref() == Some(&model_id) {
                 drop(config_guard);
                 self.unload_model();
@@ -1236,10 +1147,8 @@ impl Engine {
 
     /// Start a new chunked transcription session.
     pub fn start_session(&self, session_id: String) -> Result<(), CoreError> {
-        let mut mgr = self
-            .sessions
-            .lock()
-            .map_err(|e| CoreError::TranscriptionFailed(format!("Session lock poisoned: {e}")))?;
+        let mut mgr =
+            crate::util::lock_named(&self.sessions, "Session", CoreError::TranscriptionFailed)?;
         mgr.start(&session_id)
     }
 
@@ -1326,9 +1235,8 @@ impl Engine {
                 session_id,
                 chunk_index
             );
-            let mut mgr = self.sessions.lock().map_err(|e| {
-                CoreError::TranscriptionFailed(format!("Session lock poisoned: {e}"))
-            })?;
+            let mut mgr =
+                crate::util::lock_named(&self.sessions, "Session", CoreError::TranscriptionFailed)?;
             let mut chunk_result = mgr.add_chunk_with_overlap(
                 &session_id,
                 "",
@@ -1363,10 +1271,7 @@ impl Engine {
         );
 
         // Run STT on this chunk (full buffer, no VAD trim).
-        let stt_guard = self
-            .stt
-            .lock()
-            .map_err(|e| CoreError::TranscriptionFailed(format!("STT lock poisoned: {e}")))?;
+        let stt_guard = crate::util::lock_named(&self.stt, "STT", CoreError::TranscriptionFailed)?;
         let stt = stt_guard
             .as_ref()
             .ok_or_else(|| CoreError::TranscriptionFailed("No STT model loaded".into()))?;
@@ -1376,9 +1281,11 @@ impl Engine {
         // Remove filler words and apply dictionary replacements per-chunk.
         let ctx = context.unwrap_or_default();
         let mut chunk_text = crate::filler::remove_fillers(&stt_result.text);
-        let dict_guard = self.dictionary.lock().map_err(|e| {
-            CoreError::TranscriptionFailed(format!("Dictionary lock poisoned: {e}"))
-        })?;
+        let dict_guard = crate::util::lock_named(
+            &self.dictionary,
+            "Dictionary",
+            CoreError::TranscriptionFailed,
+        )?;
         chunk_text = dict_guard.apply(&chunk_text, &ctx, &mode);
         drop(dict_guard);
 
@@ -1387,10 +1294,8 @@ impl Engine {
         let llm_error = self.apply_llm(&mut chunk_text, &mode, &ctx)?;
 
         // Stitch into session with overlap dedup.
-        let mut mgr = self
-            .sessions
-            .lock()
-            .map_err(|e| CoreError::TranscriptionFailed(format!("Session lock poisoned: {e}")))?;
+        let mut mgr =
+            crate::util::lock_named(&self.sessions, "Session", CoreError::TranscriptionFailed)?;
         let mut chunk_result = mgr.add_chunk_with_overlap(
             &session_id,
             &chunk_text,
@@ -1470,9 +1375,8 @@ impl Engine {
         }
 
         if audio_samples.is_empty() {
-            let mut mgr = self.sessions.lock().map_err(|e| {
-                CoreError::TranscriptionFailed(format!("Session lock poisoned: {e}"))
-            })?;
+            let mut mgr =
+                crate::util::lock_named(&self.sessions, "Session", CoreError::TranscriptionFailed)?;
             return mgr.add_chunk_with_source(
                 &session_id,
                 source,
@@ -1485,10 +1389,7 @@ impl Engine {
         }
 
         // Run STT on this chunk.
-        let stt_guard = self
-            .stt
-            .lock()
-            .map_err(|e| CoreError::TranscriptionFailed(format!("STT lock poisoned: {e}")))?;
+        let stt_guard = crate::util::lock_named(&self.stt, "STT", CoreError::TranscriptionFailed)?;
         let stt = stt_guard
             .as_ref()
             .ok_or_else(|| CoreError::TranscriptionFailed("No STT model loaded".into()))?;
@@ -1497,18 +1398,18 @@ impl Engine {
 
         let ctx = context.unwrap_or_default();
         let mut chunk_text = crate::filler::remove_fillers(&stt_result.text);
-        let dict_guard = self.dictionary.lock().map_err(|e| {
-            CoreError::TranscriptionFailed(format!("Dictionary lock poisoned: {e}"))
-        })?;
+        let dict_guard = crate::util::lock_named(
+            &self.dictionary,
+            "Dictionary",
+            CoreError::TranscriptionFailed,
+        )?;
         chunk_text = dict_guard.apply(&chunk_text, &ctx, &mode);
         drop(dict_guard);
 
         let llm_error = self.apply_llm(&mut chunk_text, &mode, &ctx)?;
 
-        let mut mgr = self
-            .sessions
-            .lock()
-            .map_err(|e| CoreError::TranscriptionFailed(format!("Session lock poisoned: {e}")))?;
+        let mut mgr =
+            crate::util::lock_named(&self.sessions, "Session", CoreError::TranscriptionFailed)?;
         let mut chunk_result = mgr.add_chunk_with_source(
             &session_id,
             source,
@@ -1535,10 +1436,8 @@ impl Engine {
         source: Option<String>,
     ) -> Result<TranscriptionResult, CoreError> {
         // Extract accumulated text, duration, and segments from the session.
-        let mut mgr = self
-            .sessions
-            .lock()
-            .map_err(|e| CoreError::TranscriptionFailed(format!("Session lock poisoned: {e}")))?;
+        let mut mgr =
+            crate::util::lock_named(&self.sessions, "Session", CoreError::TranscriptionFailed)?;
         let (text, duration_secs, segments) = mgr.finish(&session_id)?;
         drop(mgr);
 
@@ -1579,10 +1478,8 @@ impl Engine {
     /// Get the accumulated text for a session on demand, without the per-chunk
     /// cloning overhead of `ChunkResult.accumulated_text`.
     pub fn get_session_text(&self, session_id: String) -> Result<String, CoreError> {
-        let mgr = self
-            .sessions
-            .lock()
-            .map_err(|e| CoreError::TranscriptionFailed(format!("Session lock poisoned: {e}")))?;
+        let mgr =
+            crate::util::lock_named(&self.sessions, "Session", CoreError::TranscriptionFailed)?;
         mgr.get_session_text(&session_id)
     }
 
@@ -1600,19 +1497,13 @@ impl Engine {
         &self,
         transcription: StoredTranscription,
     ) -> Result<String, CoreError> {
-        let storage = self
-            .storage
-            .lock()
-            .map_err(|e| CoreError::IoError(format!("Storage lock poisoned: {e}")))?;
+        let storage = crate::util::lock_named(&self.storage, "Storage", CoreError::IoError)?;
         storage.save(&transcription)
     }
 
     /// Get usage statistics as key-value pairs.
     pub fn get_statistics(&self) -> Result<Vec<Vec<String>>, CoreError> {
-        let storage = self
-            .storage
-            .lock()
-            .map_err(|e| CoreError::IoError(format!("Storage lock poisoned: {e}")))?;
+        let storage = crate::util::lock_named(&self.storage, "Storage", CoreError::IoError)?;
         let stats = storage.get_statistics()?;
         Ok(stats.into_iter().map(|(k, v)| vec![k, v]).collect())
     }
@@ -1622,10 +1513,7 @@ impl Engine {
         &self,
         query: TranscriptionQuery,
     ) -> Result<Vec<StoredTranscription>, CoreError> {
-        let storage = self
-            .storage
-            .lock()
-            .map_err(|e| CoreError::IoError(format!("Storage lock poisoned: {e}")))?;
+        let storage = crate::util::lock_named(&self.storage, "Storage", CoreError::IoError)?;
         storage.list(&query)
     }
 
@@ -1640,46 +1528,31 @@ impl Engine {
             limit: 50,
             offset: 0,
         };
-        let storage = self
-            .storage
-            .lock()
-            .map_err(|e| CoreError::IoError(format!("Storage lock poisoned: {e}")))?;
+        let storage = crate::util::lock_named(&self.storage, "Storage", CoreError::IoError)?;
         storage.list(&query)
     }
 
     /// Get a single transcription by ID.
     pub fn get_transcription(&self, id: String) -> Result<StoredTranscription, CoreError> {
-        let storage = self
-            .storage
-            .lock()
-            .map_err(|e| CoreError::IoError(format!("Storage lock poisoned: {e}")))?;
+        let storage = crate::util::lock_named(&self.storage, "Storage", CoreError::IoError)?;
         storage.get(&id)
     }
 
     /// Update the title of a transcription.
     pub fn update_transcription_title(&self, id: String, title: String) -> Result<(), CoreError> {
-        let storage = self
-            .storage
-            .lock()
-            .map_err(|e| CoreError::IoError(format!("Storage lock poisoned: {e}")))?;
+        let storage = crate::util::lock_named(&self.storage, "Storage", CoreError::IoError)?;
         storage.update_title(&id, &title)
     }
 
     /// Delete a transcription from history.
     pub fn delete_transcription(&self, id: String) -> Result<(), CoreError> {
-        let storage = self
-            .storage
-            .lock()
-            .map_err(|e| CoreError::IoError(format!("Storage lock poisoned: {e}")))?;
+        let storage = crate::util::lock_named(&self.storage, "Storage", CoreError::IoError)?;
         storage.delete(&id)
     }
 
     /// Delete multiple transcriptions by IDs. Returns the number deleted.
     pub fn delete_transcriptions(&self, ids: Vec<String>) -> Result<u32, CoreError> {
-        let storage = self
-            .storage
-            .lock()
-            .map_err(|e| CoreError::IoError(format!("Storage lock poisoned: {e}")))?;
+        let storage = crate::util::lock_named(&self.storage, "Storage", CoreError::IoError)?;
         storage.delete_many(&ids)
     }
 
@@ -1688,10 +1561,7 @@ impl Engine {
         &self,
         id: String,
     ) -> Result<Vec<TimestampedSegment>, CoreError> {
-        let storage = self
-            .storage
-            .lock()
-            .map_err(|e| CoreError::IoError(format!("Storage lock poisoned: {e}")))?;
+        let storage = crate::util::lock_named(&self.storage, "Storage", CoreError::IoError)?;
         storage.get_segments(&id)
     }
 
@@ -1703,10 +1573,7 @@ impl Engine {
         }
         // Checkpoint WAL to ensure all data is in the main file before copying.
         {
-            let storage = self
-                .storage
-                .lock()
-                .map_err(|e| CoreError::IoError(format!("Storage lock poisoned: {e}")))?;
+            let storage = crate::util::lock_named(&self.storage, "Storage", CoreError::IoError)?;
             if let Err(e) = storage.checkpoint() {
                 // A failed checkpoint means the WAL hasn't been merged into
                 // the main DB file — the export below will produce a copy
@@ -1733,10 +1600,8 @@ impl Engine {
         let db_path = self.config_dir.join("transcriptions.db");
         // Close current storage connection by replacing it.
         {
-            let mut storage = self
-                .storage
-                .lock()
-                .map_err(|e| CoreError::IoError(format!("Storage lock poisoned: {e}")))?;
+            let mut storage =
+                crate::util::lock_named(&self.storage, "Storage", CoreError::IoError)?;
             // Copy import file over the database
             std::fs::copy(source, &db_path)
                 .map_err(|e| CoreError::IoError(format!("Failed to import database: {e}")))?;
@@ -1758,10 +1623,8 @@ impl Engine {
         &self,
         provider: Box<dyn StreamingProvider>,
     ) -> Result<(), CoreError> {
-        let mut g = self
-            .streaming
-            .lock()
-            .map_err(|e| CoreError::ModelLoadFailed(format!("Streaming lock poisoned: {e}")))?;
+        let mut g =
+            crate::util::lock_named(&self.streaming, "Streaming", CoreError::ModelLoadFailed)?;
         *g = Some(provider);
         Ok(())
     }
@@ -1786,10 +1649,7 @@ impl Engine {
             return Ok(None);
         }
 
-        let config_guard = self
-            .config
-            .lock()
-            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
+        let config_guard = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
         let all_modes = if config_guard.modes.is_empty() {
             modes::default_modes()
         } else {
@@ -1809,10 +1669,7 @@ impl Engine {
         };
 
         let llm = {
-            let llm_guard = self
-                .llm
-                .lock()
-                .map_err(|e| CoreError::LlmError(format!("LLM lock poisoned: {e}")))?;
+            let llm_guard = crate::util::lock_named(&self.llm, "LLM", CoreError::LlmError)?;
             match llm_guard.as_ref() {
                 Some(l) => Arc::clone(l),
                 None => {
@@ -1851,10 +1708,8 @@ impl Engine {
         };
 
         // Inject domain words into the system prompt.
-        let dict_guard = self
-            .dictionary
-            .lock()
-            .map_err(|e| CoreError::LlmError(format!("Dictionary lock poisoned: {e}")))?;
+        let dict_guard =
+            crate::util::lock_named(&self.dictionary, "Dictionary", CoreError::LlmError)?;
         let domain_words: Vec<String> = dict_guard
             .rules()
             .iter()
@@ -2027,10 +1882,7 @@ impl Engine {
 
     /// Set up the LLM provider based on current config.
     fn setup_llm_provider(&self) -> Result<(), CoreError> {
-        let config_guard = self
-            .config
-            .lock()
-            .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
+        let config_guard = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
 
         let provider: Option<Arc<dyn LlmProvider>> =
             match config_guard.llm.active_provider.as_deref() {
@@ -2077,10 +1929,7 @@ impl Engine {
 
         drop(config_guard);
 
-        let mut llm_guard = self
-            .llm
-            .lock()
-            .map_err(|e| CoreError::ConfigError(format!("LLM lock poisoned: {e}")))?;
+        let mut llm_guard = crate::util::lock_named(&self.llm, "LLM", CoreError::ConfigError)?;
         *llm_guard = provider;
 
         Ok(())
