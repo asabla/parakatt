@@ -16,18 +16,20 @@ pub struct OllamaProvider {
 }
 
 impl OllamaProvider {
-    pub fn new(base_url: &str, model: &str) -> Self {
-        Self {
+    pub fn new(base_url: &str, model: &str) -> Result<Self, CoreError> {
+        // Generous timeout for streaming — individual chunks arrive fast,
+        // but the full completion can take minutes for long text.
+        let client = reqwest::blocking::Client::builder()
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .timeout(std::time::Duration::from_secs(300))
+            .build()
+            .map_err(|e| CoreError::LlmError(format!("Failed to build Ollama HTTP client: {e}")))?;
+
+        Ok(Self {
             base_url: base_url.trim_end_matches('/').to_string(),
             model: model.to_string(),
-            // Generous timeout for streaming — individual chunks arrive fast,
-            // but the full completion can take minutes for long text.
-            client: reqwest::blocking::Client::builder()
-                .connect_timeout(std::time::Duration::from_secs(10))
-                .timeout(std::time::Duration::from_secs(300))
-                .build()
-                .expect("Failed to build HTTP client"),
-        }
+            client,
+        })
     }
 }
 

@@ -235,7 +235,9 @@ impl Engine {
             .lock()
             .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
         config_guard.stt.active_model = Some(model_id.to_string());
-        let _ = config_guard.save(&self.config_dir);
+        if let Err(e) = config_guard.save(&self.config_dir) {
+            log::warn!("Failed to persist active STT model to config: {e}");
+        }
 
         Ok(())
     }
@@ -681,7 +683,9 @@ impl Engine {
             .lock()
             .map_err(|e| CoreError::ConfigError(format!("Config lock poisoned: {e}")))?;
         config_guard.dictionary = rules;
-        let _ = config_guard.save(&self.config_dir);
+        if let Err(e) = config_guard.save(&self.config_dir) {
+            log::warn!("Failed to persist dictionary rules to config: {e}");
+        }
 
         Ok(())
     }
@@ -1000,16 +1004,16 @@ impl Engine {
         let llm: Option<Arc<dyn LlmProvider>> = match provider.as_str() {
             "ollama" => Some(Arc::new(crate::llm::ollama::OllamaProvider::new(
                 &base_url, &model,
-            ))),
+            )?)),
             "lmstudio" => Some(Arc::new(
-                crate::llm::openai::OpenAiCompatibleProvider::lmstudio(&base_url, &model),
+                crate::llm::openai::OpenAiCompatibleProvider::lmstudio(&base_url, &model)?,
             )),
             "openai" => {
                 let key = api_key
                     .clone()
                     .ok_or_else(|| CoreError::ConfigError("OpenAI requires an API key".into()))?;
                 Some(Arc::new(
-                    crate::llm::openai::OpenAiCompatibleProvider::openai(&key, &model),
+                    crate::llm::openai::OpenAiCompatibleProvider::openai(&key, &model)?,
                 ))
             }
             "" | "none" => None,
@@ -1052,7 +1056,9 @@ impl Engine {
             }
             _ => {}
         }
-        let _ = config_guard.save(&self.config_dir);
+        if let Err(e) = config_guard.save(&self.config_dir) {
+            log::warn!("Failed to persist LLM configuration to config: {e}");
+        }
 
         Ok(())
     }
@@ -1701,7 +1707,13 @@ impl Engine {
                 .storage
                 .lock()
                 .map_err(|e| CoreError::IoError(format!("Storage lock poisoned: {e}")))?;
-            let _ = storage.checkpoint();
+            if let Err(e) = storage.checkpoint() {
+                // A failed checkpoint means the WAL hasn't been merged into
+                // the main DB file — the export below will produce a copy
+                // that's missing the most recent writes. Surface it so we
+                // know when the resulting backup is stale.
+                log::warn!("WAL checkpoint before export failed; backup may be stale: {e}");
+            }
         }
         std::fs::copy(&db_path, &dest_path)
             .map_err(|e| CoreError::IoError(format!("Failed to export database: {e}")))?;
@@ -2025,7 +2037,7 @@ impl Engine {
                 Some("ollama") => Some(Arc::new(crate::llm::ollama::OllamaProvider::new(
                     &config_guard.llm.ollama.base_url,
                     &config_guard.llm.ollama.model,
-                ))),
+                )?)),
                 Some("lmstudio") => {
                     let model = config_guard
                         .llm
@@ -2037,7 +2049,7 @@ impl Engine {
                         crate::llm::openai::OpenAiCompatibleProvider::lmstudio(
                             &config_guard.llm.lmstudio.base_url,
                             model,
-                        ),
+                        )?,
                     ))
                 }
                 Some("openai") => {
@@ -2049,7 +2061,7 @@ impl Engine {
                             .as_deref()
                             .unwrap_or("gpt-4o-mini");
                         Some(Arc::new(
-                            crate::llm::openai::OpenAiCompatibleProvider::openai(key, model),
+                            crate::llm::openai::OpenAiCompatibleProvider::openai(key, model)?,
                         ))
                     } else {
                         log::warn!("OpenAI provider selected but no API key configured");

@@ -7,10 +7,21 @@ use std::fs;
 use std::io::{Read, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use crate::models;
 use crate::CoreError;
+
+/// Lock the progress mutex, recovering the inner value if a previous holder
+/// panicked. Download progress is a polled, write-only snapshot — losing a
+/// few intermediate updates because a writer panicked is far better than
+/// poisoning the mutex and crashing every subsequent progress update.
+fn lock_progress(progress: &Mutex<DownloadProgress>) -> MutexGuard<'_, DownloadProgress> {
+    progress.lock().unwrap_or_else(|poisoned| {
+        log::warn!("Download progress mutex was poisoned; recovering inner value");
+        poisoned.into_inner()
+    })
+}
 
 /// State of a model download.
 #[derive(Debug, Clone, PartialEq, uniffi::Enum)]
@@ -78,7 +89,7 @@ pub fn download_model(
 
     // Initialize progress
     {
-        let mut p = progress.lock().unwrap();
+        let mut p = lock_progress(&progress);
         *p = DownloadProgress {
             model_id: model_id.to_string(),
             state: DownloadState::Downloading,
@@ -100,7 +111,7 @@ pub fn download_model(
         // Check cancel before starting each file
         if cancel.load(Ordering::Relaxed) {
             cleanup_part_files(&model_dir, file_set.files);
-            let mut p = progress.lock().unwrap();
+            let mut p = lock_progress(&progress);
             p.state = DownloadState::Cancelled;
             return Ok(());
         }
@@ -110,7 +121,7 @@ pub fn download_model(
         // Skip files that already exist
         if dest.exists() {
             log::info!("Skipping {filename} — already exists");
-            let mut p = progress.lock().unwrap();
+            let mut p = lock_progress(&progress);
             p.file_index = i as u32 + 1;
             p.current_file = filename.to_string();
             continue;
@@ -134,7 +145,7 @@ pub fn download_model(
 
         // Update progress for this file
         {
-            let mut p = progress.lock().unwrap();
+            let mut p = lock_progress(&progress);
             p.current_file = filename.to_string();
             p.file_index = i as u32;
             p.bytes_downloaded = existing_bytes;
@@ -148,7 +159,7 @@ pub fn download_model(
         }
 
         let response = req.send().map_err(|e| {
-            let mut p = progress.lock().unwrap();
+            let mut p = lock_progress(&progress);
             p.state = DownloadState::Failed {
                 message: format!("Failed to download {filename}: {e}"),
             };
@@ -163,7 +174,7 @@ pub fn download_model(
                 let _ = fs::remove_file(&part_path);
             } else {
                 let msg = format!("HTTP {} for {filename}", status);
-                let mut p = progress.lock().unwrap();
+                let mut p = lock_progress(&progress);
                 p.state = DownloadState::Failed {
                     message: msg.clone(),
                 };
@@ -186,7 +197,7 @@ pub fn download_model(
         };
 
         {
-            let mut p = progress.lock().unwrap();
+            let mut p = lock_progress(&progress);
             p.bytes_total = total_size;
         }
 
@@ -197,7 +208,7 @@ pub fn download_model(
             fs::File::create(&part_path)
         }
         .map_err(|e| {
-            let mut p = progress.lock().unwrap();
+            let mut p = lock_progress(&progress);
             p.state = DownloadState::Failed {
                 message: format!("Cannot open {}: {e}", part_path.display()),
             };
@@ -213,7 +224,7 @@ pub fn download_model(
             if cancel.load(Ordering::Relaxed) {
                 drop(file);
                 cleanup_part_files(&model_dir, file_set.files);
-                let mut p = progress.lock().unwrap();
+                let mut p = lock_progress(&progress);
                 p.state = DownloadState::Cancelled;
                 return Ok(());
             }
@@ -223,7 +234,7 @@ pub fn download_model(
                 Err(e) => {
                     drop(file);
                     cleanup_part_files(&model_dir, file_set.files);
-                    let mut p = progress.lock().unwrap();
+                    let mut p = lock_progress(&progress);
                     p.state = DownloadState::Failed {
                         message: format!("Read error for {filename}: {e}"),
                     };
@@ -237,7 +248,7 @@ pub fn download_model(
 
             file.write_all(&buf[..n]).map_err(|e| {
                 cleanup_part_files(&model_dir, file_set.files);
-                let mut p = progress.lock().unwrap();
+                let mut p = lock_progress(&progress);
                 p.state = DownloadState::Failed {
                     message: format!("Write error for {filename}: {e}"),
                 };
@@ -246,7 +257,7 @@ pub fn download_model(
 
             downloaded += n as u64;
             {
-                let mut p = progress.lock().unwrap();
+                let mut p = lock_progress(&progress);
                 p.bytes_downloaded = downloaded;
             }
         }
@@ -258,7 +269,7 @@ pub fn download_model(
             let msg = format!(
                 "Size mismatch for {filename}: expected {total_size} bytes, got {downloaded}"
             );
-            let mut p = progress.lock().unwrap();
+            let mut p = lock_progress(&progress);
             p.state = DownloadState::Failed {
                 message: msg.clone(),
             };
@@ -267,7 +278,7 @@ pub fn download_model(
 
         // Rename .part to final name
         fs::rename(&part_path, &dest).map_err(|e| {
-            let mut p = progress.lock().unwrap();
+            let mut p = lock_progress(&progress);
             p.state = DownloadState::Failed {
                 message: format!("Failed to rename {}: {e}", part_path.display()),
             };
@@ -279,7 +290,7 @@ pub fn download_model(
 
     // All files done
     {
-        let mut p = progress.lock().unwrap();
+        let mut p = lock_progress(&progress);
         p.state = DownloadState::Completed;
         p.file_index = total_files;
         p.current_file = String::new();

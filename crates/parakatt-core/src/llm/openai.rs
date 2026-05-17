@@ -15,22 +15,29 @@ pub struct OpenAiCompatibleProvider {
 }
 
 impl OpenAiCompatibleProvider {
+    fn build_client(display_name: &str) -> Result<reqwest::blocking::Client, CoreError> {
+        reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(60))
+            .build()
+            .map_err(|e| {
+                CoreError::LlmError(format!("Failed to build {display_name} HTTP client: {e}"))
+            })
+    }
+
     /// Create a provider for the real OpenAI API.
-    pub fn openai(api_key: &str, model: &str) -> Self {
-        Self {
+    pub fn openai(api_key: &str, model: &str) -> Result<Self, CoreError> {
+        let client = Self::build_client("openai")?;
+        Ok(Self {
             base_url: "https://api.openai.com/v1".to_string(),
             api_key: Some(api_key.to_string()),
             model: model.to_string(),
             display_name: "openai".to_string(),
-            client: reqwest::blocking::Client::builder()
-                .timeout(std::time::Duration::from_secs(60))
-                .build()
-                .expect("Failed to build HTTP client"),
-        }
+            client,
+        })
     }
 
     /// Create a provider for LM Studio (OpenAI-compatible local server).
-    pub fn lmstudio(base_url: &str, model: &str) -> Self {
+    pub fn lmstudio(base_url: &str, model: &str) -> Result<Self, CoreError> {
         let base = base_url.trim_end_matches('/');
         // LM Studio serves at /v1 — ensure it's in the URL
         let base = if base.ends_with("/v1") {
@@ -38,16 +45,14 @@ impl OpenAiCompatibleProvider {
         } else {
             format!("{}/v1", base)
         };
-        Self {
+        let client = Self::build_client("lmstudio")?;
+        Ok(Self {
             base_url: base,
             api_key: None,
             model: model.to_string(),
             display_name: "lmstudio".to_string(),
-            client: reqwest::blocking::Client::builder()
-                .timeout(std::time::Duration::from_secs(60))
-                .build()
-                .expect("Failed to build HTTP client"),
-        }
+            client,
+        })
     }
 }
 
