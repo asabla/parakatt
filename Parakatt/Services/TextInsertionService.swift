@@ -71,6 +71,7 @@ class TextInsertionService {
             NSLog("[Parakatt] AX Strategy: focused element is not an AXUIElement")
             return false
         }
+        // Force-cast safe: type ID verified immediately above.
         let axElement = element as! AXUIElement
 
         var settable: DarwinBoolean = false

@@ -425,6 +425,15 @@ class AudioCaptureService {
         }
     }
 
+    deinit {
+        // Without this, an AudioCaptureService released while still
+        // running leaks the AVAudioEngine + tap until process exit —
+        // and historically Teams/Zoom mic sharing landed us in exactly
+        // this state. Route through teardown() so the leak path is the
+        // same one we already trust for stopCapture().
+        teardown()
+    }
+
     // MARK: - Private
 
     private func teardown() {
@@ -448,8 +457,14 @@ class AudioCaptureService {
         }, &error)
 
         if !ok {
-            NSLog("[Parakatt] Audio engine teardown caught ObjC exception: %@",
-                  error?.localizedDescription ?? "unknown")
+            // ObjC exceptions from removeTap have historically been the
+            // failure mode when sharing the mic with Teams/Zoom — route
+            // through FileLogService so we get a persistent breadcrumb
+            // instead of an NSLog line that's gone by the next session.
+            FileLogService.shared.log(
+                "Audio engine teardown caught ObjC exception: \(error?.localizedDescription ?? "unknown")",
+                category: "Mic"
+            )
         }
     }
 
