@@ -566,17 +566,36 @@ impl Storage {
 
     /// Delete transcriptions older than the given number of days.
     /// Returns the number of transcriptions deleted.
+    ///
+    /// Wrapped in a transaction so a mid-statement failure (FTS trigger,
+    /// CASCADE on `transcript_segments`, etc.) doesn't leave the DB with
+    /// the parent row deleted but child rows orphaned.
     pub fn delete_older_than(&self, days: u32) -> Result<u32, CoreError> {
         let cutoff = chrono::Utc::now() - chrono::Duration::days(days as i64);
         let cutoff_str = cutoff.to_rfc3339();
 
-        let count = self
-            .conn
-            .execute(
-                "DELETE FROM transcriptions WHERE created_at < ?1",
-                params![cutoff_str],
-            )
-            .map_err(|e| CoreError::IoError(format!("Failed to delete old transcriptions: {e}")))?;
+        self.conn
+            .execute("BEGIN", [])
+            .map_err(|e| CoreError::IoError(format!("Failed to begin retention delete: {e}")))?;
+
+        let count = match self.conn.execute(
+            "DELETE FROM transcriptions WHERE created_at < ?1",
+            params![cutoff_str],
+        ) {
+            Ok(rows) => rows,
+            Err(e) => {
+                if let Err(rb) = self.conn.execute("ROLLBACK", []) {
+                    log::error!("delete_older_than ROLLBACK failed: {rb}");
+                }
+                return Err(CoreError::IoError(format!(
+                    "Failed to delete old transcriptions: {e}"
+                )));
+            }
+        };
+
+        self.conn
+            .execute("COMMIT", [])
+            .map_err(|e| CoreError::IoError(format!("Failed to commit retention delete: {e}")))?;
 
         Ok(count as u32)
     }
@@ -732,6 +751,33 @@ mod tests {
         assert_eq!(count, 2, "non-existent IDs must not inflate the count");
         assert!(storage.get(&id_a).is_err());
         assert!(storage.get(&id_b).is_err());
+    }
+
+    #[test]
+    fn test_delete_older_than_commits_and_keeps_connection_usable() {
+        // Regression guard: delete_older_than wraps its DELETE in an
+        // explicit BEGIN/COMMIT. A bug in the transaction handling
+        // (e.g. forgetting COMMIT, double BEGIN) would leave the
+        // connection in a stuck transactional state and the next
+        // write would fail. Run a follow-up DELETE to prove the
+        // transaction was closed cleanly.
+        let (storage, _dir) = temp_storage();
+        let mut old = sample_transcription("push_to_talk", "ancient");
+        old.created_at = "2020-01-01T00:00:00Z".to_string();
+        let old_id = storage.save(&old).unwrap();
+
+        let mut fresh = sample_transcription("push_to_talk", "recent");
+        fresh.created_at = chrono::Utc::now().to_rfc3339();
+        let fresh_id = storage.save(&fresh).unwrap();
+
+        let count = storage.delete_older_than(30).unwrap();
+        assert_eq!(count, 1, "only the old row should be deleted");
+        assert!(storage.get(&old_id).is_err());
+        assert!(storage.get(&fresh_id).is_ok());
+
+        // Connection must still be usable — proves COMMIT ran.
+        storage.delete(&fresh_id).unwrap();
+        assert!(storage.get(&fresh_id).is_err());
     }
 
     #[test]
