@@ -2,7 +2,11 @@
 
 Tracked improvements and feature ideas for Parakatt.
 
-**Status:** 61 completed, 10 deferred for future consideration.
+**Note:** The dated record of what shipped lives in [CHANGELOG.md](CHANGELOG.md).
+This file is the running wishlist — `## Completed` is kept for context on what
+the larger initiatives covered, and `## Deferred` lists things that haven't
+been picked up yet. Newer code-review action items are tracked via GitHub PRs
+rather than added back here.
 
 ---
 
@@ -71,7 +75,7 @@ Tracked improvements and feature ideas for Parakatt.
 - [x] Composite index (source, created_at DESC)
 
 ### CI/CD & Build
-- [x] PR testing workflow (cargo test, clippy, fmt, SwiftFormat)
+- [x] PR testing workflow (cargo test, clippy, fmt, `xcodebuild test`)
 - [x] Cargo release profile (LTO, codegen-units, strip)
 - [x] Version single source of truth (VERSION file + sync script)
 - [x] Changelog generation (git-cliff config)
