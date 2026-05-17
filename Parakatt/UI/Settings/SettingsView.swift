@@ -1111,7 +1111,7 @@ struct LlmSettingsView: View {
                                     Text("API Key")
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
-                                    SecureField("sk-...", text: $appState.llmApiKey)
+                                    SecureField("sk-...", text: $appState.settings.llmApiKey)
                                         .textFieldStyle(.roundedBorder)
                                 }
                             }
@@ -1120,7 +1120,7 @@ struct LlmSettingsView: View {
                                 Text("Server URL")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
-                                TextField("http://localhost:11434", text: $appState.llmBaseUrl)
+                                TextField("http://localhost:11434", text: $appState.settings.llmBaseUrl)
                                     .textFieldStyle(.roundedBorder)
                             }
 
@@ -1147,7 +1147,7 @@ struct LlmSettingsView: View {
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
                                         HStack {
-                                            Picker("", selection: $appState.llmModel) {
+                                            Picker("", selection: $appState.settings.llmModel) {
                                                 Text("Select a model...").tag("")
                                                 ForEach(availableModels, id: \.self) { model in
                                                     Text(model).tag(model)
