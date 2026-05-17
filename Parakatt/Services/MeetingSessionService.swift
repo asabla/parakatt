@@ -44,6 +44,16 @@ class MeetingSessionService {
     /// Sample rate (must match STT expectations).
     private let sampleRate: UInt32 = 16_000
 
+    /// Hard cap on how many samples we'll buffer per stream before dropping
+    /// the oldest audio. 5 minutes @ 16 kHz = 4.8M floats = ~19 MB per buffer.
+    /// If chunk dispatch stalls (STT thread wedged, main loop blocked) this
+    /// prevents unbounded growth at ~3.2 MB/min and bounds the worst-case
+    /// audio loss to "oldest 30s slice".
+    private static let maxBufferSamples: Int = 5 * 60 * 16_000
+    /// Throttle for the overflow log line so a wedged STT thread doesn't
+    /// produce 100+ identical warnings per second.
+    private var lastBufferOverflowLogAt: CFAbsoluteTime = 0
+
     // MARK: - Audio sources
 
     private let micCapture = AudioCaptureService()
@@ -527,6 +537,7 @@ class MeetingSessionService {
             bufferLock.lock()
             micChunkBuffer.append(contentsOf: micBlock)
             systemChunkBuffer.append(contentsOf: systemBlock)
+            capDualStreamBuffersLocked()
             bufferLock.unlock()
             return
         }
@@ -559,7 +570,54 @@ class MeetingSessionService {
         guard !mixed.isEmpty else { return }
         bufferLock.lock()
         mixBuffer.append(contentsOf: mixed)
+        capMixBufferLocked()
         bufferLock.unlock()
+    }
+
+    /// Drop the oldest samples from `mixBuffer` if it exceeds the cap.
+    /// Caller must hold `bufferLock`. Logs once every 5 s while overflowing
+    /// so a wedged STT path leaves a trail without flooding the log.
+    private func capMixBufferLocked() {
+        guard mixBuffer.count > Self.maxBufferSamples else { return }
+        let drop = mixBuffer.count - Self.maxBufferSamples
+        mixBuffer.removeFirst(drop)
+        logBufferOverflow(droppedSamples: drop, label: "mixBuffer")
+    }
+
+    /// Drop the oldest samples from the dual-stream per-source buffers if
+    /// either exceeds the cap. Both buffers are trimmed by the same amount
+    /// so their wall-clock alignment is preserved (the slice index covers
+    /// the same window on both sides).
+    /// Caller must hold `bufferLock`.
+    private func capDualStreamBuffersLocked() {
+        let maxLen = max(micChunkBuffer.count, systemChunkBuffer.count)
+        guard maxLen > Self.maxBufferSamples else { return }
+        let drop = maxLen - Self.maxBufferSamples
+        if micChunkBuffer.count >= drop {
+            micChunkBuffer.removeFirst(drop)
+        } else {
+            micChunkBuffer.removeAll()
+        }
+        if systemChunkBuffer.count >= drop {
+            systemChunkBuffer.removeFirst(drop)
+        } else {
+            systemChunkBuffer.removeAll()
+        }
+        logBufferOverflow(droppedSamples: drop, label: "dualStreamBuffers")
+    }
+
+    private func logBufferOverflow(droppedSamples: Int, label: String) {
+        let now = CFAbsoluteTimeGetCurrent()
+        guard now - lastBufferOverflowLogAt > 5.0 else { return }
+        lastBufferOverflowLogAt = now
+        let secs = Double(droppedSamples) / Double(sampleRate)
+        FileLogService.shared.log(
+            String(
+                format: "%@ exceeded cap; dropped %d samples (%.1fs of audio) — chunk dispatch likely stalled",
+                label, droppedSamples, secs
+            ),
+            category: "Meeting"
+        )
     }
 
     // MARK: - Chunk dispatch

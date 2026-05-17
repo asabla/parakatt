@@ -25,19 +25,19 @@ class ContextService {
             context.appName = frontApp.localizedName
         }
 
-        // Try to get selected text and window title via Accessibility API
+        // Try to get selected text and window title via Accessibility API.
+        // All AnyObject → AXUIElement bridges go through `axElement(_:)` which
+        // verifies the CF type ID and returns nil on mismatch — no force-casts.
         let systemWide = AXUIElementCreateSystemWide()
 
         var focusedApp: AnyObject?
         if AXUIElementCopyAttributeValue(systemWide, kAXFocusedApplicationAttribute as CFString, &focusedApp) == .success,
-           let axApp = focusedApp, CFGetTypeID(axApp) == AXUIElementGetTypeID() {
-            let axAppElement = axApp as! AXUIElement
+           let axAppElement = axElement(focusedApp) {
 
             // Window title
             var focusedWindow: AnyObject?
             if AXUIElementCopyAttributeValue(axAppElement, kAXFocusedWindowAttribute as CFString, &focusedWindow) == .success,
-               let axWindow = focusedWindow, CFGetTypeID(axWindow) == AXUIElementGetTypeID() {
-                let axWindowElement = axWindow as! AXUIElement
+               let axWindowElement = axElement(focusedWindow) {
                 var title: AnyObject?
                 if AXUIElementCopyAttributeValue(axWindowElement, kAXTitleAttribute as CFString, &title) == .success,
                    let titleStr = title as? String {
@@ -49,8 +49,7 @@ class ContextService {
         // Selected text from focused element
         var focusedElement: AnyObject?
         if AXUIElementCopyAttributeValue(systemWide, kAXFocusedUIElementAttribute as CFString, &focusedElement) == .success,
-           let axElement = focusedElement, CFGetTypeID(axElement) == AXUIElementGetTypeID() {
-            let axElementRef = axElement as! AXUIElement
+           let axElementRef = axElement(focusedElement) {
             var selectedText: AnyObject?
             if AXUIElementCopyAttributeValue(axElementRef, kAXSelectedTextAttribute as CFString, &selectedText) == .success,
                let text = selectedText as? String, !text.isEmpty {
@@ -59,5 +58,14 @@ class ContextService {
         }
 
         return context
+    }
+
+    /// Safely bridge an AnyObject pulled out of the Accessibility API to
+    /// `AXUIElement` after checking the CF type ID. Returns nil instead
+    /// of force-casting when the value isn't an AXUIElement (which
+    /// would otherwise crash on a programmer error).
+    private func axElement(_ obj: AnyObject?) -> AXUIElement? {
+        guard let obj, CFGetTypeID(obj) == AXUIElementGetTypeID() else { return nil }
+        return (obj as! AXUIElement)
     }
 }
