@@ -42,30 +42,58 @@ class AppState: ObservableObject {
 
     private var coordinatorCancellables = Set<AnyCancellable>()
 
-    // MARK: - Published state
+    // MARK: - Recording state (lives on RecordingCoordinator)
+    //
+    // Computed shims keep every existing `appState.isRecording = …`
+    // call site working without touching it. RecordingCoordinator
+    // owns the @Published storage; AppState's init() already forwards
+    // its objectWillChange so SwiftUI keeps re-rendering.
 
-    @Published var isRecording = false
-    @Published var isProcessing = false
-    @Published var lastTranscription: String?
-    @Published var liveTranscription: String?
+    var isRecording: Bool {
+        get { recording.isRecording }
+        set { recording.isRecording = newValue }
+    }
+    var isProcessing: Bool {
+        get { recording.isProcessing }
+        set { recording.isProcessing = newValue }
+    }
+    var lastTranscription: String? {
+        get { recording.lastTranscription }
+        set { recording.lastTranscription = newValue }
+    }
+    var liveTranscription: String? {
+        get { recording.liveTranscription }
+        set { recording.liveTranscription = newValue }
+    }
+    var currentAudioLevel: Float {
+        get { recording.currentAudioLevel }
+        set { recording.currentAudioLevel = newValue }
+    }
+    var silenceDetected: Bool {
+        get { recording.silenceDetected }
+        set { recording.silenceDetected = newValue }
+    }
+    var audioClippingDetected: Bool {
+        get { recording.audioClippingDetected }
+        set { recording.audioClippingDetected = newValue }
+    }
+    var livePreviewCommitted: String {
+        get { recording.livePreviewCommitted }
+        set { recording.livePreviewCommitted = newValue }
+    }
+    var livePreviewTentative: String {
+        get { recording.livePreviewTentative }
+        set { recording.livePreviewTentative = newValue }
+    }
+
+    // MARK: - Published state (still on AppState)
+
     @Published var isModelLoaded = false
     @Published var activeModelId: String?
     @Published var errorMessage: String?
     @Published var needsModelDownload = false
     @Published var isDownloading = false
     @Published var downloadProgress: ParakattCore.DownloadProgress?
-    @Published var currentAudioLevel: Float = 0
-    @Published var silenceDetected = false
-    @Published var audioClippingDetected = false
-
-    // MARK: - Live preview (streaming) state
-
-    /// Latest committed text from the LocalAgreement-2 stream.
-    /// Stable, never revised by the live preview path.
-    @Published var livePreviewCommitted: String = ""
-    /// Latest tentative tail from the LocalAgreement-2 stream.
-    /// Renders in lighter style; expected to flicker.
-    @Published var livePreviewTentative: String = ""
 
     // Meeting state
     @Published var isMeetingActive = false

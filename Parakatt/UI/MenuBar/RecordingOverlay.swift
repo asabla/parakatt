@@ -248,8 +248,9 @@ class RecordingOverlayController {
     }
 
     private func observeState() {
-        appState.$isRecording
-            .combineLatest(appState.$isProcessing)
+        let recording = appState.recording
+        recording.$isRecording
+            .combineLatest(recording.$isProcessing)
             .map { $0 || $1 }
             .removeDuplicates()
             .receive(on: DispatchQueue.main)
@@ -267,14 +268,14 @@ class RecordingOverlayController {
         // "core recording state" (isRecording, isProcessing, liveText,
         // audioLevel) and "annotation state" (LA-2 committed,
         // tentative, silenceDetected, clippingDetected).
-        let core = appState.$isRecording
-            .combineLatest(appState.$isProcessing, appState.$liveTranscription, appState.$currentAudioLevel)
+        let core = recording.$isRecording
+            .combineLatest(recording.$isProcessing, recording.$liveTranscription, recording.$currentAudioLevel)
 
-        let la2 = appState.$livePreviewCommitted
-            .combineLatest(appState.$livePreviewTentative)
+        let la2 = recording.$livePreviewCommitted
+            .combineLatest(recording.$livePreviewTentative)
 
-        let warnings = appState.$silenceDetected
-            .combineLatest(appState.$audioClippingDetected)
+        let warnings = recording.$silenceDetected
+            .combineLatest(recording.$audioClippingDetected)
 
         core
             .combineLatest(la2, warnings)
