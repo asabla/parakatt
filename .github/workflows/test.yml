@@ -28,7 +28,51 @@ jobs:
         run: cargo fmt --check
 
       - name: Run clippy
-        run: cargo clippy -p parakatt-core -- -D warnings
+        run: cargo clippy -p parakatt-core --all-targets --all-features -- -D warnings
 
       - name: Run tests
         run: cargo test -p parakatt-core
+
+  swift:
+    name: Swift Build & Tests
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/parakatt-core
+
+      - name: Install build tools
+        run: |
+          brew install xcodegen
+          cargo install cargo-swift --version 0.11.0 --locked
+
+      - name: Build Rust core
+        run: make rust
+
+      - name: Generate Swift package
+        run: make swift-package
+
+      - name: Generate Xcode project
+        run: make xcode
+
+      - name: Run Swift tests
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project Parakatt.xcodeproj \
+            -scheme Parakatt \
+            -destination 'platform=macOS' \
+            -only-testing:ParakattTests \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO
+        env:
+          NSUnbufferedIO: "YES"
