@@ -185,8 +185,8 @@ class MenuBarManager: NSObject {
     // MARK: - State observation
 
     private func observeState() {
-        appState.$isRecording
-            .combineLatest(appState.$isProcessing, appState.$isModelLoaded)
+        appState.recording.$isRecording
+            .combineLatest(appState.recording.$isProcessing, appState.$isModelLoaded)
             .combineLatest(appState.$isMeetingActive)
             .combineLatest(appState.$isDownloading)
             .receive(on: DispatchQueue.main)
@@ -251,7 +251,7 @@ class MenuBarManager: NSObject {
             }
             .store(in: &cancellables)
 
-        appState.$lastTranscription
+        appState.recording.$lastTranscription
             .removeDuplicates()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] text in
