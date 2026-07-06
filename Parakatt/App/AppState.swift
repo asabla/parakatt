@@ -807,16 +807,11 @@ class AppState: ObservableObject {
     // MARK: - Dictionary
 
     func getDictionaryRules() -> [ParakattCore.ReplacementRule] {
-        bridge?.getDictionaryRules() ?? []
+        settings.getDictionaryRules(bridge: bridge)
     }
 
     func setDictionaryRules(_ rules: [ParakattCore.ReplacementRule]) {
-        do {
-            try bridge?.setDictionaryRules(rules)
-            NSLog("[Parakatt] Dictionary updated: %d rules", rules.count)
-        } catch {
-            NSLog("[Parakatt] Failed to set dictionary rules: %@", error.localizedDescription)
-        }
+        settings.setDictionaryRules(rules, bridge: bridge)
     }
 
     // MARK: - Input device

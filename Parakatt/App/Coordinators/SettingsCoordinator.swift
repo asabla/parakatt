@@ -172,6 +172,19 @@ final class SettingsCoordinator: ObservableObject {
         }
     }
 
+    func getDictionaryRules(bridge: CoreBridge?) -> [ParakattCore.ReplacementRule] {
+        bridge?.getDictionaryRules() ?? []
+    }
+
+    func setDictionaryRules(_ rules: [ParakattCore.ReplacementRule], bridge: CoreBridge?) {
+        do {
+            try bridge?.setDictionaryRules(rules)
+            NSLog("[Parakatt] Dictionary updated: %d rules", rules.count)
+        } catch {
+            NSLog("[Parakatt] Failed to set dictionary rules: %@", error.localizedDescription)
+        }
+    }
+
     func setAutoPaste(_ enabled: Bool, bridge: CoreBridge?) {
         autoPaste = enabled
         do {
