@@ -1,10 +1,7 @@
 import AppKit
 import Combine
 import HotKey
-import os.log
 import ParakattCore
-
-private let signpostLog = OSLog(subsystem: "com.parakatt.app", category: .pointsOfInterest)
 
 /// Observable application state shared across the UI.
 ///
@@ -45,6 +42,7 @@ class AppState: ObservableObject {
     private let textOutput = TextOutputCoordinator()
     private let livePreview = LivePreviewCoordinator()
     private let engine = EngineCoordinator()
+    private let transcription = TranscriptionCoordinator()
 
     private var coordinatorCancellables = Set<AnyCancellable>()
 
@@ -820,57 +818,45 @@ class AppState: ObservableObject {
         isProcessing = true
 
         let sampleRate = recording.sampleRate
-        let maxAmp = samples.map { abs($0) }.max() ?? 0
-        NSLog("[Parakatt] Processing %d samples (%.1fs), maxAmp=%.4f, mode=%@, llm=%@",
-              samples.count, Double(samples.count) / Double(sampleRate), maxAmp, activeMode, llmProvider.isEmpty ? "none" : llmProvider)
-
-        guard let bridge else {
-            isProcessing = false
-            return
-        }
         let context = contextService?.currentContext()
         let effectiveMode = settings.resolveEffectiveMode(for: context, bridge: bridge)
 
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let signpostID = OSSignpostID(log: signpostLog)
-            os_signpost(.begin, log: signpostLog, name: "Transcribe", signpostID: signpostID, "samples: %d", samples.count)
-            defer { os_signpost(.end, log: signpostLog, name: "Transcribe", signpostID: signpostID) }
+        transcription.processSingleShot(
+            samples: samples,
+            sampleRate: sampleRate,
+            activeMode: activeMode,
+            llmProvider: llmProvider,
+            bridge: bridge,
+            context: context,
+            effectiveMode: effectiveMode,
+            onMissingEngine: { [weak self] in
+                self?.isProcessing = false
+            },
+            onSuccess: { [weak self] result, maxAmp in
+                guard let self else { return }
+                self.isProcessing = false
+                self.lastTranscription = result.text
+                self.errorMessage = nil
 
-            do {
-                let result = try bridge.transcribe(
-                    audioSamples: samples,
-                    sampleRate: sampleRate,
-                    mode: effectiveMode,
-                    context: context
-                )
-
-                DispatchQueue.main.async {
-                    guard let self else { return }
-                    self.isProcessing = false
-                    self.lastTranscription = result.text
-                    self.errorMessage = nil
-
-                    if !result.text.isEmpty {
-                        self.errorMessage = self.textOutput.insertIfEnabled(
-                            text: result.text,
-                            autoPaste: self.autoPaste,
-                            inserter: self.textInsertionService
-                        )
-                        self.sendTranscriptionNotification(preview: result.text, source: "push_to_talk")
-                        NSLog("[Parakatt] Result (%@, %.2fs): %@", self.activeMode, result.durationSecs, result.text)
-                    } else {
-                        NSLog("[Parakatt] Empty transcription (mode=%@, maxAmp=%.4f)", self.activeMode, maxAmp)
-                    }
+                if !result.text.isEmpty {
+                    self.errorMessage = self.textOutput.insertIfEnabled(
+                        text: result.text,
+                        autoPaste: self.autoPaste,
+                        inserter: self.textInsertionService
+                    )
+                    self.sendTranscriptionNotification(preview: result.text, source: "push_to_talk")
+                    NSLog("[Parakatt] Result (%@, %.2fs): %@", self.activeMode, result.durationSecs, result.text)
+                } else {
+                    NSLog("[Parakatt] Empty transcription (mode=%@, maxAmp=%.4f)", self.activeMode, maxAmp)
                 }
-            } catch {
-                DispatchQueue.main.async {
-                    guard let self else { return }
-                    self.isProcessing = false
-                    self.errorMessage = "Transcription failed: \(error.localizedDescription)"
-                    NSLog("[Parakatt] Transcription FAILED: %@", error.localizedDescription)
-                }
+            },
+            onFailure: { [weak self] message in
+                guard let self else { return }
+                self.isProcessing = false
+                self.errorMessage = "Transcription failed: \(message)"
+                NSLog("[Parakatt] Transcription FAILED: %@", message)
             }
-        }
+        )
     }
 
     // MARK: - Incremental push-to-talk processing
