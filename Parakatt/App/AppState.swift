@@ -415,77 +415,47 @@ class AppState: ObservableObject {
             let currentIndex = recording.currentPttChunkIndex()
             let sampleRate = recording.sampleRate
 
-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                guard let self, let bridge = self.bridge else {
-                    DispatchQueue.main.async { self?.isProcessing = false }
-                    return
-                }
+            transcription.finishPttSession(
+                sessionId: sessionId,
+                remainingSamples: remainingSamples,
+                sampleRate: sampleRate,
+                chunkIndex: currentIndex,
+                mode: mode,
+                context: context,
+                bridge: bridge,
+                runLocked: { [recording] body in recording.withPttChunkLock(body) },
+                onMissingEngine: { [weak self] in
+                    self?.isProcessing = false
+                },
+                onSuccess: { [weak self] result in
+                    guard let self else { return }
+                    self.isProcessing = false
+                    self.liveTranscription = nil
+                    self.lastTranscription = result.text
+                    self.recording.clearPttAccumulatedText()
+                    self.recording.clearPttSession()
+                    self.errorMessage = nil
 
-                // Wait for any in-flight chunk to complete, then run the
-                // tail under the same lock. Scoped so the lock is released
-                // before the (potentially slow) finishSession call below,
-                // even if a future edit adds an early return inside.
-                do {
-                    self.recording.withPttChunkLock {
-                        if remainingSamples.count >= Int(sampleRate / 10) {
-                            do {
-                                let result = try bridge.processChunk(
-                                    sessionId: sessionId,
-                                    audioSamples: remainingSamples,
-                                    sampleRate: sampleRate,
-                                    chunkIndex: currentIndex,
-                                    mode: mode,
-                                    context: context
-                                )
-                                NSLog("[Parakatt] PTT final chunk %d: \"%@\"", currentIndex, result.text)
-                            } catch {
-                                NSLog("[Parakatt] PTT final chunk failed: %@", error.localizedDescription)
-                            }
-                        } else {
-                            NSLog("[Parakatt] PTT tail too short (%.1fs), skipping",
-                                  Double(remainingSamples.count) / Double(sampleRate))
-                        }
+                    if !result.text.isEmpty {
+                        self.errorMessage = self.textOutput.insertIfEnabled(
+                            text: result.text,
+                            autoPaste: self.autoPaste,
+                            inserter: self.textInsertionService
+                        )
+                        NSLog("[Parakatt] PTT session result (%@, %.2fs): %@",
+                              mode, result.durationSecs, result.text)
                     }
+                },
+                onFailure: { [weak self] message in
+                    guard let self else { return }
+                    self.isProcessing = false
+                    self.liveTranscription = nil
+                    self.recording.clearPttAccumulatedText()
+                    self.recording.clearPttSession()
+                    self.errorMessage = "Transcription failed: \(message)"
+                    NSLog("[Parakatt] PTT session finish FAILED: %@", message)
                 }
-
-                // Finish the session.
-                do {
-                    let result = try bridge.finishSession(
-                        sessionId: sessionId,
-                        mode: mode,
-                        context: context,
-                        source: "push_to_talk"
-                    )
-                    DispatchQueue.main.async {
-                        self.isProcessing = false
-                        self.liveTranscription = nil
-                        self.lastTranscription = result.text
-                        self.recording.clearPttAccumulatedText()
-                        self.recording.clearPttSession()
-                        self.errorMessage = nil
-
-                        if !result.text.isEmpty {
-                            self.errorMessage = self.textOutput.insertIfEnabled(
-                                text: result.text,
-                                autoPaste: self.autoPaste,
-                                inserter: self.textInsertionService
-                            )
-                            NSLog("[Parakatt] PTT session result (%@, %.2fs): %@",
-                                  mode, result.durationSecs, result.text)
-                        }
-                    }
-                } catch {
-                    bridge.cancelSession(sessionId: sessionId)
-                    DispatchQueue.main.async {
-                        self.isProcessing = false
-                        self.liveTranscription = nil
-                        self.recording.clearPttAccumulatedText()
-                        self.recording.clearPttSession()
-                        self.errorMessage = "Transcription failed: \(error.localizedDescription)"
-                        NSLog("[Parakatt] PTT session finish FAILED: %@", error.localizedDescription)
-                    }
-                }
-            }
+            )
         } else {
             // Path A: short recording, no session — single-shot processing.
             liveTranscription = nil

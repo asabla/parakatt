@@ -92,4 +92,66 @@ final class TranscriptionCoordinator {
             }
         }
     }
+
+    func finishPttSession(
+        sessionId: String,
+        remainingSamples: [Float],
+        sampleRate: UInt32,
+        chunkIndex: UInt32,
+        mode: String,
+        context: AppContextInfo?,
+        bridge: CoreBridge?,
+        runLocked: @escaping (@escaping () -> Void) -> Void,
+        onMissingEngine: @escaping () -> Void,
+        onSuccess: @escaping (TranscriptionResult) -> Void,
+        onFailure: @escaping (String) -> Void
+    ) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            guard let bridge else {
+                DispatchQueue.main.async { onMissingEngine() }
+                return
+            }
+
+            // Wait for any in-flight chunk to complete, then run the tail
+            // under the same lock. The final finishSession call stays outside
+            // the lock so future chunk edits cannot accidentally block it.
+            runLocked {
+                if remainingSamples.count >= Int(sampleRate / 10) {
+                    do {
+                        let result = try bridge.processChunk(
+                            sessionId: sessionId,
+                            audioSamples: remainingSamples,
+                            sampleRate: sampleRate,
+                            chunkIndex: chunkIndex,
+                            mode: mode,
+                            context: context
+                        )
+                        NSLog("[Parakatt] PTT final chunk %d: \"%@\"", chunkIndex, result.text)
+                    } catch {
+                        NSLog("[Parakatt] PTT final chunk failed: %@", error.localizedDescription)
+                    }
+                } else {
+                    NSLog("[Parakatt] PTT tail too short (%.1fs), skipping",
+                          Double(remainingSamples.count) / Double(sampleRate))
+                }
+            }
+
+            do {
+                let result = try bridge.finishSession(
+                    sessionId: sessionId,
+                    mode: mode,
+                    context: context,
+                    source: "push_to_talk"
+                )
+                DispatchQueue.main.async {
+                    onSuccess(result)
+                }
+            } catch {
+                bridge.cancelSession(sessionId: sessionId)
+                DispatchQueue.main.async {
+                    onFailure(error.localizedDescription)
+                }
+            }
+        }
+    }
 }
