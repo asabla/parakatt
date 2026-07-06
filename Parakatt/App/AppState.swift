@@ -40,6 +40,7 @@ class AppState: ObservableObject {
     @Published var model = ModelCoordinator()
     private let history = HistoryCoordinator()
     private let audioInput = AudioInputCoordinator()
+    private let notifications = NotificationCoordinator()
 
     private var coordinatorCancellables = Set<AnyCancellable>()
 
@@ -293,7 +294,7 @@ class AppState: ObservableObject {
         // Set up services
         textInsertionService = environment.makeTextInserter()
         contextService = environment.makeContextProvider()
-        environment.notifications.requestAuthorization()
+        notifications.requestAuthorization(environment: environment)
 
         // Create audio capture once — reused across all recording sessions
         let capture = environment.makeAudioCapture()
@@ -1377,7 +1378,7 @@ class AppState: ObservableObject {
     // MARK: - Notifications
 
     private func sendTranscriptionNotification(preview: String, source: String) {
-        environment.notifications.sendTranscriptionReady(preview: preview, source: source)
+        notifications.sendTranscriptionReady(environment: environment, preview: preview, source: source)
     }
 
     // MARK: - Audio buffer
