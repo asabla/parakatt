@@ -279,12 +279,7 @@ class AppState: ObservableObject {
             if let bridge = bridge {
                 livePreview.configure(bridge: bridge) { [weak self] committed, tentative, _ in
                     guard let self else { return }
-                    self.livePreviewCommitted = committed
-                    self.livePreviewTentative = tentative
-                    let display = tentative.isEmpty
-                        ? committed
-                        : (committed.isEmpty ? tentative : "\(committed) \(tentative)")
-                    self.liveTranscription = display.isEmpty ? nil : display
+                    self.recording.applyPreviewText(committed: committed, tentative: tentative)
                 }
             }
 
@@ -340,10 +335,8 @@ class AppState: ObservableObject {
 
         do {
             try audioCaptureService?.startCapture()
-            liveTranscription = nil
+            recording.clearPreviewDisplay()
             errorMessage = nil
-            livePreviewCommitted = ""
-            livePreviewTentative = ""
 
             // Try to start the cache-aware streaming preview. If
             // the streaming model isn't loaded (non-English user
@@ -411,22 +404,14 @@ class AppState: ObservableObject {
         // the commit pipeline finishes processing the buffer tail.
         if livePreview.isActive {
             let finalText = livePreview.stop()
-            if !finalText.isEmpty {
-                livePreviewCommitted = finalText
-                livePreviewTentative = ""
-                liveTranscription = finalText
-            }
+            recording.applyFinalPreviewText(finalText)
         }
 
         // Also tear down the buffered preview LA-2 session if it
         // was used (when no streaming model was loaded).
         if let bpId = recording.takeBufferedPreviewSessionId() {
             let final = (try? bridge?.bufferedPreviewFinish(sessionId: bpId)) ?? ""
-            if !final.isEmpty {
-                livePreviewCommitted = final
-                livePreviewTentative = ""
-                liveTranscription = final
-            }
+            recording.applyFinalPreviewText(final)
         }
 
         if let sessionId = recording.currentPttSessionId() {
@@ -1113,40 +1098,10 @@ class AppState: ObservableObject {
                 )
                 DispatchQueue.main.async {
                     if self.isRecording {
-                        // Compose the display text. Three sources:
-                        //   1. accumulated PTT text: text already
-                        //      committed by the chunk pipeline
-                        //      (everything finalized in past chunks)
-                        //   2. result.committedText: LA-2 stable
-                        //      prefix from THIS preview window
-                        //      (current unprocessed tail)
-                        //   3. result.tentativeText: LA-2 unstable
-                        //      tail (might still revise)
-                        //
-                        // Concatenate (1) + (2) into the committed
-                        // surface and put (3) into tentative. The
-                        // overlay's two-style display reads both.
-                        let chunkPrefix = self.recording.currentPttAccumulatedText() ?? ""
-                        let committedFull: String
-                        if chunkPrefix.isEmpty {
-                            committedFull = result.committedText
-                        } else if result.committedText.isEmpty {
-                            committedFull = chunkPrefix
-                        } else {
-                            committedFull = "\(chunkPrefix) \(result.committedText)"
-                        }
-                        self.livePreviewCommitted = committedFull
-                        self.livePreviewTentative = result.tentativeText
-
-                        let display: String
-                        if result.tentativeText.isEmpty {
-                            display = committedFull
-                        } else if committedFull.isEmpty {
-                            display = result.tentativeText
-                        } else {
-                            display = "\(committedFull) \(result.tentativeText)"
-                        }
-                        self.liveTranscription = display.isEmpty ? nil : display
+                        self.recording.applyBufferedPreview(
+                            committedText: result.committedText,
+                            tentativeText: result.tentativeText
+                        )
                     }
                 }
             } catch {

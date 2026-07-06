@@ -113,6 +113,43 @@ final class RecordingCoordinator: ObservableObject {
         clearBuffer()
     }
 
+    func clearPreviewDisplay() {
+        liveTranscription = nil
+        livePreviewCommitted = ""
+        livePreviewTentative = ""
+    }
+
+    func applyPreviewText(committed: String, tentative: String) {
+        livePreviewCommitted = committed
+        livePreviewTentative = tentative
+        let display = tentative.isEmpty
+            ? committed
+            : (committed.isEmpty ? tentative : "\(committed) \(tentative)")
+        liveTranscription = display.isEmpty ? nil : display
+    }
+
+    func applyFinalPreviewText(_ text: String) {
+        guard !text.isEmpty else { return }
+        livePreviewCommitted = text
+        livePreviewTentative = ""
+        liveTranscription = text
+    }
+
+    func applyBufferedPreview(committedText: String, tentativeText: String) {
+        // Compose committed chunk text with the current unprocessed tail.
+        let chunkPrefix = pttAccumulatedText ?? ""
+        let committedFull: String
+        if chunkPrefix.isEmpty {
+            committedFull = committedText
+        } else if committedText.isEmpty {
+            committedFull = chunkPrefix
+        } else {
+            committedFull = "\(chunkPrefix) \(committedText)"
+        }
+
+        applyPreviewText(committed: committedFull, tentative: tentativeText)
+    }
+
     func canStartRecording() -> Bool {
         !isRecording && !isCaptureDraining
     }
