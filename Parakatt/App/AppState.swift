@@ -43,6 +43,7 @@ class AppState: ObservableObject {
     private let notifications = NotificationCoordinator()
     private let permissions = PermissionCoordinator()
     private let diagnostics = DiagnosticsCoordinator()
+    private let textOutput = TextOutputCoordinator()
 
     private var coordinatorCancellables = Set<AnyCancellable>()
 
@@ -551,12 +552,11 @@ class AppState: ObservableObject {
                         self.errorMessage = nil
 
                         if !result.text.isEmpty {
-                            if self.autoPaste {
-                                let inserted = self.textInsertionService?.insertText(result.text) ?? false
-                                if !inserted {
-                                    self.errorMessage = "Could not paste text — transcription copied to clipboard"
-                                }
-                            }
+                            self.errorMessage = self.textOutput.insertIfEnabled(
+                                text: result.text,
+                                autoPaste: self.autoPaste,
+                                inserter: self.textInsertionService
+                            )
                             NSLog("[Parakatt] PTT session result (%@, %.2fs): %@",
                                   mode, result.durationSecs, result.text)
                         }
@@ -966,12 +966,11 @@ class AppState: ObservableObject {
                     self.errorMessage = nil
 
                     if !result.text.isEmpty {
-                        if self.autoPaste {
-                            let inserted = self.textInsertionService?.insertText(result.text) ?? false
-                            if !inserted {
-                                self.errorMessage = "Could not paste text — transcription copied to clipboard"
-                            }
-                        }
+                        self.errorMessage = self.textOutput.insertIfEnabled(
+                            text: result.text,
+                            autoPaste: self.autoPaste,
+                            inserter: self.textInsertionService
+                        )
                         self.sendTranscriptionNotification(preview: result.text, source: "push_to_talk")
                         NSLog("[Parakatt] Result (%@, %.2fs): %@", self.activeMode, result.durationSecs, result.text)
                     } else {
