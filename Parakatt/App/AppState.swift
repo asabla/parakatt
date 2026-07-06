@@ -526,37 +526,13 @@ class AppState: ObservableObject {
 
     /// Record 3 seconds and log audio stats + transcription result.
     func runDiagnostic() {
-        NSLog("[Parakatt] === DIAGNOSTIC START ===")
-
-        let devices = audioInput.listInputDevices(environment: environment)
-        for dev in devices {
-            NSLog("[Parakatt] Device: %@ (uid: %@, default: %d)", dev.name, dev.uid, dev.isDefault ? 1 : 0)
-        }
-
-        NSLog("[Parakatt] Starting test recording (3 seconds)...")
-        startRecording()
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
-            guard let self else { return }
-
-            let samples = self.recording.snapshotBuffer()
-
-            let maxAmp = samples.map { abs($0) }.max() ?? 0
-            let rms = samples.isEmpty ? 0 : sqrt(samples.map { $0 * $0 }.reduce(0, +) / Float(samples.count))
-
-            NSLog("[Parakatt] DIAGNOSTIC: %d samples (%.1fs), max=%.6f, rms=%.6f",
-                  samples.count, Double(samples.count) / Double(self.recording.sampleRate), maxAmp, rms)
-
-            if maxAmp > 0.001 {
-                NSLog("[Parakatt] DIAGNOSTIC: ✅ Audio has signal — stopping and transcribing")
-            } else {
-                NSLog("[Parakatt] DIAGNOSTIC: ❌ SILENCE — mic not capturing audio")
-                NSLog("[Parakatt] DIAGNOSTIC: Check System Settings > Privacy > Microphone")
-            }
-
-            self.stopRecording()
-            NSLog("[Parakatt] === DIAGNOSTIC END ===")
-        }
+        diagnostics.runMicDiagnostic(
+            inputDevices: audioInput.listInputDevices(environment: environment),
+            sampleRate: recording.sampleRate,
+            startRecording: { [weak self] in self?.startRecording() },
+            snapshotSamples: { [weak self] in self?.recording.snapshotBuffer() ?? [] },
+            stopRecording: { [weak self] in self?.stopRecording() }
+        )
     }
 
     /// Test system audio capture for 3 seconds and log results.
