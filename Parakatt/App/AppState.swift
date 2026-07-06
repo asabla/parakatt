@@ -41,6 +41,7 @@ class AppState: ObservableObject {
     private let history = HistoryCoordinator()
     private let audioInput = AudioInputCoordinator()
     private let notifications = NotificationCoordinator()
+    private let permissions = PermissionCoordinator()
 
     private var coordinatorCancellables = Set<AnyCancellable>()
 
@@ -637,7 +638,7 @@ class AppState: ObservableObject {
     func runDiagnostic() {
         NSLog("[Parakatt] === DIAGNOSTIC START ===")
 
-        let devices = environment.listInputDevices()
+        let devices = audioInput.listInputDevices(environment: environment)
         for dev in devices {
             NSLog("[Parakatt] Device: %@ (uid: %@, default: %d)", dev.name, dev.uid, dev.isDefault ? 1 : 0)
         }
@@ -1470,7 +1471,7 @@ class AppState: ObservableObject {
     // MARK: - Permission helpers
 
     private func promptForSystemAudioPermission() {
-        environment.permissions.promptForSystemAudioPermission()
+        permissions.promptForSystemAudioPermission(environment: environment)
     }
 }
 
