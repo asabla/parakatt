@@ -12,6 +12,12 @@ import Foundation
 /// here rather than living solely in the Rust config layer.
 @MainActor
 final class SettingsCoordinator: ObservableObject {
+    private let secrets: SecretStoring
+
+    init(secrets: SecretStoring = MacSecretStore()) {
+        self.secrets = secrets
+    }
+
     // MARK: - Behavior toggles
 
     @Published var autoPaste = true
@@ -28,14 +34,14 @@ final class SettingsCoordinator: ObservableObject {
     @Published var llmApiKey: String = "" {
         didSet {
             // Persist API key to Keychain instead of config file.
-            KeychainService.set(llmApiKey, forKey: "llm-api-key")
+            secrets.set(llmApiKey, forKey: "llm-api-key")
         }
     }
 
     /// Pull the API key out of Keychain (called at startup so the
     /// in-memory copy matches what's persisted).
     func loadLlmApiKeyFromKeychain() {
-        if let key = KeychainService.get("llm-api-key") {
+        if let key = secrets.get("llm-api-key") {
             llmApiKey = key
         }
     }

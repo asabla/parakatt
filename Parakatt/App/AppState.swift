@@ -3,7 +3,6 @@ import Combine
 import HotKey
 import os.log
 import ParakattCore
-import UserNotifications
 
 private let logger = Logger(subsystem: "com.parakatt.app", category: "engine")
 private let signpostLog = OSLog(subsystem: "com.parakatt.app", category: .pointsOfInterest)
@@ -34,7 +33,7 @@ class AppState: ObservableObject {
     // when coordinator state changes. Views that want a Binding into
     // a coordinator-owned field should use `$appState.settings.foo`
     // rather than going through a computed shim on AppState.
-    @Published var settings = SettingsCoordinator()
+    @Published var settings: SettingsCoordinator
     @Published var context = ContextCoordinator()
     @Published var recording = RecordingCoordinator()
     @Published var meeting = MeetingCoordinator()
@@ -162,11 +161,13 @@ class AppState: ObservableObject {
 
     // MARK: - Services
 
+    private let environment: PlatformEnvironment
+
     /// Set by AppDelegate after init; used for hotkey reconfiguration.
     var hotkeyService: HotkeyService?
-    private var audioCaptureService: AudioCaptureService?
-    private var textInsertionService: TextInsertionService?
-    private var contextService: ContextService?
+    private var audioCaptureService: AudioCapturing?
+    private var textInsertionService: TextInserting?
+    private var contextService: AppContextProviding?
 
     @available(macOS 14.2, *)
     private var meetingSession: MeetingSessionService? {
@@ -230,7 +231,10 @@ class AppState: ObservableObject {
 
     // MARK: - Lifecycle
 
-    init() {
+    init(environment: PlatformEnvironment = MacAppEnvironment()) {
+        self.environment = environment
+        self.settings = SettingsCoordinator(secrets: environment.secrets)
+
         // Forward each coordinator's objectWillChange into AppState's
         // own so SwiftUI surfaces that observe `appState` (rather than
         // a specific coordinator) keep updating when coordinator state
@@ -255,12 +259,12 @@ class AppState: ObservableObject {
         FileLogService.shared.logStartup()
 
         // Set up services
-        textInsertionService = TextInsertionService()
-        contextService = ContextService()
-        requestNotificationPermission()
+        textInsertionService = environment.makeTextInserter()
+        contextService = environment.makeContextProvider()
+        environment.notifications.requestAuthorization()
 
         // Create audio capture once — reused across all recording sessions
-        let capture = AudioCaptureService()
+        let capture = environment.makeAudioCapture()
         capture.onAudioSamples = { [weak self] samples in
             self?.appendAudioSamples(samples)
         }
@@ -271,8 +275,8 @@ class AppState: ObservableObject {
         // Create the engine (lightweight — no model loaded yet)
         do {
             bridge = try CoreBridge(
-                modelsDir: modelsDirectory().path,
-                configDir: configDirectory().path,
+                modelsDir: environment.paths.modelsDirectory.path,
+                configDir: environment.paths.configDirectory.path,
                 activeMode: activeMode
             )
             engineReady = true
@@ -310,10 +314,9 @@ class AppState: ObservableObject {
 
             // Load preferred audio source from config
             if let bundleId = try? bridge?.getPreferredAudioSource() {
-                if let pid = AudioSourceService.pidForBundleId(bundleId) {
+                if let pid = environment.runningApps.pidForBundleId(bundleId) {
                     selectedAudioSourcePID = pid
-                    let name = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId)
-                        .first?.localizedName ?? bundleId
+                    let name = environment.runningApps.nameForBundleId(bundleId) ?? bundleId
                     selectedAudioSourceName = name
                     NSLog("[Parakatt] Restored preferred audio source: %@ (pid %d)", name, pid)
                 } else {
@@ -658,7 +661,7 @@ class AppState: ObservableObject {
     func runDiagnostic() {
         NSLog("[Parakatt] === DIAGNOSTIC START ===")
 
-        let devices = AudioCaptureService.listInputDevices()
+        let devices = environment.listInputDevices()
         for dev in devices {
             NSLog("[Parakatt] Device: %@ (uid: %@, default: %d)", dev.name, dev.uid, dev.isDefault ? 1 : 0)
         }
@@ -698,7 +701,7 @@ class AppState: ObservableObject {
         NSLog("[Parakatt] === SYSTEM AUDIO DIAGNOSTIC START (macOS %d.%d.%d) ===",
               osVersion.majorVersion, osVersion.minorVersion, osVersion.patchVersion)
 
-        let testCapture = SystemAudioCaptureService()
+        let testCapture = environment.makeSystemAudioCapture()
         var collectedSamples: [Float] = []
         let sampleLock = NSLock()
 
@@ -709,7 +712,7 @@ class AppState: ObservableObject {
         }
 
         do {
-            try testCapture.startCapture()
+            try testCapture.startCapture(processID: nil)
             NSLog("[Parakatt] SYSDIAG: Capturing all system audio for 3 seconds...")
         } catch {
             NSLog("[Parakatt] SYSDIAG: ❌ Failed to start capture: %@", error.localizedDescription)
@@ -991,6 +994,14 @@ class AppState: ObservableObject {
         }
     }
 
+    func listRunningAudioApps() -> [AudioSourceApp] {
+        environment.runningApps.listRunningAudioApps()
+    }
+
+    func listInputDevices() -> [(uid: String, name: String, isDefault: Bool)] {
+        environment.listInputDevices()
+    }
+
     // MARK: - Meeting transcription
 
     /// Start a meeting transcription session.
@@ -1002,7 +1013,11 @@ class AppState: ObservableObject {
             return
         }
 
-        let session = MeetingSessionService(bridge: bridge)
+        let session = MeetingSessionService(
+            bridge: bridge,
+            micCapture: environment.makeAudioCapture(),
+            systemCapture: environment.makeSystemAudioCapture()
+        )
 
         session.onChunkTranscribed = { [weak self] newText, accumulated, segments in
             guard let self else { return }
@@ -1782,32 +1797,8 @@ class AppState: ObservableObject {
 
     // MARK: - Notifications
 
-    func requestNotificationPermission() {
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, error in
-            if let error {
-                NSLog("[Parakatt] Notification permission error: %@", error.localizedDescription)
-            } else {
-                NSLog("[Parakatt] Notification permission granted: %d", granted)
-            }
-        }
-    }
-
     private func sendTranscriptionNotification(preview: String, source: String) {
-        let content = UNMutableNotificationContent()
-        content.title = source == "meeting" ? "Meeting transcription ready" : "Transcription complete"
-        content.body = String(preview.prefix(100))
-        content.sound = .default
-
-        let request = UNNotificationRequest(
-            identifier: UUID().uuidString,
-            content: content,
-            trigger: nil
-        )
-        UNUserNotificationCenter.current().add(request) { error in
-            if let error {
-                NSLog("[Parakatt] Failed to send notification: %@", error.localizedDescription)
-            }
-        }
+        environment.notifications.sendTranscriptionReady(preview: preview, source: source)
     }
 
     // MARK: - Audio buffer
@@ -1899,48 +1890,7 @@ class AppState: ObservableObject {
     // MARK: - Permission helpers
 
     private func promptForSystemAudioPermission() {
-        DispatchQueue.main.async {
-            let alert = NSAlert()
-            alert.messageText = "System Audio Recording Permission Required"
-            alert.informativeText = "Parakatt needs permission to capture system audio for meeting transcription.\n\nClick \"Open System Settings\" and enable Parakatt under Screen & System Audio Recording, then try starting the meeting again."
-            alert.alertStyle = .warning
-            alert.addButton(withTitle: "Open System Settings")
-            alert.addButton(withTitle: "Cancel")
-
-            NSApp.activate(ignoringOtherApps: true)
-            let response = alert.runModal()
-
-            if response == .alertFirstButtonReturn {
-                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
-                    NSWorkspace.shared.open(url)
-                }
-            }
-        }
-    }
-
-    // MARK: - Directories
-
-    private func appSupportDirectory() -> URL {
-        // Falls back to ~/Library/Application Support if the platform
-        // ever decides to return an empty array (which it doesn't on
-        // any sane macOS install, but `.first!` was a real crash path).
-        if let url = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
-            return url
-        }
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        return home.appendingPathComponent("Library/Application Support")
-    }
-
-    private func modelsDirectory() -> URL {
-        let dir = appSupportDirectory().appendingPathComponent("Parakatt/models")
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir
-    }
-
-    private func configDirectory() -> URL {
-        let dir = appSupportDirectory().appendingPathComponent("Parakatt/config")
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir
+        environment.permissions.promptForSystemAudioPermission()
     }
 }
 

@@ -6,7 +6,7 @@ import Cocoa
 /// Microphone permission is requested automatically by AVAudioEngine.
 /// System Audio Recording is handled by Core Audio taps (permission prompt
 /// is triggered automatically on first tap creation).
-class PermissionService {
+class PermissionService: PermissionManaging {
     private static let accessibilityPromptedKey = "accessibilityPrompted"
     private static let lastKnownVersionKey = "lastKnownAppVersion"
 
@@ -54,6 +54,26 @@ class PermissionService {
             // Open the Accessibility settings pane directly
             if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
                 NSWorkspace.shared.open(url)
+            }
+        }
+    }
+
+    func promptForSystemAudioPermission() {
+        DispatchQueue.main.async {
+            let alert = NSAlert()
+            alert.messageText = "System Audio Recording Permission Required"
+            alert.informativeText = "Parakatt needs permission to capture system audio for meeting transcription.\n\nClick \"Open System Settings\" and enable Parakatt under Screen & System Audio Recording, then try starting the meeting again."
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "Open System Settings")
+            alert.addButton(withTitle: "Cancel")
+
+            NSApp.activate(ignoringOtherApps: true)
+            let response = alert.runModal()
+
+            if response == .alertFirstButtonReturn {
+                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+                    NSWorkspace.shared.open(url)
+                }
             }
         }
     }
