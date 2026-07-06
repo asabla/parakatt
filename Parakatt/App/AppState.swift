@@ -890,75 +890,29 @@ class AppState: ObservableObject {
             return
         }
 
-        let session = MeetingSessionService(
+        let context = contextService?.currentContext()
+        meeting.startSession(
             bridge: bridge,
-            micCapture: environment.makeAudioCapture(),
-            systemCapture: environment.makeSystemAudioCapture()
-        )
-
-        meeting.configureSession(
-            session,
+            environment: environment,
+            processID: selectedAudioSourcePID,
+            sourceName: selectedAudioSourceName,
+            mode: activeMode,
+            context: context,
+            speakerLabelsEnabled: speakerLabelsEnabled,
             onFinished: { [weak self] result in
                 self?.sendTranscriptionNotification(preview: result.text, source: "meeting")
                 NSLog("[Parakatt] Meeting finished: %.0fs, %d chars", result.durationSecs, result.text.count)
             },
             onError: { [weak self] message in
                 self?.errorMessage = message
+            },
+            onPermissionDenied: { [weak self] in
+                self?.promptForSystemAudioPermission()
+            },
+            onStartError: { [weak self] message in
+                self?.errorMessage = message
             }
         )
-        meeting.prepareForStart()
-
-        // Start elapsed time updates.
-        meeting.startElapsedTimer { [weak self] in
-            guard let self else { return 0 }
-            if #available(macOS 14.2, *) {
-                return self.meeting.currentSessionElapsedTime()
-            }
-            return 0
-        }
-
-        do {
-            let context = contextService?.currentContext()
-            try session.start(
-                processID: selectedAudioSourcePID,
-                mode: activeMode,
-                context: context,
-                speakerLabelsEnabled: speakerLabelsEnabled
-            )
-            if let name = selectedAudioSourceName {
-                NSLog("[Parakatt] Meeting capturing audio from: %@", name)
-            }
-        } catch {
-            // If a specific app was selected but its process is gone, fall back to all system audio.
-            if selectedAudioSourcePID != nil,
-               let audioErr = error as? SystemAudioCaptureError,
-               case .processNotFound = audioErr {
-                NSLog("[Parakatt] Selected app not found (pid %d), falling back to all system audio",
-                      selectedAudioSourcePID ?? 0)
-                do {
-                    let context = contextService?.currentContext()
-                    try session.start(
-                        processID: nil,
-                        mode: activeMode,
-                        context: context,
-                        speakerLabelsEnabled: speakerLabelsEnabled
-                    )
-                    return
-                } catch {
-                    // Fall through to error handling below
-                }
-            }
-
-            meeting.markStartFailed()
-
-            if let audioErr = error as? SystemAudioCaptureError, case .permissionDenied = audioErr {
-                meeting.markPermissionDenied()
-                promptForSystemAudioPermission()
-            } else {
-                meeting.markStartError(error.localizedDescription)
-                errorMessage = "Failed to start meeting: \(error.localizedDescription)"
-            }
-        }
     }
 
     /// Stop the meeting and finalize the transcription.

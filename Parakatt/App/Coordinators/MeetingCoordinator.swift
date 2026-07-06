@@ -156,6 +156,74 @@ final class MeetingCoordinator: ObservableObject {
     }
 
     @available(macOS 14.2, *)
+    func startSession(
+        bridge: CoreBridge,
+        environment: PlatformEnvironment,
+        processID: pid_t?,
+        sourceName: String?,
+        mode: String,
+        context: AppContextInfo?,
+        speakerLabelsEnabled: Bool,
+        onFinished: @escaping (TranscriptionResult) -> Void,
+        onError: @escaping (String) -> Void,
+        onPermissionDenied: @escaping () -> Void,
+        onStartError: @escaping (String) -> Void
+    ) {
+        let session = MeetingSessionService(
+            bridge: bridge,
+            micCapture: environment.makeAudioCapture(),
+            systemCapture: environment.makeSystemAudioCapture()
+        )
+
+        configureSession(session, onFinished: onFinished, onError: onError)
+        prepareForStart()
+
+        startElapsedTimer { [weak self] in
+            self?.currentSessionElapsedTime() ?? 0
+        }
+
+        do {
+            try session.start(
+                processID: processID,
+                mode: mode,
+                context: context,
+                speakerLabelsEnabled: speakerLabelsEnabled
+            )
+            if let sourceName {
+                NSLog("[Parakatt] Meeting capturing audio from: %@", sourceName)
+            }
+        } catch {
+            // If a specific app was selected but its process is gone, fall back to all system audio.
+            if processID != nil,
+               let audioErr = error as? SystemAudioCaptureError,
+               case .processNotFound = audioErr {
+                NSLog("[Parakatt] Selected app not found (pid %d), falling back to all system audio", processID ?? 0)
+                do {
+                    try session.start(
+                        processID: nil,
+                        mode: mode,
+                        context: context,
+                        speakerLabelsEnabled: speakerLabelsEnabled
+                    )
+                    return
+                } catch {
+                    // Fall through to error handling below.
+                }
+            }
+
+            markStartFailed()
+
+            if let audioErr = error as? SystemAudioCaptureError, case .permissionDenied = audioErr {
+                markPermissionDenied()
+                onPermissionDenied()
+            } else {
+                markStartError(error.localizedDescription)
+                onStartError("Failed to start meeting: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    @available(macOS 14.2, *)
     func currentSessionElapsedTime() -> TimeInterval {
         session?.elapsedTime ?? 0
     }
