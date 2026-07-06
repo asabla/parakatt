@@ -197,12 +197,6 @@ class AppState: ObservableObject {
     private var textInsertionService: TextInserting?
     private var contextService: AppContextProviding?
 
-    @available(macOS 14.2, *)
-    private var meetingSession: MeetingSessionService? {
-        get { _meetingSession as? MeetingSessionService }
-        set { _meetingSession = newValue }
-    }
-    private var _meetingSession: AnyObject?
     // MARK: - Audio buffer
 
     private var audioBuffer: [Float] = []
@@ -928,14 +922,14 @@ class AppState: ObservableObject {
             self?.errorMessage = message
         }
 
-        meetingSession = session
+        meeting.setSession(session)
         meeting.prepareForStart()
 
         // Start elapsed time updates.
         meeting.startElapsedTimer { [weak self] in
             guard let self else { return 0 }
             if #available(macOS 14.2, *) {
-                return self.meetingSession?.elapsedTime ?? 0
+                return self.meeting.currentSessionElapsedTime()
             }
             return 0
         }
@@ -989,14 +983,14 @@ class AppState: ObservableObject {
     func stopMeeting() {
         guard isMeetingActive else { return }
         let context = contextService?.currentContext()
-        meetingSession?.stop(mode: activeMode, context: context)
+        meeting.stopSession(mode: activeMode, context: context)
     }
 
     /// Cancel the meeting without saving.
     @available(macOS 14.2, *)
     func cancelMeeting() {
         guard isMeetingActive else { return }
-        meetingSession?.cancel()
+        meeting.cancelSession()
         meeting.markCancelled()
     }
 
@@ -1005,7 +999,7 @@ class AppState: ObservableObject {
     @available(macOS 14.2, *)
     func pauseMeeting() {
         guard isMeetingActive, !isMeetingPaused else { return }
-        meetingSession?.pause()
+        meeting.pauseSession()
         isMeetingPaused = true
     }
 
@@ -1013,7 +1007,7 @@ class AppState: ObservableObject {
     func resumeMeeting() {
         guard isMeetingActive, isMeetingPaused else { return }
         do {
-            try meetingSession?.resume()
+            try meeting.resumeSession()
             isMeetingPaused = false
         } catch {
             errorMessage = "Failed to resume meeting: \(error.localizedDescription)"

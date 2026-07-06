@@ -28,6 +28,12 @@ final class MeetingCoordinator: ObservableObject {
 
     var onAudioWarning: ((String) -> Void)?
 
+    @available(macOS 14.2, *)
+    private var session: MeetingSessionService? {
+        get { _session as? MeetingSessionService }
+        set { _session = newValue }
+    }
+    private var _session: AnyObject?
     private var elapsedTimer: Timer?
 
     /// When the system-audio side first started reporting silent/empty.
@@ -107,6 +113,36 @@ final class MeetingCoordinator: ObservableObject {
         meetingLatestChunkStartSecs = nil
         meetingSegments = []
         resetAudioStatus()
+    }
+
+    @available(macOS 14.2, *)
+    func setSession(_ session: MeetingSessionService) {
+        self.session = session
+    }
+
+    @available(macOS 14.2, *)
+    func currentSessionElapsedTime() -> TimeInterval {
+        session?.elapsedTime ?? 0
+    }
+
+    @available(macOS 14.2, *)
+    func stopSession(mode: String, context: AppContextInfo?) {
+        session?.stop(mode: mode, context: context)
+    }
+
+    @available(macOS 14.2, *)
+    func cancelSession() {
+        session?.cancel()
+    }
+
+    @available(macOS 14.2, *)
+    func pauseSession() {
+        session?.pause()
+    }
+
+    @available(macOS 14.2, *)
+    func resumeSession() throws {
+        try session?.resume()
     }
 
     func startElapsedTimer(elapsedProvider: @escaping () -> TimeInterval) {
