@@ -205,27 +205,6 @@ class AppState: ObservableObject {
 
     // MARK: - Incremental push-to-talk session
 
-    /// Seconds before transitioning from single-shot preview to incremental chunking.
-    private let firstChunkDelaySecs: TimeInterval = 1.0
-    /// How often the dispatch timer wakes up. Each tick decides
-    /// whether the audio buffer is in a state where it should be
-    /// flushed as a chunk (see `dispatchPttChunk` for the policy).
-    /// Short interval keeps the loop responsive; the actual chunk
-    /// rate is gated by the policy, not the timer.
-    private let pttDispatchTickSecs: TimeInterval = 1.5
-    /// Minimum audio (in seconds) required before we'll dispatch
-    /// even an early chunk. Below this Parakeet's accuracy drops
-    /// noticeably and we waste a model call.
-    private let pttMinChunkSecs: Double = 2.0
-    /// Hard upper bound on chunk size — if the speaker hasn't paused
-    /// for this long we force-dispatch anyway so the user isn't
-    /// stuck waiting for a natural break.
-    private let pttMaxChunkSecs: Double = 12.0
-    /// Number of consecutive silent audio callbacks (~100 ms each)
-    /// that must have elapsed before we treat the current moment as
-    /// a "natural pause" and flush. ~5 callbacks ≈ 500 ms.
-    private let pttPauseSilenceCallbacks: Int = 5
-
     // MARK: - Engine bridge
 
     private var bridge: CoreBridge?
@@ -405,29 +384,19 @@ class AppState: ObservableObject {
             // safety net while the streaming model warms up.
             startStreamingUpdates()
 
-            // After 5s, transition to incremental session-based processing.
-            recording.startPttTransitionTimer(delay: firstChunkDelaySecs) { [weak self] in
+            // After the configured grace period, transition to incremental session-based processing.
+            recording.startPttTransitionTimer(delay: recording.firstChunkDelaySecs) { [weak self] in
                 self?.startIncrementalSession()
             }
 
             NSLog("[Parakatt] Recording STARTED (modelLoaded=%d, incremental after %.0fs)",
-                  isModelLoaded ? 1 : 0, firstChunkDelaySecs)
+                  isModelLoaded ? 1 : 0, recording.firstChunkDelaySecs)
         } catch {
             isRecording = false
             errorMessage = "Failed to start recording: \(error.localizedDescription)"
             NSLog("[Parakatt] Recording FAILED: %@", error.localizedDescription)
         }
     }
-
-    /// Grace period (seconds) after hotkey release before stopping audio capture.
-    /// Allows the AVAudioEngine tap to deliver remaining buffered samples (~256ms).
-    /// Grace period after the user releases the hotkey before we
-    /// stop the audio engine. AVAudioEngine has a hardware buffer
-    /// in flight; if we tear down too quickly the last few hundred
-    /// milliseconds of audio (often the trailing word of the user's
-    /// final sentence) never make it into our buffer. 600 ms covers
-    /// the typical CoreAudio buffer + a margin for slow speakers.
-    private let captureDrainDelaySecs: TimeInterval = 0.6
 
     /// Stop recording and process the captured audio through the STT pipeline.
     func stopRecording() {
@@ -441,7 +410,7 @@ class AppState: ObservableObject {
 
         // Keep audio capture running briefly so the hardware buffer can drain,
         // then stop capture and process the tail.
-        DispatchQueue.main.asyncAfter(deadline: .now() + captureDrainDelaySecs) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + recording.captureDrainDelaySecs) { [weak self] in
             self?.finishStopRecording()
         }
     }
@@ -912,10 +881,6 @@ class AppState: ObservableObject {
 
     // MARK: - Processing
 
-    /// Maximum duration (seconds) for single-shot transcription. Longer recordings are chunked.
-    private let chunkDurationSecs: Double = 30.0
-    /// Overlap between consecutive chunks to avoid cutting words at boundaries.
-    private let overlapDurationSecs: Double = 2.0
     private let sttSampleRate: UInt32 = 16_000
 
     /// Single-shot transcription for short recordings (used when no incremental session was opened).
@@ -984,8 +949,7 @@ class AppState: ObservableObject {
 
     // MARK: - Incremental push-to-talk processing
 
-    /// Transition from throwaway streaming preview to incremental session-based
-    /// processing. Called after `firstChunkDelaySecs` of recording.
+    /// Transition from throwaway streaming preview to incremental session-based processing.
     private func startIncrementalSession() {
         guard isRecording, let bridge else { return }
 
@@ -1008,13 +972,13 @@ class AppState: ObservableObject {
         // Dispatch the first chunk immediately (~5s of audio).
         dispatchPttChunk()
 
-        // Set up repeating timer that wakes every pttDispatchTickSecs
+        // Set up repeating timer that wakes every configured interval
         // and decides whether the audio buffer is in a state where it
         // should be flushed as a commit chunk. Policy lives in
-        // dispatchPttChunk: dispatch when (a) buffer ≥ pttMinChunkSecs
-        // AND (the speaker has been silent ≥ pttPauseSilenceCallbacks
-        // OR buffer ≥ pttMaxChunkSecs).
-        recording.startPttDispatchTimer(interval: pttDispatchTickSecs) { [weak self] in
+        // dispatchPttChunk: dispatch when (a) buffer ≥ minimum chunk
+        // duration AND (the speaker has been silent long enough to mark
+        // a pause OR the buffer reached the maximum chunk duration).
+        recording.startPttDispatchTimer(interval: recording.pttDispatchTickSecs) { [weak self] in
             self?.dispatchPttChunk()
         }
 
@@ -1023,18 +987,18 @@ class AppState: ObservableObject {
 
     /// VAD-aware chunk dispatch policy.
     ///
-    /// On every timer tick (every `pttDispatchTickSecs`), evaluate
+    /// On every timer tick, evaluate
     /// whether the audio buffer is in a state where we should flush
     /// it to the commit pipeline:
     ///
-    ///   * If the buffer holds less than `pttMinChunkSecs` of audio,
+    ///   * If the buffer holds less than the configured minimum audio,
     ///     do nothing — the model wastes work on too-short clips.
     ///   * Otherwise, dispatch when EITHER
     ///       - the speaker has been silent for at least
-    ///         `pttPauseSilenceCallbacks` consecutive audio
+    ///         the configured number of consecutive audio
     ///         callbacks (~500 ms), giving us a natural sentence
     ///         boundary, OR
-    ///       - the buffer has reached `pttMaxChunkSecs`, the hard
+    ///       - the buffer has reached the configured hard
     ///         upper bound that prevents the user being stuck on a
     ///         non-stop monologue.
     ///
@@ -1044,16 +1008,16 @@ class AppState: ObservableObject {
     private func dispatchPttChunk() {
         guard let sessionId = recording.currentPttSessionId(), isRecording else { return }
 
-        let minSamples = Int(pttMinChunkSecs * Double(sttSampleRate))
-        let maxSamples = Int(pttMaxChunkSecs * Double(sttSampleRate))
-        let overlapSamples = Int(overlapDurationSecs * Double(sttSampleRate))
+        let minSamples = Int(recording.pttMinChunkSecs * Double(sttSampleRate))
+        let maxSamples = Int(recording.pttMaxChunkSecs * Double(sttSampleRate))
+        let overlapSamples = Int(recording.overlapDurationSecs * Double(sttSampleRate))
 
         guard let chunk = recording.preparePttChunk(
             minSamples: minSamples,
             maxSamples: maxSamples,
             overlapSamples: overlapSamples,
             chunkIndex: recording.currentPttChunkIndex(),
-            pauseSilenceCallbacks: pttPauseSilenceCallbacks
+            pauseSilenceCallbacks: recording.pttPauseSilenceCallbacks
         ) else { return }
         let chunkSamples = chunk.samples
 
@@ -1114,13 +1078,8 @@ class AppState: ObservableObject {
 
     // MARK: - Streaming (throwaway preview for initial seconds)
 
-    /// Interval between live transcription updates while recording.
-    private let streamingInterval: TimeInterval = 2.0
-    /// Minimum samples needed before first live transcription (1s at 16kHz).
-    private let minSamplesForStreaming = 16000
-
     private func startStreamingUpdates() {
-        recording.startStreamingUpdates(interval: streamingInterval) { [weak self] in
+        recording.startStreamingUpdates(interval: recording.streamingInterval) { [weak self] in
             self?.updateLiveTranscription()
         }
     }
@@ -1129,10 +1088,6 @@ class AppState: ObservableObject {
         recording.stopStreamingUpdates()
     }
 
-    /// Minimum new audio (in samples) required since the last preview
-    /// pass before we'll re-transcribe. 0.5 s at 16 kHz — anything
-    /// less is almost certainly just silence accumulating.
-    private let minNewSamplesForRestream = 8000
     private func updateLiveTranscription() {
         guard isRecording, let bridge else { return }
 
@@ -1149,8 +1104,8 @@ class AppState: ObservableObject {
 
         guard recording.shouldRunBufferedPreview(
             snapshotCount: snapshot.count,
-            minSamples: minSamplesForStreaming,
-            minNewSamples: minNewSamplesForRestream
+            minSamples: recording.minSamplesForStreaming,
+            minNewSamples: recording.minNewSamplesForRestream
         ) else {
             recording.finishStreamTranscribing()
             return

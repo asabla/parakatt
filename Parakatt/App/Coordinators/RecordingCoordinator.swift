@@ -7,6 +7,27 @@ import Foundation
 /// that feeds single-shot, preview, and incremental chunking paths.
 @MainActor
 final class RecordingCoordinator: ObservableObject {
+    /// Seconds before transitioning from single-shot preview to incremental chunking.
+    let firstChunkDelaySecs: TimeInterval = 1.0
+    /// How often the PTT dispatch timer wakes up. The dispatch policy, not this timer, gates chunk rate.
+    let pttDispatchTickSecs: TimeInterval = 1.5
+    /// Minimum audio required before dispatching an incremental PTT chunk.
+    let pttMinChunkSecs: Double = 2.0
+    /// Hard upper bound on incremental PTT chunk size.
+    let pttMaxChunkSecs: Double = 12.0
+    /// Consecutive silent callbacks required before treating the current point as a natural pause.
+    let pttPauseSilenceCallbacks: Int = 5
+    /// Overlap between consecutive chunks to avoid cutting words at boundaries.
+    let overlapDurationSecs: Double = 2.0
+    /// Grace period after hotkey release before stopping audio capture.
+    let captureDrainDelaySecs: TimeInterval = 0.6
+    /// Interval between buffered live-preview updates while recording.
+    let streamingInterval: TimeInterval = 2.0
+    /// Minimum samples needed before the first buffered live preview.
+    let minSamplesForStreaming = 16000
+    /// Minimum new audio since the last preview pass before re-transcribing.
+    let minNewSamplesForRestream = 8000
+
     /// True while the user is actively recording (held or toggled on).
     @Published var isRecording = false
     /// True while a chunk is being transcribed / inserted (UI shows spinner).
