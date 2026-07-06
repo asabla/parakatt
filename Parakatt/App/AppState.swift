@@ -467,7 +467,7 @@ class AppState: ObservableObject {
                         self.isProcessing = false
                         self.liveTranscription = nil
                         self.lastTranscription = result.text
-                        self.recording.setPttAccumulatedText(nil)
+                        self.recording.clearPttAccumulatedText()
                         self.recording.clearPttSession()
                         self.errorMessage = nil
 
@@ -486,7 +486,7 @@ class AppState: ObservableObject {
                     DispatchQueue.main.async {
                         self.isProcessing = false
                         self.liveTranscription = nil
-                        self.recording.setPttAccumulatedText(nil)
+                        self.recording.clearPttAccumulatedText()
                         self.recording.clearPttSession()
                         self.errorMessage = "Transcription failed: \(error.localizedDescription)"
                         NSLog("[Parakatt] PTT session finish FAILED: %@", error.localizedDescription)
@@ -972,13 +972,9 @@ class AppState: ObservableObject {
                     }
                     DispatchQueue.main.async {
                         if self.isRecording || self.isProcessing {
-                            let newAccumulated = acc.isEmpty ? nil : acc
-                            self.recording.setPttAccumulatedText(newAccumulated)
                             // Immediately update live display to prevent flash/disappearance
                             // The streaming preview will append the tail on its next cycle
-                            if let text = newAccumulated {
-                                self.liveTranscription = text
-                            }
+                            self.recording.applyPttAccumulatedText(acc)
                         }
                     }
                     NSLog("[Parakatt] PTT chunk %d: \"%@\"", currentIndex, result.text)

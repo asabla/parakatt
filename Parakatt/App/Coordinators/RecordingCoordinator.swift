@@ -345,8 +345,16 @@ final class RecordingCoordinator: ObservableObject {
         pttAccumulatedText
     }
 
-    func setPttAccumulatedText(_ text: String?) {
-        pttAccumulatedText = text
+    func applyPttAccumulatedText(_ text: String) {
+        let newAccumulated = text.isEmpty ? nil : text
+        pttAccumulatedText = newAccumulated
+        if let newAccumulated {
+            liveTranscription = newAccumulated
+        }
+    }
+
+    func clearPttAccumulatedText() {
+        pttAccumulatedText = nil
     }
 
     func resetPreviewWatermark() {
