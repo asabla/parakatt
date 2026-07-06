@@ -460,6 +460,11 @@ final class RecordingCoordinator: ObservableObject {
         return id
     }
 
+    func finishBufferedPreview(bridge: CoreBridge?) -> String? {
+        guard let sessionId = takeBufferedPreviewSessionId() else { return nil }
+        return (try? bridge?.bufferedPreviewFinish(sessionId: sessionId)) ?? ""
+    }
+
     func ensureBufferedPreviewSession(bridge: CoreBridge) -> String? {
         if bufferedPreviewSessionId == nil {
             let id = UUID().uuidString

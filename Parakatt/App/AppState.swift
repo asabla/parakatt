@@ -379,18 +379,11 @@ class AppState: ObservableObject {
         audioCaptureService?.prewarm(windowSecs: 20)
         recording.finishCaptureDrain()
 
-        // Tear down the live preview session and grab its final
-        // committed text. This becomes the canonical preview while
-        // the commit pipeline finishes processing the buffer tail.
-        if livePreview.isActive {
-            let finalText = livePreview.stop()
+        if let finalText = livePreview.stopIfActive() {
             recording.applyFinalPreviewText(finalText)
         }
 
-        // Also tear down the buffered preview LA-2 session if it
-        // was used (when no streaming model was loaded).
-        if let bpId = recording.takeBufferedPreviewSessionId() {
-            let final = (try? bridge?.bufferedPreviewFinish(sessionId: bpId)) ?? ""
+        if let final = recording.finishBufferedPreview(bridge: bridge) {
             recording.applyFinalPreviewText(final)
         }
 

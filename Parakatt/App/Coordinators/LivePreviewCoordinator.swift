@@ -38,6 +38,11 @@ final class LivePreviewCoordinator {
         return finalText
     }
 
+    func stopIfActive() -> String? {
+        guard isActive else { return nil }
+        return stop()
+    }
+
     func enqueue(_ samples: [Float]) {
         service?.enqueue(samples)
     }
