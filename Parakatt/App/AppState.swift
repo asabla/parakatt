@@ -975,32 +975,22 @@ class AppState: ObservableObject {
             return
         }
 
-        DispatchQueue.global(qos: .userInteractive).async { [weak self] in
-            guard let self else { return }
-            defer {
-                DispatchQueue.main.async {
-                    self.recording.finishStreamTranscribing()
-                }
-            }
-
-            do {
-                let result = try bridge.bufferedPreviewUpdate(
-                    sessionId: bpSessionId,
-                    audioSamples: trimmed,
-                    sampleRate: sampleRate
+        transcription.processBufferedPreview(
+            sessionId: bpSessionId,
+            samples: trimmed,
+            sampleRate: sampleRate,
+            bridge: bridge,
+            onSuccess: { [weak self] result in
+                guard let self, self.isRecording else { return }
+                self.recording.applyBufferedPreview(
+                    committedText: result.committedText,
+                    tentativeText: result.tentativeText
                 )
-                DispatchQueue.main.async {
-                    if self.isRecording {
-                        self.recording.applyBufferedPreview(
-                            committedText: result.committedText,
-                            tentativeText: result.tentativeText
-                        )
-                    }
-                }
-            } catch {
-                // Silently ignore streaming errors
+            },
+            onComplete: { [weak self] in
+                self?.recording.finishStreamTranscribing()
             }
-        }
+        )
     }
 
     // MARK: - Audio buffer

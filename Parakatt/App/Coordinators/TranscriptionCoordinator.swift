@@ -154,4 +154,34 @@ final class TranscriptionCoordinator {
             }
         }
     }
+
+    func processBufferedPreview(
+        sessionId: String,
+        samples: [Float],
+        sampleRate: UInt32,
+        bridge: CoreBridge,
+        onSuccess: @escaping (StreamingChunkResult) -> Void,
+        onComplete: @escaping () -> Void
+    ) {
+        DispatchQueue.global(qos: .userInteractive).async {
+            defer {
+                DispatchQueue.main.async {
+                    onComplete()
+                }
+            }
+
+            do {
+                let result = try bridge.bufferedPreviewUpdate(
+                    sessionId: sessionId,
+                    audioSamples: samples,
+                    sampleRate: sampleRate
+                )
+                DispatchQueue.main.async {
+                    onSuccess(result)
+                }
+            } catch {
+                // Silently ignore streaming errors.
+            }
+        }
+    }
 }
