@@ -695,14 +695,20 @@ class AppState: ObservableObject {
             context: context,
             speakerLabelsEnabled: speakerLabelsEnabled,
             onFinished: { [weak self] result in
-                self?.sendTranscriptionNotification(preview: result.text, source: "meeting")
+                guard let self else { return }
+                self.notifications.sendTranscriptionReady(
+                    environment: self.environment,
+                    preview: result.text,
+                    source: "meeting"
+                )
                 NSLog("[Parakatt] Meeting finished: %.0fs, %d chars", result.durationSecs, result.text.count)
             },
             onError: { [weak self] message in
                 self?.errorMessage = message
             },
             onPermissionDenied: { [weak self] in
-                self?.promptForSystemAudioPermission()
+                guard let self else { return }
+                self.permissions.promptForSystemAudioPermission(environment: self.environment)
             },
             onStartError: { [weak self] message in
                 self?.errorMessage = message
@@ -844,7 +850,11 @@ class AppState: ObservableObject {
                         autoPaste: self.autoPaste,
                         inserter: self.textInsertionService
                     )
-                    self.sendTranscriptionNotification(preview: result.text, source: "push_to_talk")
+                    self.notifications.sendTranscriptionReady(
+                        environment: self.environment,
+                        preview: result.text,
+                        source: "push_to_talk"
+                    )
                     NSLog("[Parakatt] Result (%@, %.2fs): %@", self.activeMode, result.durationSecs, result.text)
                 } else {
                     NSLog("[Parakatt] Empty transcription (mode=%@, maxAmp=%.4f)", self.activeMode, maxAmp)
@@ -1050,12 +1060,6 @@ class AppState: ObservableObject {
         }
     }
 
-    // MARK: - Notifications
-
-    private func sendTranscriptionNotification(preview: String, source: String) {
-        notifications.sendTranscriptionReady(environment: environment, preview: preview, source: source)
-    }
-
     // MARK: - Audio buffer
 
     private func appendAudioSamples(_ samples: [Float]) {
@@ -1089,11 +1093,6 @@ class AppState: ObservableObject {
         }
     }
 
-    // MARK: - Permission helpers
-
-    private func promptForSystemAudioPermission() {
-        permissions.promptForSystemAudioPermission(environment: environment)
-    }
 }
 
 /// UI-facing summary of meeting-time audio capture health.
