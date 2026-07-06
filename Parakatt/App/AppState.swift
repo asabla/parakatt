@@ -262,6 +262,9 @@ class AppState: ObservableObject {
     init(environment: PlatformEnvironment = MacAppEnvironment()) {
         self.environment = environment
         self.settings = SettingsCoordinator(secrets: environment.secrets)
+        self.settings.onErrorMessage = { [weak self] message in
+            self?.errorMessage = message
+        }
         self.model.onErrorMessage = { [weak self] message in
             self?.errorMessage = message
         }
@@ -756,84 +759,45 @@ class AppState: ObservableObject {
     }
 
     func listModes() -> [ModeConfig] {
-        bridge?.listModes() ?? []
+        settings.listModes(bridge: bridge)
     }
 
     func saveMode(_ mode: ModeConfig) {
-        do {
-            try bridge?.saveMode(mode)
-        } catch {
-            errorMessage = "Failed to save mode: \(error.localizedDescription)"
-        }
+        settings.saveMode(mode, bridge: bridge)
     }
 
     // MARK: - Profiles
 
     func listProfiles() -> [String] {
-        bridge?.listProfiles() ?? []
+        settings.listProfiles(bridge: bridge)
     }
 
     func saveProfile(_ name: String) {
-        do {
-            try bridge?.saveProfile(name)
-            NSLog("[Parakatt] Saved profile: %@", name)
-        } catch {
-            errorMessage = "Failed to save profile: \(error.localizedDescription)"
-        }
+        settings.saveProfile(name, bridge: bridge)
     }
 
     func loadProfile(_ name: String) {
-        do {
-            try bridge?.loadProfile(name)
-            // Reload settings from the new config
-            settings.loadBehaviorSettings(bridge: bridge)
-            loadLlmApiKeyFromKeychain()
-            NSLog("[Parakatt] Loaded profile: %@", name)
-        } catch {
-            errorMessage = "Failed to load profile: \(error.localizedDescription)"
-        }
+        settings.loadProfile(name, bridge: bridge)
     }
 
     func deleteProfile(_ name: String) {
-        do {
-            try bridge?.deleteProfile(name)
-        } catch {
-            errorMessage = "Failed to delete profile: \(error.localizedDescription)"
-        }
+        settings.deleteProfile(name, bridge: bridge)
     }
 
     func getAppModeDefaults() -> [(String, String)] {
-        do {
-            return try bridge?.getAppModeDefaults() ?? []
-        } catch {
-            NSLog("[Parakatt] Failed to get app mode defaults: %@", error.localizedDescription)
-            return []
-        }
+        settings.getAppModeDefaults(bridge: bridge)
     }
 
     func setAppModeDefault(bundleId: String, mode: String) {
-        do {
-            try bridge?.setAppModeDefault(bundleId: bundleId, mode: mode)
-        } catch {
-            NSLog("[Parakatt] Failed to set app mode default: %@", error.localizedDescription)
-        }
+        settings.setAppModeDefault(bundleId: bundleId, mode: mode, bridge: bridge)
     }
 
     func deleteMode(_ name: String) {
-        do {
-            try bridge?.deleteMode(name)
-        } catch {
-            errorMessage = "Failed to delete mode: \(error.localizedDescription)"
-        }
+        settings.deleteMode(name, bridge: bridge)
     }
 
     func getStatistics() -> [(String, String)] {
-        do {
-            return try bridge?.getStatistics() ?? []
-        } catch {
-            NSLog("[Parakatt] Failed to get statistics: %@", error.localizedDescription)
-            return []
-        }
+        settings.getStatistics(bridge: bridge)
     }
 
     func fetchLlmModels() -> [String] {
