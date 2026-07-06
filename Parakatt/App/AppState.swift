@@ -950,38 +950,22 @@ class AppState: ObservableObject {
         let context = contextService?.currentContext()
         let mode = activeMode
 
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            guard let self, let bridge = self.bridge else { return }
-
-            self.recording.withPttChunkLock {
-                do {
-                    let result = try bridge.processChunk(
-                        sessionId: sessionId,
-                        audioSamples: chunkSamples,
-                        sampleRate: sampleRate,
-                        chunkIndex: currentIndex,
-                        mode: mode,
-                        context: context
-                    )
-                    // Pull the running accumulated text on demand instead of
-                    // having Rust clone it on every chunk.
-                    let acc = (try? bridge.getSessionText(sessionId: sessionId)) ?? ""
-                    if let llmErr = result.llmError {
-                        NSLog("[Parakatt] PTT chunk %d LLM degraded (raw text used): %@", currentIndex, llmErr)
-                    }
-                    DispatchQueue.main.async {
-                        if self.isRecording || self.isProcessing {
-                            // Immediately update live display to prevent flash/disappearance
-                            // The streaming preview will append the tail on its next cycle
-                            self.recording.applyPttAccumulatedText(acc)
-                        }
-                    }
-                    NSLog("[Parakatt] PTT chunk %d: \"%@\"", currentIndex, result.text)
-                } catch {
-                    NSLog("[Parakatt] PTT chunk %d failed: %@", currentIndex, error.localizedDescription)
-                }
+        transcription.processPttChunk(
+            sessionId: sessionId,
+            samples: chunkSamples,
+            sampleRate: sampleRate,
+            chunkIndex: currentIndex,
+            mode: mode,
+            context: context,
+            bridge: bridge,
+            runLocked: { [recording] body in recording.withPttChunkLock(body) },
+            onAccumulatedText: { [weak self] acc in
+                guard let self, self.isRecording || self.isProcessing else { return }
+                // Immediately update live display to prevent flash/disappearance.
+                // The streaming preview will append the tail on its next cycle.
+                self.recording.applyPttAccumulatedText(acc)
             }
-        }
+        )
     }
 
     // MARK: - Streaming (throwaway preview for initial seconds)

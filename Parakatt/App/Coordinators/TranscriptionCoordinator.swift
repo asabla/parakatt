@@ -51,4 +51,45 @@ final class TranscriptionCoordinator {
             }
         }
     }
+
+    func processPttChunk(
+        sessionId: String,
+        samples: [Float],
+        sampleRate: UInt32,
+        chunkIndex: UInt32,
+        mode: String,
+        context: AppContextInfo?,
+        bridge: CoreBridge?,
+        runLocked: @escaping (@escaping () -> Void) -> Void,
+        onAccumulatedText: @escaping (String) -> Void
+    ) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            guard let bridge else { return }
+
+            runLocked {
+                do {
+                    let result = try bridge.processChunk(
+                        sessionId: sessionId,
+                        audioSamples: samples,
+                        sampleRate: sampleRate,
+                        chunkIndex: chunkIndex,
+                        mode: mode,
+                        context: context
+                    )
+                    // Pull the running accumulated text on demand instead of
+                    // having Rust clone it on every chunk.
+                    let acc = (try? bridge.getSessionText(sessionId: sessionId)) ?? ""
+                    if let llmErr = result.llmError {
+                        NSLog("[Parakatt] PTT chunk %d LLM degraded (raw text used): %@", chunkIndex, llmErr)
+                    }
+                    DispatchQueue.main.async {
+                        onAccumulatedText(acc)
+                    }
+                    NSLog("[Parakatt] PTT chunk %d: \"%@\"", chunkIndex, result.text)
+                } catch {
+                    NSLog("[Parakatt] PTT chunk %d failed: %@", chunkIndex, error.localizedDescription)
+                }
+            }
+        }
+    }
 }
