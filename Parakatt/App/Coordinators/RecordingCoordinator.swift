@@ -156,6 +156,24 @@ final class RecordingCoordinator: ObservableObject {
         !isRecording && !isCaptureDraining
     }
 
+    func beginRecording() {
+        // Set immediately to prevent races with rapid start/stop.
+        isRecording = true
+        resetForNewRecording()
+    }
+
+    func markRecordingStartFailed() {
+        isRecording = false
+    }
+
+    func beginStopRecording() {
+        stopPttChunkTimer()
+        stopStreamingUpdates()
+        isRecording = false
+        currentAudioLevel = 0
+        beginCaptureDrain()
+    }
+
     func beginCaptureDrain() {
         isCaptureDraining = true
     }
