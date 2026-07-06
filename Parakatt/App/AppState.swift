@@ -38,6 +38,7 @@ class AppState: ObservableObject {
     @Published var recording = RecordingCoordinator()
     @Published var meeting = MeetingCoordinator()
     @Published var model = ModelCoordinator()
+    private let history = HistoryCoordinator()
 
     private var coordinatorCancellables = Set<AnyCancellable>()
 
@@ -1022,49 +1023,37 @@ class AppState: ObservableObject {
         limit: UInt32 = 50,
         offset: UInt32 = 0
     ) -> [StoredTranscription] {
-        let query = TranscriptionQuery(
+        history.listTranscriptions(
+            bridge: bridge,
             searchText: searchText,
             sourceFilter: sourceFilter,
             limit: limit,
             offset: offset
         )
-        return (try? bridge?.listTranscriptions(query: query)) ?? []
     }
 
     func searchTranscriptions(query: String) -> [StoredTranscription] {
-        (try? bridge?.searchTranscriptions(searchText: query)) ?? []
+        history.searchTranscriptions(bridge: bridge, query: query)
     }
 
     func getTranscription(id: String) -> StoredTranscription? {
-        try? bridge?.getTranscription(id: id)
+        history.getTranscription(bridge: bridge, id: id)
     }
 
     func updateTranscriptionTitle(id: String, title: String) {
-        try? bridge?.updateTranscriptionTitle(id: id, title: title)
+        history.updateTranscriptionTitle(bridge: bridge, id: id, title: title)
     }
 
     func deleteTranscription(id: String) {
-        do {
-            try bridge?.deleteTranscription(id: id)
-            NSLog("[Parakatt] Deleted transcription: %@", id)
-        } catch {
-            NSLog("[Parakatt] Failed to delete transcription %@: %@", id, error.localizedDescription)
-        }
+        history.deleteTranscription(bridge: bridge, id: id)
     }
 
     func deleteTranscriptions(ids: [String]) -> Int {
-        do {
-            let count = try bridge?.deleteTranscriptions(ids: ids) ?? 0
-            NSLog("[Parakatt] Bulk deleted %d transcriptions", count)
-            return Int(count)
-        } catch {
-            NSLog("[Parakatt] Failed to bulk delete: %@", error.localizedDescription)
-            return 0
-        }
+        history.deleteTranscriptions(bridge: bridge, ids: ids)
     }
 
     func getTranscriptionSegments(id: String) -> [TimestampedSegment] {
-        (try? bridge?.getTranscriptionSegments(id: id)) ?? []
+        history.getTranscriptionSegments(bridge: bridge, id: id)
     }
 
     // MARK: - Model management
