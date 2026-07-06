@@ -4,7 +4,6 @@ import HotKey
 import os.log
 import ParakattCore
 
-private let logger = Logger(subsystem: "com.parakatt.app", category: "engine")
 private let signpostLog = OSLog(subsystem: "com.parakatt.app", category: .pointsOfInterest)
 
 /// Observable application state shared across the UI.
