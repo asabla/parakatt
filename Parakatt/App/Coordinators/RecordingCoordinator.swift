@@ -66,6 +66,7 @@ final class RecordingCoordinator: ObservableObject {
     }
 
     struct PttChunk {
+        let index: UInt32
         let samples: [Float]
     }
 
@@ -314,20 +315,19 @@ final class RecordingCoordinator: ObservableObject {
         )
     }
 
-    func preparePttChunk(
-        minSamples: Int,
-        maxSamples: Int,
-        overlapSamples: Int,
-        chunkIndex: UInt32,
-        pauseSilenceCallbacks: Int
-    ) -> PttChunk? {
+    func prepareNextPttChunk() -> PttChunk? {
+        let minSamples = Int(pttMinChunkSecs * Double(sampleRate))
+        let maxSamples = Int(pttMaxChunkSecs * Double(sampleRate))
+        let overlapSamples = Int(overlapDurationSecs * Double(sampleRate))
+        let chunkIndex = pttChunkIndex
+
         audioBufferLock.lock()
         let bufferLen = audioBuffer.count
         guard bufferLen >= minSamples else {
             audioBufferLock.unlock()
             return nil
         }
-        let speakerPaused = silentCallbackCount >= pauseSilenceCallbacks
+        let speakerPaused = silentCallbackCount >= pttPauseSilenceCallbacks
         let bufferAtCap = bufferLen >= maxSamples
         guard speakerPaused || bufferAtCap else {
             audioBufferLock.unlock()
@@ -347,7 +347,8 @@ final class RecordingCoordinator: ObservableObject {
         }
         audioBufferLock.unlock()
 
-        return PttChunk(samples: chunkSamples)
+        pttChunkIndex += 1
+        return PttChunk(index: chunkIndex, samples: chunkSamples)
     }
 
     func startStreamingUpdates(interval: TimeInterval, onTick: @escaping () -> Void) {
@@ -404,12 +405,6 @@ final class RecordingCoordinator: ObservableObject {
 
     func currentPttChunkIndex() -> UInt32 {
         pttChunkIndex
-    }
-
-    func takeNextPttChunkIndex() -> UInt32 {
-        let index = pttChunkIndex
-        pttChunkIndex += 1
-        return index
     }
 
     func applyPttAccumulatedText(_ text: String) {

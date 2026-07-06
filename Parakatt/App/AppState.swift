@@ -882,17 +882,8 @@ class AppState: ObservableObject {
         guard let sessionId = recording.currentPttSessionId(), isRecording else { return }
 
         let sampleRate = recording.sampleRate
-        let minSamples = Int(recording.pttMinChunkSecs * Double(sampleRate))
-        let maxSamples = Int(recording.pttMaxChunkSecs * Double(sampleRate))
-        let overlapSamples = Int(recording.overlapDurationSecs * Double(sampleRate))
 
-        guard let chunk = recording.preparePttChunk(
-            minSamples: minSamples,
-            maxSamples: maxSamples,
-            overlapSamples: overlapSamples,
-            chunkIndex: recording.currentPttChunkIndex(),
-            pauseSilenceCallbacks: recording.pttPauseSilenceCallbacks
-        ) else { return }
+        guard let chunk = recording.prepareNextPttChunk() else { return }
         let chunkSamples = chunk.samples
 
         // The audio buffer just shrank — the buffered preview's
@@ -908,7 +899,6 @@ class AppState: ObservableObject {
             try? bridge?.bufferedPreviewReset(sessionId: bpId)
         }
 
-        let currentIndex = recording.takeNextPttChunkIndex()
         let context = contextService?.currentContext()
         let mode = activeMode
 
@@ -916,7 +906,7 @@ class AppState: ObservableObject {
             sessionId: sessionId,
             samples: chunkSamples,
             sampleRate: sampleRate,
-            chunkIndex: currentIndex,
+            chunkIndex: chunk.index,
             mode: mode,
             context: context,
             bridge: bridge,
