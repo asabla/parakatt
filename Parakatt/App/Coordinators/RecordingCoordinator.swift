@@ -180,6 +180,25 @@ final class RecordingCoordinator: ObservableObject {
         beginCaptureDrain()
     }
 
+    func beginIncrementalTailProcessing() {
+        isProcessing = true
+    }
+
+    func completePttSession(text: String) {
+        isProcessing = false
+        liveTranscription = nil
+        lastTranscription = text
+        clearPttAccumulatedText()
+        clearPttSession()
+    }
+
+    func failPttSession() {
+        isProcessing = false
+        liveTranscription = nil
+        clearPttAccumulatedText()
+        clearPttSession()
+    }
+
     func beginCaptureDrain() {
         isCaptureDraining = true
     }

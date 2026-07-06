@@ -404,7 +404,7 @@ class AppState: ObservableObject {
 
         if let sessionId = recording.currentPttSessionId() {
             // Path B: incremental session was active — only process the tail.
-            isProcessing = true
+            recording.beginIncrementalTailProcessing()
             // Keep liveTranscription visible while processing the tail.
             NSLog("[Parakatt] Recording stopped (incremental session, processing tail)")
 
@@ -429,11 +429,7 @@ class AppState: ObservableObject {
                 },
                 onSuccess: { [weak self] result in
                     guard let self else { return }
-                    self.isProcessing = false
-                    self.liveTranscription = nil
-                    self.lastTranscription = result.text
-                    self.recording.clearPttAccumulatedText()
-                    self.recording.clearPttSession()
+                    self.recording.completePttSession(text: result.text)
                     self.errorMessage = nil
 
                     if !result.text.isEmpty {
@@ -448,10 +444,7 @@ class AppState: ObservableObject {
                 },
                 onFailure: { [weak self] message in
                     guard let self else { return }
-                    self.isProcessing = false
-                    self.liveTranscription = nil
-                    self.recording.clearPttAccumulatedText()
-                    self.recording.clearPttSession()
+                    self.recording.failPttSession()
                     self.errorMessage = "Transcription failed: \(message)"
                     NSLog("[Parakatt] PTT session finish FAILED: %@", message)
                 }
