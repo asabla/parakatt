@@ -204,8 +204,6 @@ class AppState: ObservableObject {
     private var textInsertionService: TextInserting?
     private var contextService: AppContextProviding?
 
-    // MARK: - Incremental push-to-talk session
-
     // MARK: - Engine bridge
 
     private var bridge: CoreBridge?
@@ -351,7 +349,9 @@ class AppState: ObservableObject {
             // This is the fallback path for users without the streaming
             // model, AND it runs alongside the streaming preview as a
             // safety net while the streaming model warms up.
-            startStreamingUpdates()
+            recording.startStreamingUpdates(interval: recording.streamingInterval) { [weak self] in
+                self?.updateLiveTranscription()
+            }
 
             // After the configured grace period, transition to incremental session-based processing.
             recording.startPttTransitionTimer(delay: recording.firstChunkDelaySecs) { [weak self] in
@@ -1014,16 +1014,6 @@ class AppState: ObservableObject {
     }
 
     // MARK: - Streaming (throwaway preview for initial seconds)
-
-    private func startStreamingUpdates() {
-        recording.startStreamingUpdates(interval: recording.streamingInterval) { [weak self] in
-            self?.updateLiveTranscription()
-        }
-    }
-
-    private func stopStreamingUpdates() {
-        recording.stopStreamingUpdates()
-    }
 
     private func updateLiveTranscription() {
         guard isRecording, let bridge else { return }
