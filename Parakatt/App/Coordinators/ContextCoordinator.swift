@@ -15,4 +15,28 @@ final class ContextCoordinator: ObservableObject {
     /// the meeting UI so the user can confirm the right window is
     /// being captured.
     @Published var selectedAudioSourceName: String?
+
+    func restorePreferredAudioSource(bridge: CoreBridge?, runningApps: RunningAppProviding) {
+        guard let bundleId = try? bridge?.getPreferredAudioSource() else { return }
+        if let pid = runningApps.pidForBundleId(bundleId) {
+            selectedAudioSourcePID = pid
+            let name = runningApps.nameForBundleId(bundleId) ?? bundleId
+            selectedAudioSourceName = name
+            NSLog("[Parakatt] Restored preferred audio source: %@ (pid %d)", name, pid)
+        } else {
+            NSLog("[Parakatt] Preferred audio source %@ not running", bundleId)
+        }
+    }
+
+    func setPreferredAudioSource(bundleId: String?, bridge: CoreBridge?) {
+        do {
+            try bridge?.setPreferredAudioSource(bundleId)
+        } catch {
+            NSLog("[Parakatt] Failed to save audio source preference: %@", error.localizedDescription)
+        }
+    }
+
+    func listRunningAudioApps(runningApps: RunningAppProviding) -> [AudioSourceApp] {
+        runningApps.listRunningAudioApps()
+    }
 }

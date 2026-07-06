@@ -350,16 +350,7 @@ class AppState: ObservableObject {
             loadLlmApiKeyFromKeychain()
 
             // Load preferred audio source from config
-            if let bundleId = try? bridge?.getPreferredAudioSource() {
-                if let pid = environment.runningApps.pidForBundleId(bundleId) {
-                    selectedAudioSourcePID = pid
-                    let name = environment.runningApps.nameForBundleId(bundleId) ?? bundleId
-                    selectedAudioSourceName = name
-                    NSLog("[Parakatt] Restored preferred audio source: %@ (pid %d)", name, pid)
-                } else {
-                    NSLog("[Parakatt] Preferred audio source %@ not running", bundleId)
-                }
-            }
+            context.restorePreferredAudioSource(bridge: bridge, runningApps: environment.runningApps)
         } catch {
             errorMessage = "Failed to initialize engine: \(error.localizedDescription)"
             NSLog("[Parakatt] Engine init failed: \(error)")
@@ -930,15 +921,11 @@ class AppState: ObservableObject {
 
     /// Persist the preferred audio source bundle ID.
     func setPreferredAudioSource(bundleId: String?) {
-        do {
-            try bridge?.setPreferredAudioSource(bundleId)
-        } catch {
-            NSLog("[Parakatt] Failed to save audio source preference: %@", error.localizedDescription)
-        }
+        context.setPreferredAudioSource(bundleId: bundleId, bridge: bridge)
     }
 
     func listRunningAudioApps() -> [AudioSourceApp] {
-        environment.runningApps.listRunningAudioApps()
+        context.listRunningAudioApps(runningApps: environment.runningApps)
     }
 
     func listInputDevices() -> [(uid: String, name: String, isDefault: Bool)] {
