@@ -896,34 +896,16 @@ class AppState: ObservableObject {
             systemCapture: environment.makeSystemAudioCapture()
         )
 
-        session.onChunkTranscribed = { [weak self] newText, accumulated, segments in
-            self?.meeting.applyChunk(newText: newText, accumulatedText: accumulated, segments: segments)
-        }
-
-        session.onChunkHealth = { [weak self] micDbfs, sysDbfs in
-            self?.meeting.updateAudioStatus(micDbfs: micDbfs, sysDbfs: sysDbfs)
-        }
-
-        session.onSystemAudioHealth = { [weak self] health in
-            self?.meeting.applySystemAudioHealth(health)
-        }
-
-        session.onMicLevel = { [weak self] peak in
-            self?.meeting.updateMicLevel(peak: peak)
-        }
-
-        session.onSessionFinished = { [weak self] result in
-            self?.meeting.markFinished(transcription: result.text)
-            self?.sendTranscriptionNotification(preview: result.text, source: "meeting")
-            NSLog("[Parakatt] Meeting finished: %.0fs, %d chars", result.durationSecs, result.text.count)
-        }
-
-        session.onError = { [weak self] message in
-            self?.meeting.markFailed(message: message)
-            self?.errorMessage = message
-        }
-
-        meeting.setSession(session)
+        meeting.configureSession(
+            session,
+            onFinished: { [weak self] result in
+                self?.sendTranscriptionNotification(preview: result.text, source: "meeting")
+                NSLog("[Parakatt] Meeting finished: %.0fs, %d chars", result.durationSecs, result.text.count)
+            },
+            onError: { [weak self] message in
+                self?.errorMessage = message
+            }
+        )
         meeting.prepareForStart()
 
         // Start elapsed time updates.

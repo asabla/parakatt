@@ -121,6 +121,41 @@ final class MeetingCoordinator: ObservableObject {
     }
 
     @available(macOS 14.2, *)
+    func configureSession(
+        _ session: MeetingSessionService,
+        onFinished: @escaping (TranscriptionResult) -> Void,
+        onError: @escaping (String) -> Void
+    ) {
+        setSession(session)
+
+        session.onChunkTranscribed = { [weak self] newText, accumulated, segments in
+            self?.applyChunk(newText: newText, accumulatedText: accumulated, segments: segments)
+        }
+
+        session.onChunkHealth = { [weak self] micDbfs, sysDbfs in
+            self?.updateAudioStatus(micDbfs: micDbfs, sysDbfs: sysDbfs)
+        }
+
+        session.onSystemAudioHealth = { [weak self] health in
+            self?.applySystemAudioHealth(health)
+        }
+
+        session.onMicLevel = { [weak self] peak in
+            self?.updateMicLevel(peak: peak)
+        }
+
+        session.onSessionFinished = { [weak self] result in
+            self?.markFinished(transcription: result.text)
+            onFinished(result)
+        }
+
+        session.onError = { [weak self] message in
+            self?.markFailed(message: message)
+            onError(message)
+        }
+    }
+
+    @available(macOS 14.2, *)
     func currentSessionElapsedTime() -> TimeInterval {
         session?.elapsedTime ?? 0
     }
