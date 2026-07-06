@@ -112,27 +112,46 @@ class AppState: ObservableObject {
         set { model.downloadProgress = newValue }
     }
 
-    // Meeting state
-    @Published var isMeetingActive = false
-    @Published var isMeetingPaused = false
-    @Published var meetingElapsedTime: TimeInterval = 0
-    @Published var meetingTranscription: String?
-    @Published var meetingLatestChunk: String?
-    @Published var meetingSegments: [TimestampedSegment] = []
-    /// Absolute-timestamp index (seconds) where the latest chunk's segments
-    /// begin. Lets the live view highlight "what just arrived" without
-    /// needing a separate copy of the latest chunk's segments.
-    @Published var meetingLatestChunkStartSecs: Double?
-    @Published var meetingAudioStatus: MeetingAudioStatus = .unknown
-    /// Live peak amplitude of the mic capture during a meeting, 0…1.
-    /// Driven from MeetingSessionService.onMicLevel. Smoothed client-side
-    /// to avoid visual jitter on short silences.
-    @Published var meetingMicLevel: Float = 0
-    /// Seconds of audio required before the first chunk transcribes.
-    /// Surfaced to the UI so it can draw a "until first batch" progress bar.
-    var meetingFirstChunkSecs: Double { 30.0 }
-    /// Seconds between subsequent chunk dispatches after the first.
-    var meetingChunkIntervalSecs: Double { 28.0 }
+    // MARK: - Meeting state (lives on MeetingCoordinator)
+
+    var isMeetingActive: Bool {
+        get { meeting.isMeetingActive }
+        set { meeting.isMeetingActive = newValue }
+    }
+    var isMeetingPaused: Bool {
+        get { meeting.isMeetingPaused }
+        set { meeting.isMeetingPaused = newValue }
+    }
+    var meetingElapsedTime: TimeInterval {
+        get { meeting.meetingElapsedTime }
+        set { meeting.meetingElapsedTime = newValue }
+    }
+    var meetingTranscription: String? {
+        get { meeting.meetingTranscription }
+        set { meeting.meetingTranscription = newValue }
+    }
+    var meetingLatestChunk: String? {
+        get { meeting.meetingLatestChunk }
+        set { meeting.meetingLatestChunk = newValue }
+    }
+    var meetingSegments: [TimestampedSegment] {
+        get { meeting.meetingSegments }
+        set { meeting.meetingSegments = newValue }
+    }
+    var meetingLatestChunkStartSecs: Double? {
+        get { meeting.meetingLatestChunkStartSecs }
+        set { meeting.meetingLatestChunkStartSecs = newValue }
+    }
+    var meetingAudioStatus: MeetingAudioStatus {
+        get { meeting.meetingAudioStatus }
+        set { meeting.meetingAudioStatus = newValue }
+    }
+    var meetingMicLevel: Float {
+        get { meeting.meetingMicLevel }
+        set { meeting.meetingMicLevel = newValue }
+    }
+    var meetingFirstChunkSecs: Double { meeting.meetingFirstChunkSecs }
+    var meetingChunkIntervalSecs: Double { meeting.meetingChunkIntervalSecs }
 
     /// When the system-audio side first started reporting silent/empty.
     /// Used to decide when to escalate to a user-visible warning.

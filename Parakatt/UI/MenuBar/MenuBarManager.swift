@@ -187,7 +187,7 @@ class MenuBarManager: NSObject {
     private func observeState() {
         appState.recording.$isRecording
             .combineLatest(appState.recording.$isProcessing, appState.model.$isModelLoaded)
-            .combineLatest(appState.$isMeetingActive)
+            .combineLatest(appState.meeting.$isMeetingActive)
             .combineLatest(appState.model.$isDownloading)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] nested, isDownloading in
@@ -268,7 +268,7 @@ class MenuBarManager: NSObject {
         // Auto-open the live meeting window when a meeting starts, auto-close
         // (but keep the window instance alive) when it ends. Mirrors the
         // existing settings/history window pattern.
-        appState.$isMeetingActive
+        appState.meeting.$isMeetingActive
             .removeDuplicates()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] isActive in
