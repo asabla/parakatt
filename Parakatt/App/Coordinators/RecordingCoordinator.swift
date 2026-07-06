@@ -341,10 +341,6 @@ final class RecordingCoordinator: ObservableObject {
         return index
     }
 
-    func currentPttAccumulatedText() -> String? {
-        pttAccumulatedText
-    }
-
     func applyPttAccumulatedText(_ text: String) {
         let newAccumulated = text.isEmpty ? nil : text
         pttAccumulatedText = newAccumulated
