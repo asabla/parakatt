@@ -62,6 +62,11 @@ final class RecordingCoordinator: ObservableObject {
 
     private var streamingTimer: Timer?
     private var pttChunkTimer: Timer?
+    /// Session ID for incremental processing (nil = short recording, single-shot).
+    private var pttSessionId: String?
+    private var pttChunkIndex: UInt32 = 0
+    /// Accumulated text from processed chunks (used to compose live display).
+    private var pttAccumulatedText: String?
     private var isStreamTranscribing = false
     /// Sample count of the last buffer we ran the streaming preview on.
     /// Used to skip re-transcribing essentially the same audio when the
@@ -79,6 +84,7 @@ final class RecordingCoordinator: ObservableObject {
         longRecordingWarned = false
         currentAudioLevel = 0
         stopStreamingUpdates()
+        resetPttState()
         bufferedPreviewSessionId = nil
         clearBuffer()
     }
@@ -223,6 +229,43 @@ final class RecordingCoordinator: ObservableObject {
     func stopPttChunkTimer() {
         pttChunkTimer?.invalidate()
         pttChunkTimer = nil
+    }
+
+    func resetPttState() {
+        pttSessionId = nil
+        pttChunkIndex = 0
+        pttAccumulatedText = nil
+        stopPttChunkTimer()
+    }
+
+    func startPttSession(id: String) {
+        pttSessionId = id
+    }
+
+    func clearPttSession() {
+        pttSessionId = nil
+    }
+
+    func currentPttSessionId() -> String? {
+        pttSessionId
+    }
+
+    func currentPttChunkIndex() -> UInt32 {
+        pttChunkIndex
+    }
+
+    func takeNextPttChunkIndex() -> UInt32 {
+        let index = pttChunkIndex
+        pttChunkIndex += 1
+        return index
+    }
+
+    func currentPttAccumulatedText() -> String? {
+        pttAccumulatedText
+    }
+
+    func setPttAccumulatedText(_ text: String?) {
+        pttAccumulatedText = text
     }
 
     func resetPreviewWatermark() {

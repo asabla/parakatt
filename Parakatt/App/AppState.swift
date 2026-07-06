@@ -204,12 +204,7 @@ class AppState: ObservableObject {
 
     // MARK: - Incremental push-to-talk session
 
-    /// Session ID for incremental processing (nil = short recording, single-shot).
-    private var pttSessionId: String?
-    private var pttChunkIndex: UInt32 = 0
     private let pttChunkLock = NSLock()  // serializes chunk processing
-    /// Accumulated text from processed chunks (used to compose live display).
-    private var pttAccumulatedText: String?
     /// True while the audio engine is still running for a brief grace period after hotkey release.
     private var isCaptureDraining = false
 
@@ -352,9 +347,9 @@ class AppState: ObservableObject {
     /// Clean up all running sessions and audio capture on app termination.
     func shutdown() {
         stopRecording()
-        if let sessionId = pttSessionId {
+        if let sessionId = recording.currentPttSessionId() {
             bridge?.cancelSession(sessionId: sessionId)
-            pttSessionId = nil
+            recording.clearPttSession()
         }
         if #available(macOS 14.2, *) {
             cancelMeeting()
@@ -381,10 +376,6 @@ class AppState: ObservableObject {
         isRecording = true
 
         recording.resetForNewRecording()
-        pttSessionId = nil
-        pttChunkIndex = 0
-        recording.stopPttChunkTimer()
-        pttAccumulatedText = nil
 
         do {
             try audioCaptureService?.startCapture()
@@ -497,7 +488,7 @@ class AppState: ObservableObject {
             }
         }
 
-        if let sessionId = pttSessionId {
+        if let sessionId = recording.currentPttSessionId() {
             // Path B: incremental session was active — only process the tail.
             isProcessing = true
             // Keep liveTranscription visible while processing the tail.
@@ -507,7 +498,7 @@ class AppState: ObservableObject {
 
             let context = contextService?.currentContext()
             let mode = activeMode
-            let currentIndex = pttChunkIndex
+            let currentIndex = recording.currentPttChunkIndex()
 
             DispatchQueue.global(qos: .userInitiated).async { [weak self] in
                 guard let self, let bridge = self.bridge else {
@@ -554,9 +545,9 @@ class AppState: ObservableObject {
                     DispatchQueue.main.async {
                         self.isProcessing = false
                         self.liveTranscription = nil
-                        self.pttAccumulatedText = nil
                         self.lastTranscription = result.text
-                        self.pttSessionId = nil
+                        self.recording.setPttAccumulatedText(nil)
+                        self.recording.clearPttSession()
                         self.errorMessage = nil
 
                         if !result.text.isEmpty {
@@ -575,8 +566,8 @@ class AppState: ObservableObject {
                     DispatchQueue.main.async {
                         self.isProcessing = false
                         self.liveTranscription = nil
-                        self.pttAccumulatedText = nil
-                        self.pttSessionId = nil
+                        self.recording.setPttAccumulatedText(nil)
+                        self.recording.clearPttSession()
                         self.errorMessage = "Transcription failed: \(error.localizedDescription)"
                         NSLog("[Parakatt] PTT session finish FAILED: %@", error.localizedDescription)
                     }
@@ -1011,10 +1002,10 @@ class AppState: ObservableObject {
         } catch {
             NSLog("[Parakatt] Failed to start PTT session: %@ — will use single-shot on stop",
                   error.localizedDescription)
-            return  // pttSessionId stays nil → falls through to single-shot
+            return  // PTT session stays nil → falls through to single-shot
         }
 
-        pttSessionId = sessionId
+        recording.startPttSession(id: sessionId)
 
         // Keep streaming preview running — it will compose accumulated chunk text
         // with a live preview of the unprocessed buffer tail, keeping the overlay
@@ -1057,7 +1048,7 @@ class AppState: ObservableObject {
     /// pauses, which is dramatically more responsive than the old
     /// fixed 30 s × 28 s timer.
     private func dispatchPttChunk() {
-        guard let sessionId = pttSessionId, isRecording else { return }
+        guard let sessionId = recording.currentPttSessionId(), isRecording else { return }
 
         let minSamples = Int(pttMinChunkSecs * Double(sttSampleRate))
         let maxSamples = Int(pttMaxChunkSecs * Double(sttSampleRate))
@@ -1067,7 +1058,7 @@ class AppState: ObservableObject {
             minSamples: minSamples,
             maxSamples: maxSamples,
             overlapSamples: overlapSamples,
-            chunkIndex: pttChunkIndex,
+            chunkIndex: recording.currentPttChunkIndex(),
             pauseSilenceCallbacks: pttPauseSilenceCallbacks
         ) else { return }
         let chunkSamples = chunk.samples
@@ -1078,15 +1069,14 @@ class AppState: ObservableObject {
         // after ~2 sentences" bug). Reset the LA-2 state and the
         // gate watermark so the preview starts fresh on the new
         // (shorter) tail. The committed text we want the user to
-        // see across chunk boundaries is `pttAccumulatedText`,
+        // see across chunk boundaries is the accumulated PTT text,
         // which is updated when the chunk processing returns.
         recording.resetPreviewWatermark()
         if let bpId = recording.currentBufferedPreviewSessionId() {
             try? bridge?.bufferedPreviewReset(sessionId: bpId)
         }
 
-        let currentIndex = pttChunkIndex
-        pttChunkIndex += 1
+        let currentIndex = recording.takeNextPttChunkIndex()
         let context = contextService?.currentContext()
         let mode = activeMode
 
@@ -1114,7 +1104,7 @@ class AppState: ObservableObject {
                 DispatchQueue.main.async {
                     if self.isRecording || self.isProcessing {
                         let newAccumulated = acc.isEmpty ? nil : acc
-                        self.pttAccumulatedText = newAccumulated
+                        self.recording.setPttAccumulatedText(newAccumulated)
                         // Immediately update live display to prevent flash/disappearance
                         // The streaming preview will append the tail on its next cycle
                         if let text = newAccumulated {
@@ -1201,7 +1191,7 @@ class AppState: ObservableObject {
                 DispatchQueue.main.async {
                     if self.isRecording {
                         // Compose the display text. Three sources:
-                        //   1. pttAccumulatedText: text already
+                        //   1. accumulated PTT text: text already
                         //      committed by the chunk pipeline
                         //      (everything finalized in past chunks)
                         //   2. result.committedText: LA-2 stable
@@ -1213,7 +1203,7 @@ class AppState: ObservableObject {
                         // Concatenate (1) + (2) into the committed
                         // surface and put (3) into tentative. The
                         // overlay's two-style display reads both.
-                        let chunkPrefix = self.pttAccumulatedText ?? ""
+                        let chunkPrefix = self.recording.currentPttAccumulatedText() ?? ""
                         let committedFull: String
                         if chunkPrefix.isEmpty {
                             committedFull = result.committedText
