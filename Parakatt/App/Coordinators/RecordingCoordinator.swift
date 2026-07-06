@@ -391,8 +391,10 @@ final class RecordingCoordinator: ObservableObject {
         stopPttChunkTimer()
     }
 
-    func startPttSession(id: String) {
+    func beginPttSessionDispatch(id: String, onDispatch: @escaping () -> Void) {
         pttSessionId = id
+        onDispatch()
+        startPttDispatchTimer(interval: pttDispatchTickSecs, onTick: onDispatch)
     }
 
     func clearPttSession() {

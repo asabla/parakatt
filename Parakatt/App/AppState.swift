@@ -836,22 +836,7 @@ class AppState: ObservableObject {
             return  // PTT session stays nil → falls through to single-shot
         }
 
-        recording.startPttSession(id: sessionId)
-
-        // Keep streaming preview running — it will compose accumulated chunk text
-        // with a live preview of the unprocessed buffer tail, keeping the overlay
-        // updated between chunk dispatches.
-
-        // Dispatch the first chunk immediately (~5s of audio).
-        dispatchPttChunk()
-
-        // Set up repeating timer that wakes every configured interval
-        // and decides whether the audio buffer is in a state where it
-        // should be flushed as a commit chunk. Policy lives in
-        // dispatchPttChunk: dispatch when (a) buffer ≥ minimum chunk
-        // duration AND (the speaker has been silent long enough to mark
-        // a pause OR the buffer reached the maximum chunk duration).
-        recording.startPttDispatchTimer(interval: recording.pttDispatchTickSecs) { [weak self] in
+        recording.beginPttSessionDispatch(id: sessionId) { [weak self] in
             self?.dispatchPttChunk()
         }
 
