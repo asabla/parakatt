@@ -207,7 +207,6 @@ class AppState: ObservableObject {
     /// Session ID for incremental processing (nil = short recording, single-shot).
     private var pttSessionId: String?
     private var pttChunkIndex: UInt32 = 0
-    private var pttChunkTimer: Timer?
     private let pttChunkLock = NSLock()  // serializes chunk processing
     /// Accumulated text from processed chunks (used to compose live display).
     private var pttAccumulatedText: String?
@@ -384,8 +383,7 @@ class AppState: ObservableObject {
         recording.resetForNewRecording()
         pttSessionId = nil
         pttChunkIndex = 0
-        pttChunkTimer?.invalidate()
-        pttChunkTimer = nil
+        recording.stopPttChunkTimer()
         pttAccumulatedText = nil
 
         do {
@@ -420,10 +418,7 @@ class AppState: ObservableObject {
             startStreamingUpdates()
 
             // After 5s, transition to incremental session-based processing.
-            pttChunkTimer = Timer.scheduledTimer(
-                withTimeInterval: firstChunkDelaySecs,
-                repeats: false
-            ) { [weak self] _ in
+            recording.startPttTransitionTimer(delay: firstChunkDelaySecs) { [weak self] in
                 self?.startIncrementalSession()
             }
 
@@ -450,8 +445,7 @@ class AppState: ObservableObject {
     func stopRecording() {
         guard isRecording else { return }
 
-        pttChunkTimer?.invalidate()
-        pttChunkTimer = nil
+        recording.stopPttChunkTimer()
         recording.stopStreamingUpdates()
         isRecording = false
         currentAudioLevel = 0
@@ -1035,10 +1029,7 @@ class AppState: ObservableObject {
         // dispatchPttChunk: dispatch when (a) buffer ≥ pttMinChunkSecs
         // AND (the speaker has been silent ≥ pttPauseSilenceCallbacks
         // OR buffer ≥ pttMaxChunkSecs).
-        pttChunkTimer = Timer.scheduledTimer(
-            withTimeInterval: pttDispatchTickSecs,
-            repeats: true
-        ) { [weak self] _ in
+        recording.startPttDispatchTimer(interval: pttDispatchTickSecs) { [weak self] in
             self?.dispatchPttChunk()
         }
 

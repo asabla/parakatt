@@ -61,6 +61,7 @@ final class RecordingCoordinator: ObservableObject {
     private var longRecordingWarned = false
 
     private var streamingTimer: Timer?
+    private var pttChunkTimer: Timer?
     private var isStreamTranscribing = false
     /// Sample count of the last buffer we ran the streaming preview on.
     /// Used to skip re-transcribing essentially the same audio when the
@@ -203,6 +204,25 @@ final class RecordingCoordinator: ObservableObject {
         streamingTimer?.invalidate()
         streamingTimer = nil
         lastStreamingSampleCount = 0
+    }
+
+    func startPttTransitionTimer(delay: TimeInterval, onFire: @escaping () -> Void) {
+        stopPttChunkTimer()
+        pttChunkTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { _ in
+            onFire()
+        }
+    }
+
+    func startPttDispatchTimer(interval: TimeInterval, onTick: @escaping () -> Void) {
+        stopPttChunkTimer()
+        pttChunkTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { _ in
+            onTick()
+        }
+    }
+
+    func stopPttChunkTimer() {
+        pttChunkTimer?.invalidate()
+        pttChunkTimer = nil
     }
 
     func resetPreviewWatermark() {
