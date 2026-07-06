@@ -1,5 +1,7 @@
+import AppKit
 import Combine
 import Foundation
+import HotKey
 import ParakattCore
 
 /// User preferences — the persisted bag of toggles + LLM connection info.
@@ -183,6 +185,42 @@ final class SettingsCoordinator: ObservableObject {
         } catch {
             NSLog("[Parakatt] Failed to set dictionary rules: %@", error.localizedDescription)
         }
+    }
+
+    /// Load hotkey config from the Rust engine. Returns parsed key/modifiers/mode.
+    func loadHotkeyConfig(bridge: CoreBridge?) -> (key: Key, modifiers: NSEvent.ModifierFlags, mode: String) {
+        guard let bridge else {
+            return (.space, [.option], "hold")
+        }
+        guard let config = try? bridge.getHotkeyConfig() else {
+            return (.space, [.option], "hold")
+        }
+        let key = HotkeyService.keyFromString(config.key) ?? .space
+        let modifiers = HotkeyService.modifiersFromStrings(config.modifiers)
+        let mode = config.mode
+        return (key, modifiers.isEmpty ? [.option] : modifiers, mode)
+    }
+
+    /// Save hotkey config and reconfigure the service.
+    func setHotkey(
+        key: Key,
+        modifiers: NSEvent.ModifierFlags,
+        mode: String,
+        bridge: CoreBridge?,
+        hotkeyService: HotkeyService?
+    ) {
+        let keyStr = HotkeyService.stringFromKey(key)
+        let modStrs = HotkeyService.stringsFromModifiers(modifiers)
+        let config = HotkeyConfig(key: keyStr, modifiers: modStrs, mode: mode)
+
+        do {
+            try bridge?.setHotkeyConfig(config)
+        } catch {
+            NSLog("[Parakatt] Failed to save hotkey config: %@", error.localizedDescription)
+        }
+
+        hotkeyService?.reconfigure(key: key, modifiers: modifiers, mode: mode)
+        NSLog("[Parakatt] Hotkey updated: %@ + %@ (%@)", modStrs.joined(separator: "+"), keyStr, mode)
     }
 
     func setAutoPaste(_ enabled: Bool, bridge: CoreBridge?) {
