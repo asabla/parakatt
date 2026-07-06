@@ -271,6 +271,9 @@ class AppState: ObservableObject {
     init(environment: PlatformEnvironment = MacAppEnvironment()) {
         self.environment = environment
         self.settings = SettingsCoordinator(secrets: environment.secrets)
+        self.model.onErrorMessage = { [weak self] message in
+            self?.errorMessage = message
+        }
 
         // Forward each coordinator's objectWillChange into AppState's
         // own so SwiftUI surfaces that observe `appState` (rather than
@@ -366,53 +369,7 @@ class AppState: ObservableObject {
             return
         }
 
-        // Check if any model is downloaded; if not, prompt user to download
-        let models = bridge?.listModels() ?? []
-        let downloadedModel = models.first(where: { $0.downloaded })
-
-        // Find the offline commit-path model (parakeet-*) and the
-        // optional streaming preview model (nemotron-*). Both can be
-        // downloaded; we register both.
-        let offlineModel = models.first(where: { $0.downloaded && $0.id.hasPrefix("parakeet-") })
-        let streamingModel = models.first(where: { $0.downloaded && $0.id.hasPrefix("nemotron-") })
-
-        if let model = offlineModel {
-            // Load the downloaded model on a background thread (Metal/GPU init is heavy)
-            let modelId = model.id
-            let streamingId = streamingModel?.id
-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                guard let self, let bridge = self.bridge else { return }
-
-                NSLog("[Parakatt] Loading offline model '%@' in background...", modelId)
-                do {
-                    try bridge.loadModel(modelId)
-                    DispatchQueue.main.async {
-                        self.isModelLoaded = true
-                        self.activeModelId = modelId
-                        NSLog("[Parakatt] Offline model loaded — ready to transcribe")
-                    }
-                } catch {
-                    DispatchQueue.main.async {
-                        NSLog("[Parakatt] Offline model load failed: \(error) — transcription won't work until a model is loaded")
-                    }
-                }
-
-                // Optionally register the streaming preview model
-                // alongside it. Failure here is non-fatal — the
-                // commit path still works.
-                if let streamingId {
-                    do {
-                        try bridge.loadModel(streamingId)
-                        NSLog("[Parakatt] Streaming model registered: %@", streamingId)
-                    } catch {
-                        NSLog("[Parakatt] Streaming model register failed: %@", error.localizedDescription)
-                    }
-                }
-            }
-        } else {
-            NSLog("[Parakatt] No offline model downloaded — user needs to download one")
-            needsModelDownload = true
-        }
+        model.loadDownloadedModels(bridge: bridge)
     }
 
     /// Clean up all running sessions and audio capture on app termination.
@@ -425,6 +382,7 @@ class AppState: ObservableObject {
         if #available(macOS 14.2, *) {
             cancelMeeting()
         }
+        model.shutdown()
         bridge = nil
     }
 
@@ -1343,115 +1301,25 @@ class AppState: ObservableObject {
     // MARK: - Model management
 
     func loadModel(_ modelId: String) {
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let signpostID = OSSignpostID(log: signpostLog)
-            os_signpost(.begin, log: signpostLog, name: "LoadModel", signpostID: signpostID, "%{public}s", modelId)
-            defer { os_signpost(.end, log: signpostLog, name: "LoadModel", signpostID: signpostID) }
-
-            guard let self else { return }
-            do {
-                try self.bridge?.loadModel(modelId)
-                DispatchQueue.main.async {
-                    self.isModelLoaded = true
-                    self.activeModelId = modelId
-                    self.errorMessage = nil
-                    NSLog("[Parakatt] Loaded model: \(modelId)")
-                }
-            } catch {
-                DispatchQueue.main.async {
-                    self.errorMessage = "Failed to load model: \(error.localizedDescription)"
-                    NSLog("[Parakatt] Model load failed: \(error)")
-                }
-            }
-        }
+        model.loadModel(modelId, bridge: bridge)
     }
 
     // MARK: - Model downloading
 
-    private var downloadPollTimer: Timer?
-
     func listModels() -> [ParakattCore.ModelInfo] {
-        bridge?.listModels() ?? []
+        model.listModels(bridge: bridge)
     }
 
     func startModelDownload(_ modelId: String) {
-        do {
-            try bridge?.startDownload(modelId)
-            isDownloading = true
-            startDownloadPolling()
-            NSLog("[Parakatt] Started download: %@", modelId)
-        } catch {
-            errorMessage = "Failed to start download: \(error.localizedDescription)"
-            NSLog("[Parakatt] Download start failed: %@", error.localizedDescription)
-        }
+        model.startDownload(modelId, bridge: bridge)
     }
 
     func cancelModelDownload() {
-        bridge?.cancelDownload()
-        NSLog("[Parakatt] Download cancelled")
+        model.cancelDownload(bridge: bridge)
     }
 
     func deleteModel(_ modelId: String) {
-        do {
-            try bridge?.deleteModel(modelId)
-            // If the deleted model was loaded, reset state
-            if activeModelId == modelId {
-                isModelLoaded = false
-                activeModelId = nil
-                needsModelDownload = listModels().first(where: { $0.downloaded }) == nil
-            }
-            NSLog("[Parakatt] Deleted model: %@", modelId)
-        } catch {
-            errorMessage = "Failed to delete model: \(error.localizedDescription)"
-            NSLog("[Parakatt] Delete model failed: %@", error.localizedDescription)
-        }
-    }
-
-    private func startDownloadPolling() {
-        downloadPollTimer?.invalidate()
-        downloadPollTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
-            self?.pollDownloadProgress()
-        }
-    }
-
-    private func stopDownloadPolling() {
-        downloadPollTimer?.invalidate()
-        downloadPollTimer = nil
-    }
-
-    private func pollDownloadProgress() {
-        guard let bridge else { return }
-
-        guard let progress = try? bridge.getDownloadProgress() else { return }
-        downloadProgress = progress
-
-        switch progress.state {
-        case .completed:
-            stopDownloadPolling()
-            isDownloading = false
-            needsModelDownload = false
-            NSLog("[Parakatt] Download completed: %@", progress.modelId)
-            // Auto-load the just-downloaded model
-            loadModel(progress.modelId)
-
-        case .failed(let message):
-            stopDownloadPolling()
-            isDownloading = false
-            errorMessage = "Download failed: \(message)"
-            NSLog("[Parakatt] Download failed: %@", message)
-
-        case .cancelled:
-            stopDownloadPolling()
-            isDownloading = false
-            NSLog("[Parakatt] Download cancelled")
-
-        case .idle:
-            stopDownloadPolling()
-            isDownloading = false
-
-        case .downloading:
-            break // keep polling
-        }
+        model.deleteModel(modelId, bridge: bridge)
     }
 
     // MARK: - Processing
