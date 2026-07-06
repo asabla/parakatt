@@ -87,12 +87,30 @@ class AppState: ObservableObject {
 
     // MARK: - Published state (still on AppState)
 
-    @Published var isModelLoaded = false
-    @Published var activeModelId: String?
     @Published var errorMessage: String?
-    @Published var needsModelDownload = false
-    @Published var isDownloading = false
-    @Published var downloadProgress: ParakattCore.DownloadProgress?
+
+    // MARK: - Model state (lives on ModelCoordinator)
+
+    var isModelLoaded: Bool {
+        get { model.isModelLoaded }
+        set { model.isModelLoaded = newValue }
+    }
+    var activeModelId: String? {
+        get { model.activeModelId }
+        set { model.activeModelId = newValue }
+    }
+    var needsModelDownload: Bool {
+        get { model.needsModelDownload }
+        set { model.needsModelDownload = newValue }
+    }
+    var isDownloading: Bool {
+        get { model.isDownloading }
+        set { model.isDownloading = newValue }
+    }
+    var downloadProgress: ParakattCore.DownloadProgress? {
+        get { model.downloadProgress }
+        set { model.downloadProgress = newValue }
+    }
 
     // Meeting state
     @Published var isMeetingActive = false

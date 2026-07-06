@@ -186,9 +186,9 @@ class MenuBarManager: NSObject {
 
     private func observeState() {
         appState.recording.$isRecording
-            .combineLatest(appState.recording.$isProcessing, appState.$isModelLoaded)
+            .combineLatest(appState.recording.$isProcessing, appState.model.$isModelLoaded)
             .combineLatest(appState.$isMeetingActive)
-            .combineLatest(appState.$isDownloading)
+            .combineLatest(appState.model.$isDownloading)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] nested, isDownloading in
                 let (inner, isMeetingActive) = nested
