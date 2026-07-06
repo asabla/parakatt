@@ -902,17 +902,7 @@ class AppState: ObservableObject {
         )
 
         session.onChunkTranscribed = { [weak self] newText, accumulated, segments in
-            guard let self else { return }
-            self.meetingLatestChunk = newText
-            self.meetingTranscription = accumulated
-            if !segments.isEmpty {
-                // Segments carry absolute-to-session timestamps already.
-                // Track where the latest chunk starts so the live view can
-                // highlight the new arrivals.
-                let chunkStart = segments.first?.startSecs
-                self.meetingSegments.append(contentsOf: segments)
-                self.meetingLatestChunkStartSecs = chunkStart
-            }
+            self?.meeting.applyChunk(newText: newText, accumulatedText: accumulated, segments: segments)
         }
 
         session.onChunkHealth = { [weak self] micDbfs, sysDbfs in
@@ -985,10 +975,10 @@ class AppState: ObservableObject {
             meeting.markStartFailed()
 
             if let audioErr = error as? SystemAudioCaptureError, case .permissionDenied = audioErr {
-                meetingAudioStatus = .permissionDenied
+                meeting.markPermissionDenied()
                 promptForSystemAudioPermission()
             } else {
-                meetingAudioStatus = .error(error.localizedDescription)
+                meeting.markStartError(error.localizedDescription)
                 errorMessage = "Failed to start meeting: \(error.localizedDescription)"
             }
         }

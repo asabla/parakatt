@@ -56,6 +56,19 @@ final class MeetingCoordinator: ObservableObject {
         resetAudioStatus()
     }
 
+    func applyChunk(newText: String, accumulatedText: String, segments: [TimestampedSegment]) {
+        meetingLatestChunk = newText
+        meetingTranscription = accumulatedText
+        if !segments.isEmpty {
+            // Segments carry absolute-to-session timestamps already.
+            // Track where the latest chunk starts so the live view can
+            // highlight the new arrivals.
+            let chunkStart = segments.first?.startSecs
+            meetingSegments.append(contentsOf: segments)
+            meetingLatestChunkStartSecs = chunkStart
+        }
+    }
+
     func markFinished(transcription: String) {
         isMeetingActive = false
         stopElapsedTimer()
@@ -75,6 +88,14 @@ final class MeetingCoordinator: ObservableObject {
     func markStartFailed() {
         isMeetingActive = false
         stopElapsedTimer()
+    }
+
+    func markPermissionDenied() {
+        meetingAudioStatus = .permissionDenied
+    }
+
+    func markStartError(_ message: String) {
+        meetingAudioStatus = .error(message)
     }
 
     func markCancelled() {
