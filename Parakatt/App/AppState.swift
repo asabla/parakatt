@@ -337,18 +337,10 @@ class AppState: ObservableObject {
                 NSLog("[Parakatt] Live preview: streaming path active")
             }
 
-            // Start throwaway buffered preview for immediate feedback.
-            // This is the fallback path for users without the streaming
-            // model, AND it runs alongside the streaming preview as a
-            // safety net while the streaming model warms up.
-            recording.startStreamingUpdates(interval: recording.streamingInterval) { [weak self] in
-                self?.updateLiveTranscription()
-            }
-
-            // After the configured grace period, transition to incremental session-based processing.
-            recording.startPttTransitionTimer(delay: recording.firstChunkDelaySecs) { [weak self] in
-                self?.startIncrementalSession()
-            }
+            recording.startRecordingTimers(
+                onPreviewTick: { [weak self] in self?.updateLiveTranscription() },
+                onIncrementalStart: { [weak self] in self?.startIncrementalSession() }
+            )
 
             NSLog("[Parakatt] Recording STARTED (modelLoaded=%d, incremental after %.0fs)",
                   isModelLoaded ? 1 : 0, recording.firstChunkDelaySecs)

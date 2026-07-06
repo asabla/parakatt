@@ -169,6 +169,11 @@ final class RecordingCoordinator: ObservableObject {
         resetForNewRecording()
     }
 
+    func startRecordingTimers(onPreviewTick: @escaping () -> Void, onIncrementalStart: @escaping () -> Void) {
+        startStreamingUpdates(interval: streamingInterval, onTick: onPreviewTick)
+        startPttTransitionTimer(delay: firstChunkDelaySecs, onFire: onIncrementalStart)
+    }
+
     func markRecordingStartFailed() {
         isRecording = false
     }
