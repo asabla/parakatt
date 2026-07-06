@@ -165,6 +165,14 @@ final class SettingsCoordinator: ObservableObject {
         }
     }
 
+    func resolveEffectiveMode(for context: AppContextInfo?, bridge: CoreBridge?) -> String {
+        if let bundleId = context?.appBundleId,
+           let resolved = try? bridge?.resolveModeForApp(bundleId: bundleId) {
+            return resolved
+        }
+        return activeMode
+    }
+
     func getStatistics(bridge: CoreBridge?) -> [(String, String)] {
         do {
             return try bridge?.getStatistics() ?? []

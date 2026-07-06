@@ -827,26 +827,17 @@ class AppState: ObservableObject {
         NSLog("[Parakatt] Processing %d samples (%.1fs), maxAmp=%.4f, mode=%@, llm=%@",
               samples.count, Double(samples.count) / Double(sampleRate), maxAmp, activeMode, llmProvider.isEmpty ? "none" : llmProvider)
 
+        guard let bridge else {
+            isProcessing = false
+            return
+        }
+        let context = contextService?.currentContext()
+        let effectiveMode = settings.resolveEffectiveMode(for: context, bridge: bridge)
+
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let signpostID = OSSignpostID(log: signpostLog)
             os_signpost(.begin, log: signpostLog, name: "Transcribe", signpostID: signpostID, "samples: %d", samples.count)
             defer { os_signpost(.end, log: signpostLog, name: "Transcribe", signpostID: signpostID) }
-
-            guard let self, let bridge = self.bridge else {
-                DispatchQueue.main.async { self?.isProcessing = false }
-                return
-            }
-
-            let context = self.contextService?.currentContext()
-
-            // Resolve mode: use per-app default if configured, otherwise global active mode
-            let effectiveMode: String
-            if let bundleId = context?.appBundleId,
-               let resolved = try? bridge.resolveModeForApp(bundleId: bundleId) {
-                effectiveMode = resolved
-            } else {
-                effectiveMode = self.activeMode
-            }
 
             do {
                 let result = try bridge.transcribe(
@@ -857,6 +848,7 @@ class AppState: ObservableObject {
                 )
 
                 DispatchQueue.main.async {
+                    guard let self else { return }
                     self.isProcessing = false
                     self.lastTranscription = result.text
                     self.errorMessage = nil
@@ -875,6 +867,7 @@ class AppState: ObservableObject {
                 }
             } catch {
                 DispatchQueue.main.async {
+                    guard let self else { return }
                     self.isProcessing = false
                     self.errorMessage = "Transcription failed: \(error.localizedDescription)"
                     NSLog("[Parakatt] Transcription FAILED: %@", error.localizedDescription)
