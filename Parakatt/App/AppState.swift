@@ -44,6 +44,7 @@ class AppState: ObservableObject {
     private let permissions = PermissionCoordinator()
     private let diagnostics = DiagnosticsCoordinator()
     private let textOutput = TextOutputCoordinator()
+    private let livePreview = LivePreviewCoordinator()
 
     private var coordinatorCancellables = Set<AnyCancellable>()
 
@@ -210,15 +211,6 @@ class AppState: ObservableObject {
     private var bridge: CoreBridge?
     private var engineReady = false
 
-    /// Cache-aware streaming live preview (Nemotron). Owned by the
-    /// app, started/stopped per recording. Receives committed +
-    /// tentative slices via its onUpdate callback.
-    private var livePreview: LivePreviewService?
-    /// True while the streaming preview is active for the current
-    /// recording. Used by appendAudioSamples to decide whether to
-    /// also feed the buffered v3 path.
-    private var livePreviewActive = false
-
     // MARK: - Lifecycle
 
     init(environment: PlatformEnvironment = MacAppEnvironment()) {
@@ -282,12 +274,10 @@ class AppState: ObservableObject {
             engineReady = true
             NSLog("[Parakatt] Engine created")
 
-            // Build the live preview service. It's a no-op until
-            // start() is called and noop-fails gracefully if no
-            // streaming model is loaded.
+            // Build the live preview service. It's a no-op until start()
+            // is called and gracefully falls back if no streaming model is loaded.
             if let bridge = bridge {
-                let preview = LivePreviewService(bridge: bridge)
-                preview.onUpdate = { [weak self] committed, tentative, _ in
+                livePreview.configure(bridge: bridge) { [weak self] committed, tentative, _ in
                     guard let self else { return }
                     self.livePreviewCommitted = committed
                     self.livePreviewTentative = tentative
@@ -296,11 +286,6 @@ class AppState: ObservableObject {
                         : (committed.isEmpty ? tentative : "\(committed) \(tentative)")
                     self.liveTranscription = display.isEmpty ? nil : display
                 }
-                preview.onError = { [weak self] msg in
-                    NSLog("[Parakatt] LivePreview disabled: %@", msg)
-                    self?.livePreviewActive = false
-                }
-                livePreview = preview
             }
 
             // Load behavior settings from config
@@ -365,17 +350,8 @@ class AppState: ObservableObject {
             // who didn't download Nemotron, or first launch), this
             // gracefully falls back to the buffered v3 + LA-2 path
             // via the throwaway streaming preview below.
-            if let preview = livePreview, preview.isStreamingAvailable {
-                do {
-                    _ = try preview.start()
-                    livePreviewActive = true
-                    NSLog("[Parakatt] Live preview: streaming path active")
-                } catch {
-                    livePreviewActive = false
-                    NSLog("[Parakatt] Live preview start failed: %@ — falling back to buffered preview", error.localizedDescription)
-                }
-            } else {
-                livePreviewActive = false
+            if livePreview.startIfAvailable() {
+                NSLog("[Parakatt] Live preview: streaming path active")
             }
 
             // Start throwaway buffered preview for immediate feedback.
@@ -433,9 +409,8 @@ class AppState: ObservableObject {
         // Tear down the live preview session and grab its final
         // committed text. This becomes the canonical preview while
         // the commit pipeline finishes processing the buffer tail.
-        if livePreviewActive {
-            let finalText = livePreview?.stop() ?? ""
-            livePreviewActive = false
+        if livePreview.isActive {
+            let finalText = livePreview.stop()
             if !finalText.isEmpty {
                 livePreviewCommitted = finalText
                 livePreviewTentative = ""
@@ -1095,7 +1070,7 @@ class AppState: ObservableObject {
         // we don't need to also run the buffered preview — they
         // both publish to livePreviewCommitted/Tentative and one
         // will dominate. Skip to save CPU.
-        if livePreviewActive { return }
+        if livePreview.isActive { return }
 
         guard recording.beginStreamTranscribing() else { return }
 
@@ -1189,13 +1164,13 @@ class AppState: ObservableObject {
     // MARK: - Audio buffer
 
     private func appendAudioSamples(_ samples: [Float]) {
-        let result = recording.appendAudioSamples(samples, isRecording: isRecording, livePreviewActive: livePreviewActive)
+        let result = recording.appendAudioSamples(samples, isRecording: isRecording, livePreviewActive: livePreview.isActive)
 
         // Feed the cache-aware streaming preview in parallel. The service does
         // its own backpressure (drops if a feed is already in flight) so we can
         // call it on every audio callback without queue pile-up.
         if result.shouldFeedLivePreview {
-            livePreview?.enqueue(samples)
+            livePreview.enqueue(samples)
         }
 
         // Warn once when push-to-talk exceeds 5 minutes.
