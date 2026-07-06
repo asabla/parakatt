@@ -451,7 +451,7 @@ class AppState: ObservableObject {
             )
         } else {
             // Path A: short recording, no session — single-shot processing.
-            liveTranscription = nil
+            recording.clearLiveTranscription()
             NSLog("[Parakatt] Recording stopped (short, single-shot)")
 
             let samples = recording.drainBuffer()
@@ -773,7 +773,7 @@ class AppState: ObservableObject {
 
     /// Single-shot transcription for short recordings (used when no incremental session was opened).
     private func processAudio(_ samples: [Float]) {
-        isProcessing = true
+        recording.beginSingleShotProcessing()
 
         let sampleRate = recording.sampleRate
         let context = contextService?.currentContext()
@@ -788,12 +788,11 @@ class AppState: ObservableObject {
             context: context,
             effectiveMode: effectiveMode,
             onMissingEngine: { [weak self] in
-                self?.isProcessing = false
+                self?.recording.failSingleShot()
             },
             onSuccess: { [weak self] result, maxAmp in
                 guard let self else { return }
-                self.isProcessing = false
-                self.lastTranscription = result.text
+                self.recording.completeSingleShot(text: result.text)
                 self.errorMessage = nil
 
                 if !result.text.isEmpty {
@@ -814,7 +813,7 @@ class AppState: ObservableObject {
             },
             onFailure: { [weak self] message in
                 guard let self else { return }
-                self.isProcessing = false
+                self.recording.failSingleShot()
                 self.errorMessage = "Transcription failed: \(message)"
                 NSLog("[Parakatt] Transcription FAILED: %@", message)
             }

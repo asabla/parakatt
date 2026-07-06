@@ -199,6 +199,23 @@ final class RecordingCoordinator: ObservableObject {
         clearPttSession()
     }
 
+    func beginSingleShotProcessing() {
+        isProcessing = true
+    }
+
+    func completeSingleShot(text: String) {
+        isProcessing = false
+        lastTranscription = text
+    }
+
+    func failSingleShot() {
+        isProcessing = false
+    }
+
+    func clearLiveTranscription() {
+        liveTranscription = nil
+    }
+
     func beginCaptureDrain() {
         isCaptureDraining = true
     }
