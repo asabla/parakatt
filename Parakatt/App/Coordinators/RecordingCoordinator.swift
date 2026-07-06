@@ -62,6 +62,9 @@ final class RecordingCoordinator: ObservableObject {
 
     private var streamingTimer: Timer?
     private var pttChunkTimer: Timer?
+    private nonisolated(unsafe) let pttChunkLock = NSLock()
+    /// True while the audio engine is still running for a brief grace period after hotkey release.
+    private var isCaptureDraining = false
     /// Session ID for incremental processing (nil = short recording, single-shot).
     private var pttSessionId: String?
     private var pttChunkIndex: UInt32 = 0
@@ -87,6 +90,24 @@ final class RecordingCoordinator: ObservableObject {
         resetPttState()
         bufferedPreviewSessionId = nil
         clearBuffer()
+    }
+
+    func canStartRecording() -> Bool {
+        !isRecording && !isCaptureDraining
+    }
+
+    func beginCaptureDrain() {
+        isCaptureDraining = true
+    }
+
+    func finishCaptureDrain() {
+        isCaptureDraining = false
+    }
+
+    nonisolated func withPttChunkLock<T>(_ body: () throws -> T) rethrows -> T {
+        pttChunkLock.lock()
+        defer { pttChunkLock.unlock() }
+        return try body()
     }
 
     func clearBuffer() {

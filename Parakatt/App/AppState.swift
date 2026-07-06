@@ -205,10 +205,6 @@ class AppState: ObservableObject {
 
     // MARK: - Incremental push-to-talk session
 
-    private let pttChunkLock = NSLock()  // serializes chunk processing
-    /// True while the audio engine is still running for a brief grace period after hotkey release.
-    private var isCaptureDraining = false
-
     /// Seconds before transitioning from single-shot preview to incremental chunking.
     private let firstChunkDelaySecs: TimeInterval = 1.0
     /// How often the dispatch timer wakes up. Each tick decides
@@ -363,7 +359,7 @@ class AppState: ObservableObject {
 
     /// Start a push-to-talk recording session via AVAudioEngine.
     func startRecording() {
-        guard !isRecording, !isCaptureDraining else {
+        guard recording.canStartRecording() else {
             NSLog("[Parakatt] startRecording called but already recording or draining — ignoring")
             return
         }
@@ -441,7 +437,7 @@ class AppState: ObservableObject {
         recording.stopStreamingUpdates()
         isRecording = false
         currentAudioLevel = 0
-        isCaptureDraining = true
+        recording.beginCaptureDrain()
 
         // Keep audio capture running briefly so the hardware buffer can drain,
         // then stop capture and process the tail.
@@ -463,7 +459,7 @@ class AppState: ObservableObject {
         // orange mic indicator actually turns off. Successive
         // dictations within the window stay warm (no cold-start).
         audioCaptureService?.prewarm(windowSecs: 20)
-        isCaptureDraining = false
+        recording.finishCaptureDrain()
 
         // Tear down the live preview session and grab its final
         // committed text. This becomes the canonical preview while
@@ -512,26 +508,25 @@ class AppState: ObservableObject {
                 // before the (potentially slow) finishSession call below,
                 // even if a future edit adds an early return inside.
                 do {
-                    self.pttChunkLock.lock()
-                    defer { self.pttChunkLock.unlock() }
-
-                    if remainingSamples.count >= Int(self.sttSampleRate / 10) {
-                        do {
-                            let result = try bridge.processChunk(
-                                sessionId: sessionId,
-                                audioSamples: remainingSamples,
-                                sampleRate: self.sttSampleRate,
-                                chunkIndex: currentIndex,
-                                mode: mode,
-                                context: context
-                            )
-                            NSLog("[Parakatt] PTT final chunk %d: \"%@\"", currentIndex, result.text)
-                        } catch {
-                            NSLog("[Parakatt] PTT final chunk failed: %@", error.localizedDescription)
+                    self.recording.withPttChunkLock {
+                        if remainingSamples.count >= Int(self.sttSampleRate / 10) {
+                            do {
+                                let result = try bridge.processChunk(
+                                    sessionId: sessionId,
+                                    audioSamples: remainingSamples,
+                                    sampleRate: self.sttSampleRate,
+                                    chunkIndex: currentIndex,
+                                    mode: mode,
+                                    context: context
+                                )
+                                NSLog("[Parakatt] PTT final chunk %d: \"%@\"", currentIndex, result.text)
+                            } catch {
+                                NSLog("[Parakatt] PTT final chunk failed: %@", error.localizedDescription)
+                            }
+                        } else {
+                            NSLog("[Parakatt] PTT tail too short (%.1fs), skipping",
+                                  Double(remainingSamples.count) / Double(self.sttSampleRate))
                         }
-                    } else {
-                        NSLog("[Parakatt] PTT tail too short (%.1fs), skipping",
-                              Double(remainingSamples.count) / Double(self.sttSampleRate))
                     }
                 }
 
@@ -1082,38 +1077,37 @@ class AppState: ObservableObject {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self, let bridge = self.bridge else { return }
 
-            self.pttChunkLock.lock()
-            defer { self.pttChunkLock.unlock() }
-
-            do {
-                let result = try bridge.processChunk(
-                    sessionId: sessionId,
-                    audioSamples: chunkSamples,
-                    sampleRate: self.sttSampleRate,
-                    chunkIndex: currentIndex,
-                    mode: mode,
-                    context: context
-                )
-                // Pull the running accumulated text on demand instead of
-                // having Rust clone it on every chunk.
-                let acc = (try? bridge.getSessionText(sessionId: sessionId)) ?? ""
-                if let llmErr = result.llmError {
-                    NSLog("[Parakatt] PTT chunk %d LLM degraded (raw text used): %@", currentIndex, llmErr)
-                }
-                DispatchQueue.main.async {
-                    if self.isRecording || self.isProcessing {
-                        let newAccumulated = acc.isEmpty ? nil : acc
-                        self.recording.setPttAccumulatedText(newAccumulated)
-                        // Immediately update live display to prevent flash/disappearance
-                        // The streaming preview will append the tail on its next cycle
-                        if let text = newAccumulated {
-                            self.liveTranscription = text
+            self.recording.withPttChunkLock {
+                do {
+                    let result = try bridge.processChunk(
+                        sessionId: sessionId,
+                        audioSamples: chunkSamples,
+                        sampleRate: self.sttSampleRate,
+                        chunkIndex: currentIndex,
+                        mode: mode,
+                        context: context
+                    )
+                    // Pull the running accumulated text on demand instead of
+                    // having Rust clone it on every chunk.
+                    let acc = (try? bridge.getSessionText(sessionId: sessionId)) ?? ""
+                    if let llmErr = result.llmError {
+                        NSLog("[Parakatt] PTT chunk %d LLM degraded (raw text used): %@", currentIndex, llmErr)
+                    }
+                    DispatchQueue.main.async {
+                        if self.isRecording || self.isProcessing {
+                            let newAccumulated = acc.isEmpty ? nil : acc
+                            self.recording.setPttAccumulatedText(newAccumulated)
+                            // Immediately update live display to prevent flash/disappearance
+                            // The streaming preview will append the tail on its next cycle
+                            if let text = newAccumulated {
+                                self.liveTranscription = text
+                            }
                         }
                     }
+                    NSLog("[Parakatt] PTT chunk %d: \"%@\"", currentIndex, result.text)
+                } catch {
+                    NSLog("[Parakatt] PTT chunk %d failed: %@", currentIndex, error.localizedDescription)
                 }
-                NSLog("[Parakatt] PTT chunk %d: \"%@\"", currentIndex, result.text)
-            } catch {
-                NSLog("[Parakatt] PTT chunk %d failed: %@", currentIndex, error.localizedDescription)
             }
         }
     }
