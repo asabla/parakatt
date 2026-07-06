@@ -69,6 +69,12 @@ final class RecordingCoordinator: ObservableObject {
         let samples: [Float]
     }
 
+    enum CapturedAudioValidation {
+        case valid(durationSecs: Double)
+        case empty
+        case tooShort(durationSecs: Double)
+    }
+
     private var audioBuffer: [Float] = []
     private let audioBufferLock = NSLock()
     private var sampleCount = 0
@@ -207,6 +213,17 @@ final class RecordingCoordinator: ObservableObject {
         let samples = audioBuffer
         audioBufferLock.unlock()
         return samples
+    }
+
+    func validateCapturedAudio(_ samples: [Float], minimumDurationSecs: Double = 0.5) -> CapturedAudioValidation {
+        guard !samples.isEmpty else { return .empty }
+
+        let durationSecs = Double(samples.count) / Double(sampleRate)
+        guard durationSecs >= minimumDurationSecs else {
+            return .tooShort(durationSecs: durationSecs)
+        }
+
+        return .valid(durationSecs: durationSecs)
     }
 
     func appendAudioSamples(_ samples: [Float], isRecording: Bool, livePreviewActive: Bool) -> AppendResult {

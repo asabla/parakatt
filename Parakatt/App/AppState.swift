@@ -493,20 +493,16 @@ class AppState: ObservableObject {
 
             let samples = recording.drainBuffer()
 
-            guard !samples.isEmpty else {
+            switch recording.validateCapturedAudio(samples) {
+            case .valid:
+                processAudio(samples)
+            case .empty:
                 NSLog("[Parakatt] stopRecording: NO AUDIO IN BUFFER")
                 errorMessage = "No audio captured — check microphone permission in System Settings > Privacy & Security"
-                return
-            }
-
-            let durationSecs = Double(samples.count) / Double(recording.sampleRate)
-            guard durationSecs >= 0.5 else {
+            case .tooShort(let durationSecs):
                 NSLog("[Parakatt] Recording too short (%.2fs), discarding", durationSecs)
                 errorMessage = "Recording too short — hold longer to capture audio"
-                return
             }
-
-            processAudio(samples)
         }
     }
 
