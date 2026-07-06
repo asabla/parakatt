@@ -153,15 +153,6 @@ class AppState: ObservableObject {
     var meetingFirstChunkSecs: Double { meeting.meetingFirstChunkSecs }
     var meetingChunkIntervalSecs: Double { meeting.meetingChunkIntervalSecs }
 
-    /// When the system-audio side first started reporting silent/empty.
-    /// Used to decide when to escalate to a user-visible warning.
-    private var systemSilentSince: Date?
-    /// Rolling signal-quality threshold (dBFS) below which a source counts
-    /// as "silent". -60 dBFS matches the tap health threshold.
-    private let meetingSilenceDbfsThreshold: Double = -60.0
-    /// Seconds of continuous system-silent before we surface a user warning.
-    private let meetingSilenceWarnAfterSecs: TimeInterval = 15
-
     // Behavior settings live on SettingsCoordinator; these computed
     // shims keep existing call sites (`appState.autoPaste = ...` etc.)
     // working without touching every reference.
@@ -273,6 +264,10 @@ class AppState: ObservableObject {
         self.settings = SettingsCoordinator(secrets: environment.secrets)
         self.model.onErrorMessage = { [weak self] message in
             self?.errorMessage = message
+        }
+        self.meeting.onAudioWarning = { [weak self] message in
+            guard let self, self.errorMessage == nil else { return }
+            self.errorMessage = message
         }
 
         // Forward each coordinator's objectWillChange into AppState's
@@ -964,21 +959,15 @@ class AppState: ObservableObject {
         }
 
         session.onChunkHealth = { [weak self] micDbfs, sysDbfs in
-            self?.updateMeetingAudioStatus(micDbfs: micDbfs, sysDbfs: sysDbfs)
+            self?.meeting.updateAudioStatus(micDbfs: micDbfs, sysDbfs: sysDbfs)
         }
 
         session.onSystemAudioHealth = { [weak self] health in
-            self?.applySystemAudioHealth(health)
+            self?.meeting.applySystemAudioHealth(health)
         }
 
         session.onMicLevel = { [weak self] peak in
-            guard let self else { return }
-            // Exponential moving average to smooth the bars without losing
-            // responsiveness. Fast attack, slower release.
-            let prev = self.meetingMicLevel
-            let target = max(0, min(1, peak))
-            let alpha: Float = target > prev ? 0.6 : 0.2
-            self.meetingMicLevel = prev * (1 - alpha) + target * alpha
+            self?.meeting.updateMicLevel(peak: peak)
         }
 
         session.onSessionFinished = { [weak self] result in
@@ -988,10 +977,8 @@ class AppState: ObservableObject {
             self?.meetingTranscription = result.text
             self?.meetingLatestChunk = nil
             self?.meetingLatestChunkStartSecs = nil
-            self?.meetingAudioStatus = .unknown
-            self?.meetingMicLevel = 0
+            self?.meeting.resetAudioStatus()
             self?.isMeetingPaused = false
-            self?.systemSilentSince = nil
             self?.sendTranscriptionNotification(preview: result.text, source: "meeting")
             NSLog("[Parakatt] Meeting finished: %.0fs, %d chars", result.durationSecs, result.text.count)
         }
@@ -1012,6 +999,7 @@ class AppState: ObservableObject {
         meetingLatestChunkStartSecs = nil
         meetingSegments = []
         meetingElapsedTime = 0
+        meeting.resetAudioStatus()
 
         // Start elapsed time updates.
         meetingElapsedTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
@@ -1088,9 +1076,7 @@ class AppState: ObservableObject {
         meetingLatestChunk = nil
         meetingLatestChunkStartSecs = nil
         meetingSegments = []
-        meetingAudioStatus = .unknown
-        meetingMicLevel = 0
-        systemSilentSince = nil
+        meeting.resetAudioStatus()
     }
 
     /// Pause audio capture without ending the Rust session. The user keeps
@@ -1110,73 +1096,6 @@ class AppState: ObservableObject {
             isMeetingPaused = false
         } catch {
             errorMessage = "Failed to resume meeting: \(error.localizedDescription)"
-        }
-    }
-
-    /// Apply a per-chunk RMS sample to the meeting audio-status state machine.
-    /// Runs on the main thread (callback is already marshalled there).
-    private func updateMeetingAudioStatus(micDbfs: Double?, sysDbfs: Double?) {
-        let micSilent = (micDbfs ?? -.infinity) < meetingSilenceDbfsThreshold
-        let sysSilent = (sysDbfs ?? -.infinity) < meetingSilenceDbfsThreshold
-
-        // If the existing status is a terminal "permissionDenied" / "error",
-        // leave it — subsequent chunk health can't contradict those.
-        if case .permissionDenied = meetingAudioStatus { return }
-        if case .error = meetingAudioStatus { return }
-
-        if micSilent && sysSilent {
-            meetingAudioStatus = .bothSilent
-            systemSilentSince = systemSilentSince ?? Date()
-        } else if sysSilent {
-            let since = systemSilentSince ?? Date()
-            systemSilentSince = since
-            meetingAudioStatus = .systemSilent(since: since)
-            if Date().timeIntervalSince(since) >= meetingSilenceWarnAfterSecs {
-                if errorMessage == nil {
-                    errorMessage = "No audio from other apps detected. If this is a meeting, confirm the other app is playing to the selected output device."
-                }
-            }
-        } else {
-            meetingAudioStatus = .healthy
-            systemSilentSince = nil
-        }
-    }
-
-    /// Apply a tap-level SystemAudioHealth sample. Note: the per-chunk RMS
-    /// path (updateMeetingAudioStatus) is the source of truth for "is the
-    /// transcript going to be mic-only?". This only escalates to .systemEmpty
-    /// when the tap itself reports persistent empty buffers — that's a
-    /// distinct failure mode (wrong output device, not just quiet audio).
-    private func applySystemAudioHealth(_ health: SystemAudioHealth) {
-        if case .permissionDenied = meetingAudioStatus { return }
-        if case .error = meetingAudioStatus { return }
-
-        switch health {
-        case .empty(let forSeconds) where forSeconds >= meetingSilenceWarnAfterSecs:
-            meetingAudioStatus = .systemEmpty
-            if errorMessage == nil {
-                errorMessage = "System-audio tap is delivering empty buffers. This usually means the selected output device isn't the one your meeting app is using."
-            }
-        case .empty(let forSeconds) where forSeconds >= 2.0:
-            // Intermediate state: tap isn't delivering yet but it's early
-            // days. Let the user know we're mic-only for now without
-            // escalating all the way to a hard error.
-            let since = systemSilentSince ?? Date()
-            systemSilentSince = since
-            if case .systemEmpty = meetingAudioStatus { return }
-            if case .bothSilent = meetingAudioStatus { return }
-            meetingAudioStatus = .systemSilent(since: since)
-        case .silent(let forSeconds) where forSeconds >= 2.0:
-            let since = systemSilentSince ?? Date()
-            systemSilentSince = since
-            if case .systemEmpty = meetingAudioStatus { return }
-            if case .bothSilent = meetingAudioStatus { return }
-            meetingAudioStatus = .systemSilent(since: since)
-        case .ok:
-            systemSilentSince = nil
-            meetingAudioStatus = .healthy
-        default:
-            break
         }
     }
 
