@@ -45,6 +45,7 @@ class AppState: ObservableObject {
     private let diagnostics = DiagnosticsCoordinator()
     private let textOutput = TextOutputCoordinator()
     private let livePreview = LivePreviewCoordinator()
+    private let engine = EngineCoordinator()
 
     private var coordinatorCancellables = Set<AnyCancellable>()
 
@@ -206,8 +207,8 @@ class AppState: ObservableObject {
 
     // MARK: - Engine bridge
 
-    private var bridge: CoreBridge?
-    private var engineReady = false
+    private var bridge: CoreBridge? { engine.bridge }
+    private var engineReady: Bool { engine.isReady }
 
     // MARK: - Lifecycle
 
@@ -264,21 +265,18 @@ class AppState: ObservableObject {
 
         // Create the engine (lightweight — no model loaded yet)
         do {
-            bridge = try CoreBridge(
+            let bridge = try engine.initialize(
                 modelsDir: environment.paths.modelsDirectory.path,
                 configDir: environment.paths.configDirectory.path,
                 activeMode: activeMode
             )
-            engineReady = true
             NSLog("[Parakatt] Engine created")
 
             // Build the live preview service. It's a no-op until start()
             // is called and gracefully falls back if no streaming model is loaded.
-            if let bridge = bridge {
-                livePreview.configure(bridge: bridge) { [weak self] committed, tentative, _ in
-                    guard let self else { return }
-                    self.recording.applyPreviewText(committed: committed, tentative: tentative)
-                }
+            livePreview.configure(bridge: bridge) { [weak self] committed, tentative, _ in
+                guard let self else { return }
+                self.recording.applyPreviewText(committed: committed, tentative: tentative)
             }
 
             // Load behavior settings from config
@@ -309,7 +307,7 @@ class AppState: ObservableObject {
             cancelMeeting()
         }
         model.shutdown()
-        bridge = nil
+        engine.shutdown()
     }
 
     // MARK: - Recording
