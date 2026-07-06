@@ -344,10 +344,7 @@ class AppState: ObservableObject {
             }
 
             // Load behavior settings from config
-            if let ap = try? bridge?.getAutoPaste() { autoPaste = ap }
-            if let so = try? bridge?.getShowOverlay() { showRecordingOverlay = so }
-            if let dm = try? bridge?.getDebugMode() { debugMode = dm }
-            if let sl = try? bridge?.getSpeakerLabelsEnabled() { speakerLabelsEnabled = sl }
+            settings.loadBehaviorSettings(bridge: bridge)
 
             // Load API key from Keychain (not config file)
             loadLlmApiKeyFromKeychain()
@@ -765,26 +762,11 @@ class AppState: ObservableObject {
     }
 
     func configureLlm() {
-        do {
-            let key = llmApiKey.isEmpty ? nil : llmApiKey
-            try bridge?.configureLlm(
-                provider: llmProvider,
-                baseUrl: llmBaseUrl,
-                model: llmModel,
-                apiKey: key
-            )
-            NSLog("[Parakatt] LLM configured: provider=%@, model=%@", llmProvider, llmModel)
-        } catch {
-            NSLog("[Parakatt] LLM config failed: %@", error.localizedDescription)
-        }
+        settings.configureLlm(bridge: bridge)
     }
 
     func testLlmConnection() -> String {
-        do {
-            return try bridge?.testLlmConnection() ?? "No engine"
-        } catch {
-            return error.localizedDescription
-        }
+        settings.testLlmConnection(bridge: bridge)
     }
 
     func listModes() -> [ModeConfig] {
@@ -818,10 +800,7 @@ class AppState: ObservableObject {
         do {
             try bridge?.loadProfile(name)
             // Reload settings from the new config
-            if let ap = try? bridge?.getAutoPaste() { autoPaste = ap }
-            if let so = try? bridge?.getShowOverlay() { showRecordingOverlay = so }
-            if let dm = try? bridge?.getDebugMode() { debugMode = dm }
-            if let sl = try? bridge?.getSpeakerLabelsEnabled() { speakerLabelsEnabled = sl }
+            settings.loadBehaviorSettings(bridge: bridge)
             loadLlmApiKeyFromKeychain()
             NSLog("[Parakatt] Loaded profile: %@", name)
         } catch {
@@ -872,18 +851,7 @@ class AppState: ObservableObject {
     }
 
     func fetchLlmModels() -> [String] {
-        guard !llmProvider.isEmpty else { return [] }
-        do {
-            let key = llmApiKey.isEmpty ? nil : llmApiKey
-            return try bridge?.listLlmModels(
-                provider: llmProvider,
-                baseUrl: llmBaseUrl,
-                apiKey: key
-            ) ?? []
-        } catch {
-            NSLog("[Parakatt] Failed to list models: %@", error.localizedDescription)
-            return []
-        }
+        settings.fetchLlmModels(bridge: bridge)
     }
 
     // MARK: - Dictionary
@@ -943,39 +911,19 @@ class AppState: ObservableObject {
     // MARK: - Behavior settings
 
     func setAutoPaste(_ enabled: Bool) {
-        autoPaste = enabled
-        do {
-            try bridge?.setAutoPaste(enabled)
-        } catch {
-            NSLog("[Parakatt] Failed to save auto_paste setting: %@", error.localizedDescription)
-        }
+        settings.setAutoPaste(enabled, bridge: bridge)
     }
 
     func setDebugMode(_ enabled: Bool) {
-        debugMode = enabled
-        do {
-            try bridge?.setDebugMode(enabled)
-        } catch {
-            NSLog("[Parakatt] Failed to save debug_mode setting: %@", error.localizedDescription)
-        }
+        settings.setDebugMode(enabled, bridge: bridge)
     }
 
     func setSpeakerLabelsEnabled(_ enabled: Bool) {
-        speakerLabelsEnabled = enabled
-        do {
-            try bridge?.setSpeakerLabelsEnabled(enabled)
-        } catch {
-            NSLog("[Parakatt] Failed to save speaker_labels_enabled setting: %@", error.localizedDescription)
-        }
+        settings.setSpeakerLabelsEnabled(enabled, bridge: bridge)
     }
 
     func setShowOverlay(_ enabled: Bool) {
-        showRecordingOverlay = enabled
-        do {
-            try bridge?.setShowOverlay(enabled)
-        } catch {
-            NSLog("[Parakatt] Failed to save show_overlay setting: %@", error.localizedDescription)
-        }
+        settings.setShowOverlay(enabled, bridge: bridge)
     }
 
     // MARK: - Audio source preference
