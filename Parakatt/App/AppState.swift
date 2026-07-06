@@ -39,6 +39,7 @@ class AppState: ObservableObject {
     @Published var meeting = MeetingCoordinator()
     @Published var model = ModelCoordinator()
     private let history = HistoryCoordinator()
+    private let audioInput = AudioInputCoordinator()
 
     private var coordinatorCancellables = Set<AnyCancellable>()
 
@@ -810,8 +811,7 @@ class AppState: ObservableObject {
     // MARK: - Input device
 
     func setInputDevice(uid: String?) {
-        audioCaptureService?.setInputDevice(uid: uid)
-        NSLog("[Parakatt] Input device set to: %@", uid ?? "system default")
+        audioInput.setInputDevice(uid: uid, capture: audioCaptureService)
     }
 
     // MARK: - Hotkey configuration
@@ -876,7 +876,7 @@ class AppState: ObservableObject {
     }
 
     func listInputDevices() -> [(uid: String, name: String, isDefault: Bool)] {
-        environment.listInputDevices()
+        audioInput.listInputDevices(environment: environment)
     }
 
     // MARK: - Meeting transcription
