@@ -203,8 +203,6 @@ class AppState: ObservableObject {
         set { _meetingSession = newValue }
     }
     private var _meetingSession: AnyObject?
-    private var meetingElapsedTimer: Timer?
-
     // MARK: - Audio buffer
 
     private var audioBuffer: [Float] = []
@@ -930,42 +928,26 @@ class AppState: ObservableObject {
         }
 
         session.onSessionFinished = { [weak self] result in
-            self?.isMeetingActive = false
-            self?.meetingElapsedTimer?.invalidate()
-            self?.meetingElapsedTimer = nil
-            self?.meetingTranscription = result.text
-            self?.meetingLatestChunk = nil
-            self?.meetingLatestChunkStartSecs = nil
-            self?.meeting.resetAudioStatus()
-            self?.isMeetingPaused = false
+            self?.meeting.markFinished(transcription: result.text)
             self?.sendTranscriptionNotification(preview: result.text, source: "meeting")
             NSLog("[Parakatt] Meeting finished: %.0fs, %d chars", result.durationSecs, result.text.count)
         }
 
         session.onError = { [weak self] message in
-            self?.isMeetingActive = false
-            self?.meetingElapsedTimer?.invalidate()
-            self?.meetingElapsedTimer = nil
-            self?.meetingAudioStatus = .error(message)
+            self?.meeting.markFailed(message: message)
             self?.errorMessage = message
         }
 
         meetingSession = session
-        isMeetingActive = true
-        isMeetingPaused = false
-        meetingTranscription = nil
-        meetingLatestChunk = nil
-        meetingLatestChunkStartSecs = nil
-        meetingSegments = []
-        meetingElapsedTime = 0
-        meeting.resetAudioStatus()
+        meeting.prepareForStart()
 
         // Start elapsed time updates.
-        meetingElapsedTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            guard let self else { return }
+        meeting.startElapsedTimer { [weak self] in
+            guard let self else { return 0 }
             if #available(macOS 14.2, *) {
-                self.meetingElapsedTime = self.meetingSession?.elapsedTime ?? 0
+                return self.meetingSession?.elapsedTime ?? 0
             }
+            return 0
         }
 
         do {
@@ -1000,9 +982,7 @@ class AppState: ObservableObject {
                 }
             }
 
-            isMeetingActive = false
-            meetingElapsedTimer?.invalidate()
-            meetingElapsedTimer = nil
+            meeting.markStartFailed()
 
             if let audioErr = error as? SystemAudioCaptureError, case .permissionDenied = audioErr {
                 meetingAudioStatus = .permissionDenied
@@ -1027,15 +1007,7 @@ class AppState: ObservableObject {
     func cancelMeeting() {
         guard isMeetingActive else { return }
         meetingSession?.cancel()
-        isMeetingActive = false
-        isMeetingPaused = false
-        meetingElapsedTimer?.invalidate()
-        meetingElapsedTimer = nil
-        meetingTranscription = nil
-        meetingLatestChunk = nil
-        meetingLatestChunkStartSecs = nil
-        meetingSegments = []
-        meeting.resetAudioStatus()
+        meeting.markCancelled()
     }
 
     /// Pause audio capture without ending the Rust session. The user keeps

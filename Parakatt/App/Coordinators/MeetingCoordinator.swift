@@ -28,6 +28,8 @@ final class MeetingCoordinator: ObservableObject {
 
     var onAudioWarning: ((String) -> Void)?
 
+    private var elapsedTimer: Timer?
+
     /// When the system-audio side first started reporting silent/empty.
     /// Used to decide when to escalate to a user-visible warning.
     private var systemSilentSince: Date?
@@ -41,6 +43,61 @@ final class MeetingCoordinator: ObservableObject {
         meetingAudioStatus = .unknown
         meetingMicLevel = 0
         systemSilentSince = nil
+    }
+
+    func prepareForStart() {
+        isMeetingActive = true
+        isMeetingPaused = false
+        meetingTranscription = nil
+        meetingLatestChunk = nil
+        meetingLatestChunkStartSecs = nil
+        meetingSegments = []
+        meetingElapsedTime = 0
+        resetAudioStatus()
+    }
+
+    func markFinished(transcription: String) {
+        isMeetingActive = false
+        stopElapsedTimer()
+        meetingTranscription = transcription
+        meetingLatestChunk = nil
+        meetingLatestChunkStartSecs = nil
+        isMeetingPaused = false
+        resetAudioStatus()
+    }
+
+    func markFailed(message: String) {
+        isMeetingActive = false
+        stopElapsedTimer()
+        meetingAudioStatus = .error(message)
+    }
+
+    func markStartFailed() {
+        isMeetingActive = false
+        stopElapsedTimer()
+    }
+
+    func markCancelled() {
+        isMeetingActive = false
+        isMeetingPaused = false
+        stopElapsedTimer()
+        meetingTranscription = nil
+        meetingLatestChunk = nil
+        meetingLatestChunkStartSecs = nil
+        meetingSegments = []
+        resetAudioStatus()
+    }
+
+    func startElapsedTimer(elapsedProvider: @escaping () -> TimeInterval) {
+        stopElapsedTimer()
+        elapsedTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            self?.meetingElapsedTime = elapsedProvider()
+        }
+    }
+
+    func stopElapsedTimer() {
+        elapsedTimer?.invalidate()
+        elapsedTimer = nil
     }
 
     func updateMicLevel(peak: Float) {
