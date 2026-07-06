@@ -7,6 +7,8 @@ import Foundation
 /// that feeds single-shot, preview, and incremental chunking paths.
 @MainActor
 final class RecordingCoordinator: ObservableObject {
+    /// Sample rate expected by the STT pipeline.
+    let sampleRate: UInt32 = 16_000
     /// Seconds before transitioning from single-shot preview to incremental chunking.
     let firstChunkDelaySecs: TimeInterval = 1.0
     /// How often the PTT dispatch timer wakes up. The dispatch policy, not this timer, gates chunk rate.
@@ -24,7 +26,7 @@ final class RecordingCoordinator: ObservableObject {
     /// Interval between buffered live-preview updates while recording.
     let streamingInterval: TimeInterval = 2.0
     /// Minimum samples needed before the first buffered live preview.
-    let minSamplesForStreaming = 16000
+    var minSamplesForStreaming: Int { Int(sampleRate) }
     /// Minimum new audio since the last preview pass before re-transcribing.
     let minNewSamplesForRestream = 8000
 
@@ -78,7 +80,7 @@ final class RecordingCoordinator: ObservableObject {
     /// feeding the streaming preview model to save CPU/battery.
     private let livePreviewSleepCallbacks = 100
     /// Threshold for warning about long push-to-talk recordings (5 minutes).
-    private let longRecordingWarningSamples = 5 * 60 * 16000
+    private var longRecordingWarningSamples: Int { 5 * 60 * Int(sampleRate) }
     private var longRecordingWarned = false
 
     private var streamingTimer: Timer?
@@ -200,7 +202,7 @@ final class RecordingCoordinator: ObservableObject {
         let longWarning: Double?
         if total > longRecordingWarningSamples && !longRecordingWarned {
             longRecordingWarned = true
-            longWarning = Double(total) / 16000.0 / 60.0
+            longWarning = Double(total) / Double(sampleRate) / 60.0
         } else {
             longWarning = nil
         }

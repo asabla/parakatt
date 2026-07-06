@@ -425,6 +425,7 @@ class AppState: ObservableObject {
             let context = contextService?.currentContext()
             let mode = activeMode
             let currentIndex = recording.currentPttChunkIndex()
+            let sampleRate = recording.sampleRate
 
             DispatchQueue.global(qos: .userInitiated).async { [weak self] in
                 guard let self, let bridge = self.bridge else {
@@ -438,12 +439,12 @@ class AppState: ObservableObject {
                 // even if a future edit adds an early return inside.
                 do {
                     self.recording.withPttChunkLock {
-                        if remainingSamples.count >= Int(self.sttSampleRate / 10) {
+                        if remainingSamples.count >= Int(sampleRate / 10) {
                             do {
                                 let result = try bridge.processChunk(
                                     sessionId: sessionId,
                                     audioSamples: remainingSamples,
-                                    sampleRate: self.sttSampleRate,
+                                    sampleRate: sampleRate,
                                     chunkIndex: currentIndex,
                                     mode: mode,
                                     context: context
@@ -454,7 +455,7 @@ class AppState: ObservableObject {
                             }
                         } else {
                             NSLog("[Parakatt] PTT tail too short (%.1fs), skipping",
-                                  Double(remainingSamples.count) / Double(self.sttSampleRate))
+                                  Double(remainingSamples.count) / Double(sampleRate))
                         }
                     }
                 }
@@ -510,7 +511,7 @@ class AppState: ObservableObject {
                 return
             }
 
-            let durationSecs = Double(samples.count) / Double(sttSampleRate)
+            let durationSecs = Double(samples.count) / Double(recording.sampleRate)
             guard durationSecs >= 0.5 else {
                 NSLog("[Parakatt] Recording too short (%.2fs), discarding", durationSecs)
                 errorMessage = "Recording too short — hold longer to capture audio"
@@ -544,7 +545,7 @@ class AppState: ObservableObject {
             let rms = samples.isEmpty ? 0 : sqrt(samples.map { $0 * $0 }.reduce(0, +) / Float(samples.count))
 
             NSLog("[Parakatt] DIAGNOSTIC: %d samples (%.1fs), max=%.6f, rms=%.6f",
-                  samples.count, Double(samples.count) / 16000.0, maxAmp, rms)
+                  samples.count, Double(samples.count) / Double(self.recording.sampleRate), maxAmp, rms)
 
             if maxAmp > 0.001 {
                 NSLog("[Parakatt] DIAGNOSTIC: ✅ Audio has signal — stopping and transcribing")
@@ -841,15 +842,14 @@ class AppState: ObservableObject {
 
     // MARK: - Processing
 
-    private let sttSampleRate: UInt32 = 16_000
-
     /// Single-shot transcription for short recordings (used when no incremental session was opened).
     private func processAudio(_ samples: [Float]) {
         isProcessing = true
 
+        let sampleRate = recording.sampleRate
         let maxAmp = samples.map { abs($0) }.max() ?? 0
         NSLog("[Parakatt] Processing %d samples (%.1fs), maxAmp=%.4f, mode=%@, llm=%@",
-              samples.count, Double(samples.count) / 16000.0, maxAmp, activeMode, llmProvider.isEmpty ? "none" : llmProvider)
+              samples.count, Double(samples.count) / Double(sampleRate), maxAmp, activeMode, llmProvider.isEmpty ? "none" : llmProvider)
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let signpostID = OSSignpostID(log: signpostLog)
@@ -875,7 +875,7 @@ class AppState: ObservableObject {
             do {
                 let result = try bridge.transcribe(
                     audioSamples: samples,
-                    sampleRate: 16000,
+                    sampleRate: sampleRate,
                     mode: effectiveMode,
                     context: context
                 )
@@ -968,9 +968,10 @@ class AppState: ObservableObject {
     private func dispatchPttChunk() {
         guard let sessionId = recording.currentPttSessionId(), isRecording else { return }
 
-        let minSamples = Int(recording.pttMinChunkSecs * Double(sttSampleRate))
-        let maxSamples = Int(recording.pttMaxChunkSecs * Double(sttSampleRate))
-        let overlapSamples = Int(recording.overlapDurationSecs * Double(sttSampleRate))
+        let sampleRate = recording.sampleRate
+        let minSamples = Int(recording.pttMinChunkSecs * Double(sampleRate))
+        let maxSamples = Int(recording.pttMaxChunkSecs * Double(sampleRate))
+        let overlapSamples = Int(recording.overlapDurationSecs * Double(sampleRate))
 
         guard let chunk = recording.preparePttChunk(
             minSamples: minSamples,
@@ -1006,7 +1007,7 @@ class AppState: ObservableObject {
                     let result = try bridge.processChunk(
                         sessionId: sessionId,
                         audioSamples: chunkSamples,
-                        sampleRate: self.sttSampleRate,
+                        sampleRate: sampleRate,
                         chunkIndex: currentIndex,
                         mode: mode,
                         context: context
@@ -1072,7 +1073,8 @@ class AppState: ObservableObject {
         }
 
         // Limit snapshot to last 30 seconds to avoid OOM on very long recordings
-        let maxSamples = 30 * 16000
+        let sampleRate = recording.sampleRate
+        let maxSamples = 30 * Int(sampleRate)
         let trimmed = snapshot.count > maxSamples
             ? Array(snapshot.suffix(maxSamples))
             : snapshot
@@ -1094,7 +1096,7 @@ class AppState: ObservableObject {
                 let result = try bridge.bufferedPreviewUpdate(
                     sessionId: bpSessionId,
                     audioSamples: trimmed,
-                    sampleRate: 16000
+                    sampleRate: sampleRate
                 )
                 DispatchQueue.main.async {
                     if self.isRecording {
@@ -1145,7 +1147,7 @@ class AppState: ObservableObject {
         }
 
         if let callbackNumber = result.callbackNumberToLog {
-            NSLog("[Parakatt] Audio callback #%d, buffer: %d samples (%.1fs)", callbackNumber, result.totalSamples, Double(result.totalSamples) / 16000.0)
+            NSLog("[Parakatt] Audio callback #%d, buffer: %d samples (%.1fs)", callbackNumber, result.totalSamples, Double(result.totalSamples) / Double(recording.sampleRate))
         }
     }
 
