@@ -452,7 +452,7 @@ class AppState: ObservableObject {
 
         pttChunkTimer?.invalidate()
         pttChunkTimer = nil
-        stopStreamingUpdates()
+        recording.stopStreamingUpdates()
         isRecording = false
         currentAudioLevel = 0
         isCaptureDraining = true
@@ -494,9 +494,8 @@ class AppState: ObservableObject {
 
         // Also tear down the buffered preview LA-2 session if it
         // was used (when no streaming model was loaded).
-        if let bpId = bufferedPreviewSessionId {
+        if let bpId = recording.takeBufferedPreviewSessionId() {
             let final = (try? bridge?.bufferedPreviewFinish(sessionId: bpId)) ?? ""
-            bufferedPreviewSessionId = nil
             if !final.isEmpty {
                 livePreviewCommitted = final
                 livePreviewTentative = ""
@@ -1090,8 +1089,8 @@ class AppState: ObservableObject {
         // (shorter) tail. The committed text we want the user to
         // see across chunk boundaries is `pttAccumulatedText`,
         // which is updated when the chunk processing returns.
-        lastStreamingSampleCount = 0
-        if let bpId = bufferedPreviewSessionId {
+        recording.resetPreviewWatermark()
+        if let bpId = recording.currentBufferedPreviewSessionId() {
             try? bridge?.bufferedPreviewReset(sessionId: bpId)
         }
 
@@ -1141,45 +1140,27 @@ class AppState: ObservableObject {
 
     // MARK: - Streaming (throwaway preview for initial seconds)
 
-    private var streamingTimer: Timer?
     /// Interval between live transcription updates while recording.
     private let streamingInterval: TimeInterval = 2.0
     /// Minimum samples needed before first live transcription (1s at 16kHz).
     private let minSamplesForStreaming = 16000
 
     private func startStreamingUpdates() {
-        streamingTimer?.invalidate()
-        lastStreamingSampleCount = 0
-        streamingTimer = Timer.scheduledTimer(withTimeInterval: streamingInterval, repeats: true) { [weak self] _ in
+        recording.startStreamingUpdates(interval: streamingInterval) { [weak self] in
             self?.updateLiveTranscription()
         }
     }
 
     private func stopStreamingUpdates() {
-        streamingTimer?.invalidate()
-        streamingTimer = nil
-        lastStreamingSampleCount = 0
+        recording.stopStreamingUpdates()
     }
 
-    private var isStreamTranscribing = false
-    /// Sample count of the last buffer we ran the streaming preview on.
-    /// Used to skip re-transcribing essentially the same audio when the
-    /// user goes silent for a few seconds — re-running Parakeet on a
-    /// frozen buffer produces slightly different decodings each pass
-    /// (the model isn't bit-deterministic on edge inputs), which made
-    /// the live preview flicker between alternates.
-    private var lastStreamingSampleCount: Int = 0
     /// Minimum new audio (in samples) required since the last preview
     /// pass before we'll re-transcribe. 0.5 s at 16 kHz — anything
     /// less is almost certainly just silence accumulating.
     private let minNewSamplesForRestream = 8000
-    /// Buffered preview LocalAgreement-2 session id, set when the
-    /// fallback path takes over (no Nemotron loaded). Cleared on
-    /// stopRecording.
-    private var bufferedPreviewSessionId: String?
-
     private func updateLiveTranscription() {
-        guard isRecording, let bridge, !isStreamTranscribing else { return }
+        guard isRecording, let bridge else { return }
 
         // If the cache-aware streaming preview is doing its thing
         // we don't need to also run the buffered preview — they
@@ -1187,31 +1168,18 @@ class AppState: ObservableObject {
         // will dominate. Skip to save CPU.
         if livePreviewActive { return }
 
+        guard recording.beginStreamTranscribing() else { return }
+
         // Snapshot the current buffer (unprocessed tail during incremental mode)
         let snapshot = recording.snapshotBuffer()
 
-        guard snapshot.count >= minSamplesForStreaming else { return }
-
-        // Skip ticks where the buffer hasn't grown by enough audio to
-        // matter. Without this, every 2 s of silence after speech
-        // would re-decode the exact same waveform and surface a
-        // flickering "alternate" decoding to the user.
-        //
-        // Special case: if the buffer SHRANK since the last pass
-        // (a chunk fired and consumed audio) we always run the
-        // preview — there's a fresh tail to look at. The chunk
-        // dispatch path resets `lastStreamingSampleCount` to 0
-        // when it consumes audio so we hit this branch by length
-        // comparison even if the new buffer is small.
-        if snapshot.count < lastStreamingSampleCount {
-            // Buffer shrank — fresh window, allow this pass.
-            lastStreamingSampleCount = snapshot.count
-        } else {
-            let newSamples = snapshot.count - lastStreamingSampleCount
-            if lastStreamingSampleCount > 0 && newSamples < minNewSamplesForRestream {
-                return
-            }
-            lastStreamingSampleCount = snapshot.count
+        guard recording.shouldRunBufferedPreview(
+            snapshotCount: snapshot.count,
+            minSamples: minSamplesForStreaming,
+            minNewSamples: minNewSamplesForRestream
+        ) else {
+            recording.finishStreamTranscribing()
+            return
         }
 
         // Limit snapshot to last 30 seconds to avoid OOM on very long recordings
@@ -1220,25 +1188,18 @@ class AppState: ObservableObject {
             ? Array(snapshot.suffix(maxSamples))
             : snapshot
 
-        // Lazily start a buffered preview LA-2 session for this
-        // recording so the LA-2 commit policy persists across
-        // every preview tick.
-        if bufferedPreviewSessionId == nil {
-            let id = UUID().uuidString
-            do {
-                try bridge.bufferedPreviewStart(sessionId: id)
-                bufferedPreviewSessionId = id
-            } catch {
-                NSLog("[Parakatt] Buffered preview start failed: %@", error.localizedDescription)
-            }
+        guard let bpSessionId = recording.ensureBufferedPreviewSession(bridge: bridge) else {
+            recording.finishStreamTranscribing()
+            return
         }
-        guard let bpSessionId = bufferedPreviewSessionId else { return }
-
-        isStreamTranscribing = true
 
         DispatchQueue.global(qos: .userInteractive).async { [weak self] in
             guard let self else { return }
-            defer { self.isStreamTranscribing = false }
+            defer {
+                DispatchQueue.main.async {
+                    self.recording.finishStreamTranscribing()
+                }
+            }
 
             do {
                 let result = try bridge.bufferedPreviewUpdate(
@@ -1319,7 +1280,7 @@ class AppState: ObservableObject {
                 // Bypass the "buffer hasn't grown enough" gate by
                 // resetting the watermark; we want this pass to run
                 // even if only ~one frame of new audio has arrived.
-                self.lastStreamingSampleCount = 0
+                self.recording.resetPreviewWatermark()
                 self.updateLiveTranscription()
             }
         }

@@ -60,6 +60,16 @@ final class RecordingCoordinator: ObservableObject {
     private let longRecordingWarningSamples = 5 * 60 * 16000
     private var longRecordingWarned = false
 
+    private var streamingTimer: Timer?
+    private var isStreamTranscribing = false
+    /// Sample count of the last buffer we ran the streaming preview on.
+    /// Used to skip re-transcribing essentially the same audio when the
+    /// user goes silent for a few seconds.
+    private var lastStreamingSampleCount = 0
+    /// Buffered preview LocalAgreement-2 session id, set when the fallback
+    /// path takes over (no Nemotron loaded). Cleared on stopRecording.
+    private var bufferedPreviewSessionId: String?
+
     func resetForNewRecording() {
         sampleCount = 0
         silentCallbackCount = 0
@@ -67,6 +77,8 @@ final class RecordingCoordinator: ObservableObject {
         audioClippingDetected = false
         longRecordingWarned = false
         currentAudioLevel = 0
+        stopStreamingUpdates()
+        bufferedPreviewSessionId = nil
         clearBuffer()
     }
 
@@ -177,5 +189,76 @@ final class RecordingCoordinator: ObservableObject {
         audioBufferLock.unlock()
 
         return PttChunk(samples: chunkSamples)
+    }
+
+    func startStreamingUpdates(interval: TimeInterval, onTick: @escaping () -> Void) {
+        streamingTimer?.invalidate()
+        lastStreamingSampleCount = 0
+        streamingTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { _ in
+            onTick()
+        }
+    }
+
+    func stopStreamingUpdates() {
+        streamingTimer?.invalidate()
+        streamingTimer = nil
+        lastStreamingSampleCount = 0
+    }
+
+    func resetPreviewWatermark() {
+        lastStreamingSampleCount = 0
+    }
+
+    func shouldRunBufferedPreview(snapshotCount: Int, minSamples: Int, minNewSamples: Int) -> Bool {
+        guard snapshotCount >= minSamples else { return false }
+
+        // Special case: if the buffer shrank since the last pass (a chunk
+        // fired and consumed audio), always run the preview because there is a
+        // fresh tail to inspect.
+        if snapshotCount < lastStreamingSampleCount {
+            lastStreamingSampleCount = snapshotCount
+            return true
+        }
+
+        let newSamples = snapshotCount - lastStreamingSampleCount
+        if lastStreamingSampleCount > 0 && newSamples < minNewSamples {
+            return false
+        }
+
+        lastStreamingSampleCount = snapshotCount
+        return true
+    }
+
+    func currentBufferedPreviewSessionId() -> String? {
+        bufferedPreviewSessionId
+    }
+
+    func takeBufferedPreviewSessionId() -> String? {
+        let id = bufferedPreviewSessionId
+        bufferedPreviewSessionId = nil
+        return id
+    }
+
+    func ensureBufferedPreviewSession(bridge: CoreBridge) -> String? {
+        if bufferedPreviewSessionId == nil {
+            let id = UUID().uuidString
+            do {
+                try bridge.bufferedPreviewStart(sessionId: id)
+                bufferedPreviewSessionId = id
+            } catch {
+                NSLog("[Parakatt] Buffered preview start failed: %@", error.localizedDescription)
+            }
+        }
+        return bufferedPreviewSessionId
+    }
+
+    func beginStreamTranscribing() -> Bool {
+        guard !isStreamTranscribing else { return false }
+        isStreamTranscribing = true
+        return true
+    }
+
+    func finishStreamTranscribing() {
+        isStreamTranscribing = false
     }
 }
