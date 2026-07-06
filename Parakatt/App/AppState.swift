@@ -202,11 +202,6 @@ class AppState: ObservableObject {
     private var textInsertionService: TextInserting?
     private var contextService: AppContextProviding?
 
-    // MARK: - Audio buffer
-
-    private var audioBuffer: [Float] = []
-    private let audioBufferLock = NSLock()
-
     // MARK: - Incremental push-to-talk session
 
     /// Session ID for incremental processing (nil = short recording, single-shot).
@@ -386,24 +381,15 @@ class AppState: ObservableObject {
         // Set immediately after guard to prevent race with rapid start/stop.
         isRecording = true
 
-        sampleCount = 0
-        silentCallbackCount = 0
-        silenceDetected = false
-        audioClippingDetected = false
-        longRecordingWarned = false
+        recording.resetForNewRecording()
         pttSessionId = nil
         pttChunkIndex = 0
         pttChunkTimer?.invalidate()
         pttChunkTimer = nil
         pttAccumulatedText = nil
 
-        audioBufferLock.lock()
-        audioBuffer.removeAll()
-        audioBufferLock.unlock()
-
         do {
             try audioCaptureService?.startCapture()
-            currentAudioLevel = 0
             liveTranscription = nil
             errorMessage = nil
             livePreviewCommitted = ""
@@ -524,10 +510,7 @@ class AppState: ObservableObject {
             // Keep liveTranscription visible while processing the tail.
             NSLog("[Parakatt] Recording stopped (incremental session, processing tail)")
 
-            audioBufferLock.lock()
-            let remainingSamples = audioBuffer
-            audioBuffer.removeAll()
-            audioBufferLock.unlock()
+            let remainingSamples = recording.drainBuffer()
 
             let context = contextService?.currentContext()
             let mode = activeMode
@@ -611,10 +594,7 @@ class AppState: ObservableObject {
             liveTranscription = nil
             NSLog("[Parakatt] Recording stopped (short, single-shot)")
 
-            audioBufferLock.lock()
-            let samples = audioBuffer
-            audioBuffer.removeAll()
-            audioBufferLock.unlock()
+            let samples = recording.drainBuffer()
 
             guard !samples.isEmpty else {
                 NSLog("[Parakatt] stopRecording: NO AUDIO IN BUFFER")
@@ -650,9 +630,7 @@ class AppState: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
             guard let self else { return }
 
-            self.audioBufferLock.lock()
-            let samples = self.audioBuffer
-            self.audioBufferLock.unlock()
+            let samples = self.recording.snapshotBuffer()
 
             let maxAmp = samples.map { abs($0) }.max() ?? 0
             let rms = samples.isEmpty ? 0 : sqrt(samples.map { $0 * $0 }.reduce(0, +) / Float(samples.count))
@@ -1095,31 +1073,14 @@ class AppState: ObservableObject {
         let maxSamples = Int(pttMaxChunkSecs * Double(sttSampleRate))
         let overlapSamples = Int(overlapDurationSecs * Double(sttSampleRate))
 
-        audioBufferLock.lock()
-        let bufferLen = audioBuffer.count
-        guard bufferLen >= minSamples else {
-            audioBufferLock.unlock()
-            return
-        }
-        let speakerPaused = silentCallbackCount >= pttPauseSilenceCallbacks
-        let bufferAtCap = bufferLen >= maxSamples
-        guard speakerPaused || bufferAtCap else {
-            audioBufferLock.unlock()
-            return
-        }
-
-        // Take up to maxSamples worth — variable-length chunks.
-        let take = min(bufferLen, maxSamples)
-        let chunkSamples = Array(audioBuffer.prefix(take))
-        // First chunk has no prior chunk to overlap with — consume everything
-        // to prevent the tail from re-processing the same audio.
-        let consumed = pttChunkIndex == 0
-            ? chunkSamples.count
-            : max(0, chunkSamples.count - overlapSamples)
-        if consumed > 0 {
-            audioBuffer.removeFirst(consumed)
-        }
-        audioBufferLock.unlock()
+        guard let chunk = recording.preparePttChunk(
+            minSamples: minSamples,
+            maxSamples: maxSamples,
+            overlapSamples: overlapSamples,
+            chunkIndex: pttChunkIndex,
+            pauseSilenceCallbacks: pttPauseSilenceCallbacks
+        ) else { return }
+        let chunkSamples = chunk.samples
 
         // The audio buffer just shrank — the buffered preview's
         // LA-2 is now operating on a shorter hypothesis than its
@@ -1227,9 +1188,7 @@ class AppState: ObservableObject {
         if livePreviewActive { return }
 
         // Snapshot the current buffer (unprocessed tail during incremental mode)
-        audioBufferLock.lock()
-        let snapshot = audioBuffer
-        audioBufferLock.unlock()
+        let snapshot = recording.snapshotBuffer()
 
         guard snapshot.count >= minSamplesForStreaming else { return }
 
@@ -1339,66 +1298,22 @@ class AppState: ObservableObject {
 
     // MARK: - Audio buffer
 
-    private var sampleCount = 0
-    /// Number of consecutive near-silent audio callbacks.
-    private var silentCallbackCount = 0
-    /// Threshold: callbacks are ~every 100ms, so 50 = ~5 seconds of silence.
-    private let silenceCallbackThreshold = 50
-    /// After this many consecutive silent callbacks (~10 s) we stop
-    /// feeding the streaming preview model to save CPU/battery. The
-    /// silence→speech transition trigger in appendAudioSamples will
-    /// resume it on the next sound.
-    private let livePreviewSleepCallbacks: Int = 100
-
-    /// Threshold for warning about long push-to-talk recordings (5 minutes).
-    private let longRecordingWarningSamples = 5 * 60 * 16000
-    private var longRecordingWarned = false
-
     private func appendAudioSamples(_ samples: [Float]) {
-        audioBufferLock.lock()
-        audioBuffer.append(contentsOf: samples)
-        let total = audioBuffer.count
-        audioBufferLock.unlock()
+        let result = recording.appendAudioSamples(samples, isRecording: isRecording, livePreviewActive: livePreviewActive)
 
-        // Feed the cache-aware streaming preview in parallel. The
-        // service does its own backpressure (drops if a feed is
-        // already in flight) so we can call it on every audio
-        // callback without queue pile-up. Power saver: if the user
-        // has been silent for ≥livePreviewSleepCallbacks ticks
-        // (~10 s) we skip feeding the model entirely. The silence→
-        // speech transition trigger below will kick the service
-        // again as soon as audio resumes.
-        if livePreviewActive && silentCallbackCount < livePreviewSleepCallbacks {
+        // Feed the cache-aware streaming preview in parallel. The service does
+        // its own backpressure (drops if a feed is already in flight) so we can
+        // call it on every audio callback without queue pile-up.
+        if result.shouldFeedLivePreview {
             livePreview?.enqueue(samples)
         }
 
         // Warn once when push-to-talk exceeds 5 minutes.
-        if total > longRecordingWarningSamples && !longRecordingWarned {
-            longRecordingWarned = true
-            let durationMins = Double(total) / 16000.0 / 60.0
+        if let durationMins = result.longRecordingWarningMinutes {
             NSLog("[Parakatt] WARNING: Push-to-talk recording exceeds %.0f minutes — consider using meeting mode for long recordings", durationMins)
         }
 
-        // Compute RMS for audio level visualization
-        let sumOfSquares = samples.reduce(Float(0)) { $0 + $1 * $1 }
-        let rms = sqrt(sumOfSquares / Float(max(samples.count, 1)))
-        // Normalize: typical speech RMS ~0.01-0.1, scale up for display
-        let normalized = min(rms * 10, 1.0)
-        let smoothed = 0.3 * currentAudioLevel + 0.7 * normalized
-        // Track silence: if RMS is near zero, count consecutive silent callbacks.
-        // Detect a "speech resumed after silence" transition so we can
-        // kick the live preview immediately instead of waiting for the
-        // next streaming-timer tick. Without this, the user got 0 to 2
-        // seconds of "nothing happening" UI after they started speaking
-        // again following a pause.
-        let wasSilentBefore = silentCallbackCount > 5
-        if rms < 0.001 {
-            silentCallbackCount += 1
-        } else {
-            silentCallbackCount = 0
-        }
-        let speechResumed = wasSilentBefore && rms >= 0.001
-        if speechResumed && isRecording {
+        if result.speechResumed {
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 // Bypass the "buffer hasn't grown enough" gate by
@@ -1408,18 +1323,9 @@ class AppState: ObservableObject {
                 self.updateLiveTranscription()
             }
         }
-        // Detect clipping: any sample at +/-1.0 means the signal is saturated
-        let maxAmp = samples.lazy.map { abs($0) }.max() ?? 0
-        let clipping = maxAmp >= 0.99
-        DispatchQueue.main.async {
-            self.currentAudioLevel = smoothed
-            self.silenceDetected = self.silentCallbackCount >= self.silenceCallbackThreshold
-            if clipping { self.audioClippingDetected = true }
-        }
 
-        sampleCount += 1
-        if sampleCount % 50 == 1 {
-            NSLog("[Parakatt] Audio callback #%d, buffer: %d samples (%.1fs)", sampleCount, total, Double(total) / 16000.0)
+        if let callbackNumber = result.callbackNumberToLog {
+            NSLog("[Parakatt] Audio callback #%d, buffer: %d samples (%.1fs)", callbackNumber, result.totalSamples, Double(result.totalSamples) / 16000.0)
         }
     }
 
