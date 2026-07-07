@@ -198,7 +198,6 @@ class AppState: ObservableObject {
 
     /// Set by AppDelegate after init; used for hotkey reconfiguration.
     var hotkeyService: HotkeyService?
-    private var audioCaptureService: AudioCapturing?
 
     // MARK: - Engine bridge
 
@@ -254,7 +253,7 @@ class AppState: ObservableObject {
         capture.onAudioSamples = { [weak self] samples in
             self?.appendAudioSamples(samples)
         }
-        audioCaptureService = capture
+        audioInput.configure(capture: capture)
 
         NSLog("[Parakatt] Initializing engine...")
 
@@ -322,7 +321,7 @@ class AppState: ObservableObject {
         recording.beginRecording()
 
         do {
-            try audioInput.startCapture(audioCaptureService)
+            try audioInput.startCapture()
             recording.clearPreviewDisplay()
             errorMessage = nil
 
@@ -373,7 +372,7 @@ class AppState: ObservableObject {
         // within that time the engine is torn down so the macOS
         // orange mic indicator actually turns off. Successive
         // dictations within the window stay warm (no cold-start).
-        audioInput.stopCaptureAndPrewarm(audioCaptureService, prewarmWindowSecs: 20)
+        audioInput.stopCaptureAndPrewarm(prewarmWindowSecs: 20)
         recording.finishCaptureDrain()
 
         if let finalText = livePreview.stopIfActive() {
@@ -559,7 +558,7 @@ class AppState: ObservableObject {
     // MARK: - Input device
 
     func setInputDevice(uid: String?) {
-        audioInput.setInputDevice(uid: uid, capture: audioCaptureService)
+        audioInput.setInputDevice(uid: uid)
     }
 
     // MARK: - Hotkey configuration
