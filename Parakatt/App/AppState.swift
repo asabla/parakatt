@@ -351,12 +351,7 @@ class AppState: ObservableObject {
     /// Stop recording and process the captured audio through the STT pipeline.
     func stopRecording() {
         guard isRecording else { return }
-
-        recording.beginStopRecording()
-
-        // Keep audio capture running briefly so the hardware buffer can drain,
-        // then stop capture and process the tail.
-        DispatchQueue.main.asyncAfter(deadline: .now() + recording.captureDrainDelaySecs) { [weak self] in
+        recording.beginStopRecording { [weak self] in
             self?.finishStopRecording()
         }
     }

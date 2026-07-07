@@ -186,12 +186,16 @@ final class RecordingCoordinator: ObservableObject {
         isRecording = false
     }
 
-    func beginStopRecording() {
+    func beginStopRecording(onCaptureDrained: @escaping () -> Void) {
         stopPttChunkTimer()
         stopStreamingUpdates()
         isRecording = false
         currentAudioLevel = 0
         beginCaptureDrain()
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + captureDrainDelaySecs) {
+            onCaptureDrained()
+        }
     }
 
     func beginIncrementalTailProcessing() {
