@@ -251,7 +251,9 @@ class AppState: ObservableObject {
         // Create audio capture once — reused across all recording sessions
         let capture = environment.makeAudioCapture()
         capture.onAudioSamples = { [weak self] samples in
-            self?.appendAudioSamples(samples)
+            Task { @MainActor [weak self] in
+                self?.appendAudioSamples(samples)
+            }
         }
         audioInput.configure(capture: capture)
 
