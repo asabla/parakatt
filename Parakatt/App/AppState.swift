@@ -199,7 +199,6 @@ class AppState: ObservableObject {
     /// Set by AppDelegate after init; used for hotkey reconfiguration.
     var hotkeyService: HotkeyService?
     private var audioCaptureService: AudioCapturing?
-    private var contextService: AppContextProviding?
 
     // MARK: - Engine bridge
 
@@ -247,7 +246,7 @@ class AppState: ObservableObject {
 
         // Set up services
         textOutput.configure(inserter: environment.makeTextInserter())
-        contextService = environment.makeContextProvider()
+        context.configure(provider: environment.makeContextProvider())
         notifications.requestAuthorization(environment: environment)
 
         // Create audio capture once — reused across all recording sessions
@@ -393,7 +392,7 @@ class AppState: ObservableObject {
 
             let remainingSamples = recording.drainBuffer()
 
-            let context = contextService?.currentContext()
+            let context = self.context.currentContext()
             let mode = activeMode
             let currentIndex = recording.currentPttChunkIndex()
             let sampleRate = recording.sampleRate
@@ -619,7 +618,7 @@ class AppState: ObservableObject {
             return
         }
 
-        let context = contextService?.currentContext()
+        let context = self.context.currentContext()
         meeting.startSession(
             bridge: bridge,
             environment: environment,
@@ -654,7 +653,7 @@ class AppState: ObservableObject {
     @available(macOS 14.2, *)
     func stopMeeting() {
         guard isMeetingActive else { return }
-        let context = contextService?.currentContext()
+        let context = self.context.currentContext()
         meeting.stopSession(mode: activeMode, context: context)
     }
 
@@ -758,7 +757,7 @@ class AppState: ObservableObject {
         recording.beginSingleShotProcessing()
 
         let sampleRate = recording.sampleRate
-        let context = contextService?.currentContext()
+        let context = self.context.currentContext()
         let effectiveMode = settings.resolveEffectiveMode(for: context, bridge: bridge)
 
         transcription.processSingleShot(
@@ -856,7 +855,7 @@ class AppState: ObservableObject {
             try? bridge?.bufferedPreviewReset(sessionId: bpId)
         }
 
-        let context = contextService?.currentContext()
+        let context = self.context.currentContext()
         let mode = activeMode
 
         transcription.processPttChunk(
