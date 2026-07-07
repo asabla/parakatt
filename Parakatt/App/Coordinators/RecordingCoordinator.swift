@@ -70,6 +70,12 @@ final class RecordingCoordinator: ObservableObject {
         let samples: [Float]
     }
 
+    struct BufferedPreviewRequest {
+        let sessionId: String
+        let samples: [Float]
+        let sampleRate: UInt32
+    }
+
     enum CapturedAudioValidation {
         case valid(durationSecs: Double)
         case empty
@@ -463,6 +469,36 @@ final class RecordingCoordinator: ObservableObject {
     func finishBufferedPreview(bridge: CoreBridge?) -> String? {
         guard let sessionId = takeBufferedPreviewSessionId() else { return nil }
         return (try? bridge?.bufferedPreviewFinish(sessionId: sessionId)) ?? ""
+    }
+
+    func prepareBufferedPreviewRequest(bridge: CoreBridge, livePreviewActive: Bool) -> BufferedPreviewRequest? {
+        // If the cache-aware streaming preview is active we skip the buffered
+        // fallback to avoid duplicate work and conflicting preview text.
+        guard !livePreviewActive else { return nil }
+        guard beginStreamTranscribing() else { return nil }
+
+        let snapshot = snapshotBuffer()
+        guard shouldRunBufferedPreview(
+            snapshotCount: snapshot.count,
+            minSamples: minSamplesForStreaming,
+            minNewSamples: minNewSamplesForRestream
+        ) else {
+            finishStreamTranscribing()
+            return nil
+        }
+
+        // Limit snapshot to last 30 seconds to avoid OOM on very long recordings.
+        let maxSamples = 30 * Int(sampleRate)
+        let trimmed = snapshot.count > maxSamples
+            ? Array(snapshot.suffix(maxSamples))
+            : snapshot
+
+        guard let sessionId = ensureBufferedPreviewSession(bridge: bridge) else {
+            finishStreamTranscribing()
+            return nil
+        }
+
+        return BufferedPreviewRequest(sessionId: sessionId, samples: trimmed, sampleRate: sampleRate)
     }
 
     func ensureBufferedPreviewSession(bridge: CoreBridge) -> String? {

@@ -895,42 +895,15 @@ class AppState: ObservableObject {
     private func updateLiveTranscription() {
         guard isRecording, let bridge else { return }
 
-        // If the cache-aware streaming preview is doing its thing
-        // we don't need to also run the buffered preview — they
-        // both publish to livePreviewCommitted/Tentative and one
-        // will dominate. Skip to save CPU.
-        if livePreview.isActive { return }
-
-        guard recording.beginStreamTranscribing() else { return }
-
-        // Snapshot the current buffer (unprocessed tail during incremental mode)
-        let snapshot = recording.snapshotBuffer()
-
-        guard recording.shouldRunBufferedPreview(
-            snapshotCount: snapshot.count,
-            minSamples: recording.minSamplesForStreaming,
-            minNewSamples: recording.minNewSamplesForRestream
-        ) else {
-            recording.finishStreamTranscribing()
-            return
-        }
-
-        // Limit snapshot to last 30 seconds to avoid OOM on very long recordings
-        let sampleRate = recording.sampleRate
-        let maxSamples = 30 * Int(sampleRate)
-        let trimmed = snapshot.count > maxSamples
-            ? Array(snapshot.suffix(maxSamples))
-            : snapshot
-
-        guard let bpSessionId = recording.ensureBufferedPreviewSession(bridge: bridge) else {
-            recording.finishStreamTranscribing()
-            return
-        }
+        guard let request = recording.prepareBufferedPreviewRequest(
+            bridge: bridge,
+            livePreviewActive: livePreview.isActive
+        ) else { return }
 
         transcription.processBufferedPreview(
-            sessionId: bpSessionId,
-            samples: trimmed,
-            sampleRate: sampleRate,
+            sessionId: request.sessionId,
+            samples: request.samples,
+            sampleRate: request.sampleRate,
             bridge: bridge,
             onSuccess: { [weak self] result in
                 guard let self, self.isRecording else { return }
