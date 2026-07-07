@@ -328,33 +328,13 @@ final class RecordingCoordinator: ObservableObject {
     func refreshPreviewAfterSpeechResumed(_ result: AppendResult, onPreviewRequested: @escaping () -> Void) {
         guard result.speechResumed else { return }
 
-        DispatchQueue.main.async { [weak self] in
+        Task { @MainActor [weak self] in
             guard let self else { return }
             // Bypass the "buffer hasn't grown enough" gate by resetting the
             // watermark; we want this pass to run even if only one frame arrived.
             self.resetPreviewWatermark()
             onPreviewRequested()
         }
-    }
-
-    func handleAudioSamples(
-        _ samples: [Float],
-        isRecording: Bool,
-        livePreviewActive: Bool,
-        feedLivePreview: ([Float]) -> Void,
-        onPreviewRequested: @escaping () -> Void
-    ) {
-        let result = appendAudioSamples(
-            samples,
-            isRecording: isRecording,
-            livePreviewActive: livePreviewActive
-        )
-
-        if result.shouldFeedLivePreview {
-            feedLivePreview(samples)
-        }
-
-        refreshPreviewAfterSpeechResumed(result, onPreviewRequested: onPreviewRequested)
     }
 
     func prepareNextPttChunk() -> PttChunk? {

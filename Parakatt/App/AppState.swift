@@ -884,13 +884,15 @@ class AppState: ObservableObject {
     // MARK: - Audio buffer
 
     private func appendAudioSamples(_ samples: [Float]) {
-        recording.handleAudioSamples(
-            samples,
-            isRecording: isRecording,
-            livePreviewActive: livePreview.isActive,
-            feedLivePreview: { [weak self] samples in self?.livePreview.enqueue(samples) },
-            onPreviewRequested: { [weak self] in self?.updateLiveTranscription() }
-        )
+        let result = recording.appendAudioSamples(samples, isRecording: isRecording, livePreviewActive: livePreview.isActive)
+
+        if result.shouldFeedLivePreview {
+            livePreview.enqueue(samples)
+        }
+
+        recording.refreshPreviewAfterSpeechResumed(result) { [weak self] in
+            self?.updateLiveTranscription()
+        }
     }
 
 }
