@@ -46,9 +46,4 @@ final class LivePreviewCoordinator {
     func enqueue(_ samples: [Float]) {
         service?.enqueue(samples)
     }
-
-    func enqueueIfNeeded(_ samples: [Float], shouldFeed: Bool) {
-        guard shouldFeed else { return }
-        enqueue(samples)
-    }
 }

@@ -337,6 +337,26 @@ final class RecordingCoordinator: ObservableObject {
         }
     }
 
+    func handleAudioSamples(
+        _ samples: [Float],
+        isRecording: Bool,
+        livePreviewActive: Bool,
+        feedLivePreview: ([Float]) -> Void,
+        onPreviewRequested: @escaping () -> Void
+    ) {
+        let result = appendAudioSamples(
+            samples,
+            isRecording: isRecording,
+            livePreviewActive: livePreviewActive
+        )
+
+        if result.shouldFeedLivePreview {
+            feedLivePreview(samples)
+        }
+
+        refreshPreviewAfterSpeechResumed(result, onPreviewRequested: onPreviewRequested)
+    }
+
     func prepareNextPttChunk() -> PttChunk? {
         let minSamples = Int(pttMinChunkSecs * Double(sampleRate))
         let maxSamples = Int(pttMaxChunkSecs * Double(sampleRate))
