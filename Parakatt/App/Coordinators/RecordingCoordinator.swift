@@ -477,6 +477,16 @@ final class RecordingCoordinator: ObservableObject {
         return (try? bridge?.bufferedPreviewFinish(sessionId: sessionId)) ?? ""
     }
 
+    func finalizePreview(livePreviewText: String?, bridge: CoreBridge?) {
+        if let livePreviewText {
+            applyFinalPreviewText(livePreviewText)
+        }
+
+        if let bufferedPreviewText = finishBufferedPreview(bridge: bridge) {
+            applyFinalPreviewText(bufferedPreviewText)
+        }
+    }
+
     func prepareBufferedPreviewRequest(bridge: CoreBridge, livePreviewActive: Bool) -> BufferedPreviewRequest? {
         // If the cache-aware streaming preview is active we skip the buffered
         // fallback to avoid duplicate work and conflicting preview text.

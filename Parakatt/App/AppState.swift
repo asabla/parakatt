@@ -375,13 +375,7 @@ class AppState: ObservableObject {
         audioInput.stopCaptureAndPrewarm(prewarmWindowSecs: 20)
         recording.finishCaptureDrain()
 
-        if let finalText = livePreview.stopIfActive() {
-            recording.applyFinalPreviewText(finalText)
-        }
-
-        if let final = recording.finishBufferedPreview(bridge: bridge) {
-            recording.applyFinalPreviewText(final)
-        }
+        recording.finalizePreview(livePreviewText: livePreview.stopIfActive(), bridge: bridge)
 
         if let sessionId = recording.currentPttSessionId() {
             // Path B: incremental session was active — only process the tail.
