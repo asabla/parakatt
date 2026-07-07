@@ -923,12 +923,7 @@ class AppState: ObservableObject {
     private func appendAudioSamples(_ samples: [Float]) {
         let result = recording.appendAudioSamples(samples, isRecording: isRecording, livePreviewActive: livePreview.isActive)
 
-        // Feed the cache-aware streaming preview in parallel. The service does
-        // its own backpressure (drops if a feed is already in flight) so we can
-        // call it on every audio callback without queue pile-up.
-        if result.shouldFeedLivePreview {
-            livePreview.enqueue(samples)
-        }
+        livePreview.enqueueIfNeeded(samples, shouldFeed: result.shouldFeedLivePreview)
 
         recording.refreshPreviewAfterSpeechResumed(result) { [weak self] in
             self?.updateLiveTranscription()
