@@ -41,11 +41,17 @@ fn run() -> CliResult<()> {
         return Ok(());
     }
 
+    let models_dir = match take_path_option(&mut args, "--models-dir")? {
+        Some(path) => path,
+        None => default_models_dir()?,
+    };
+    let config_dir = match take_path_option(&mut args, "--config-dir")? {
+        Some(path) => path,
+        None => default_config_dir()?,
+    };
     let paths = AppPaths {
-        models_dir: take_path_option(&mut args, "--models-dir")?
-            .unwrap_or(default_models_dir()?),
-        config_dir: take_path_option(&mut args, "--config-dir")?
-            .unwrap_or(default_config_dir()?),
+        models_dir,
+        config_dir,
     };
 
     let command = args
@@ -282,8 +288,8 @@ fn list_models(engine: &Engine) {
     for model in engine.list_models() {
         println!(
             "{:<36} {:<20} {:<10} {}",
-            model.id,
-            model.provider_type,
+            &model.id,
+            &model.provider_type,
             if model.downloaded { "yes" } else { "no" },
             format_bytes(model.size_bytes)
         );
@@ -560,7 +566,7 @@ fn print_modes(modes: &[ModeConfig], format: &str) -> CliResult<()> {
             for mode in modes {
                 println!(
                     "{:<16} {:<12} {:<12} {}",
-                    mode.name,
+                    &mode.name,
                     mode.stt_provider.as_deref().unwrap_or("default"),
                     mode.llm_provider.as_deref().unwrap_or("none"),
                     if mode.dictionary_enabled { "yes" } else { "no" }
@@ -618,14 +624,17 @@ fn print_stats(stats: &[Vec<String>], format: &str) -> CliResult<()> {
 fn print_transcriptions(records: &[StoredTranscription], format: &str) -> CliResult<()> {
     match format {
         "text" => {
-            println!("{:<36} {:<20} {:<13} {:<10} TEXT", "ID", "CREATED", "SOURCE", "MODE");
+            println!(
+                "{:<36} {:<20} {:<13} {:<10} TEXT",
+                "ID", "CREATED", "SOURCE", "MODE"
+            );
             for record in records {
                 println!(
                     "{:<36} {:<20} {:<13} {:<10} {}",
-                    record.id,
-                    record.created_at,
-                    record.source,
-                    record.mode,
+                    &record.id,
+                    &record.created_at,
+                    &record.source,
+                    &record.mode,
                     preview_text(&record.text, 80)
                 );
             }
