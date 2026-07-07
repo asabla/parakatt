@@ -5,7 +5,7 @@ final class LivePreviewCoordinator {
     private var service: LivePreviewService?
     private(set) var isActive = false
 
-    func configure(bridge: CoreBridge, onUpdate: @escaping (String, String, Bool) -> Void) {
+    func configure(bridge: CoreBridge, onUpdate: @escaping (String, String, String) -> Void) {
         let preview = LivePreviewService(bridge: bridge)
         preview.onUpdate = onUpdate
         preview.onError = { [weak self] message in
