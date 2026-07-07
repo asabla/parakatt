@@ -351,7 +351,12 @@ class AppState: ObservableObject {
     /// Stop recording and process the captured audio through the STT pipeline.
     func stopRecording() {
         guard isRecording else { return }
-        recording.beginStopRecording { [weak self] in
+
+        recording.beginStopRecording()
+
+        // Keep audio capture running briefly so the hardware buffer can drain,
+        // then stop capture and process the tail.
+        DispatchQueue.main.asyncAfter(deadline: .now() + recording.captureDrainDelaySecs) { [weak self] in
             self?.finishStopRecording()
         }
     }
@@ -883,7 +888,7 @@ class AppState: ObservableObject {
             samples,
             isRecording: isRecording,
             livePreviewActive: livePreview.isActive,
-            feedLivePreview: { [livePreview] samples in livePreview.enqueue(samples) },
+            feedLivePreview: { [weak self] samples in self?.livePreview.enqueue(samples) },
             onPreviewRequested: { [weak self] in self?.updateLiveTranscription() }
         )
     }
