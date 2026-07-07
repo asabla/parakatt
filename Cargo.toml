@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/parakatt-core"]
+members = ["crates/parakatt-core", "crates/parakatt-cli"]
 resolver = "2"
 
 [profile.release]

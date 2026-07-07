@@ -7,6 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 make all              # Full build: Rust → UniFFI Swift bindings → XcodeGen → Xcode build
 make rust             # Build Rust core only: cargo build --release -p parakatt-core
+make cli              # Build experimental CLI: cargo build --release -p parakatt-cli
 make swift-package    # Generate UniFFI Swift bindings (requires cargo-swift)
 make xcode            # Generate Xcode project from project.yml (requires xcodegen)
 make build            # Debug build via xcodebuild
@@ -23,7 +24,7 @@ make clean            # Clean all build artifacts
 
 ## Architecture
 
-Swift+Rust hybrid macOS menu bar app. Rust handles compute-heavy work (STT, LLM), Swift handles macOS integration (audio capture, accessibility, UI).
+Swift+Rust hybrid macOS menu bar app plus an experimental Rust CLI for Linux/headless use. Rust handles compute-heavy and portable work (STT, LLM, storage, model management), Swift handles macOS integration (audio capture, accessibility, UI).
 
 **FFI boundary:** Rust exposes an `Engine` via UniFFI proc-macros (`#[uniffi::export]`). `cargo-swift` generates a Swift package (`ParakattCore/`) with an `.xcframework`. Swift side wraps this in `CoreBridge.swift`.
 
@@ -66,6 +67,7 @@ Swift+Rust hybrid macOS menu bar app. Rust handles compute-heavy work (STT, LLM)
 - Target: macOS 14.0+, Apple Silicon (aarch64)
 - Swift dependencies: HotKey (0.2.1, via SPM)
 - Entitlements: audio-input, apple-events automation, disable-library-validation (for Rust FFI)
+- `crates/parakatt-cli/` — experimental cross-platform CLI binary (`parakatt`) that calls `parakatt-core` directly
 
 ## Config
 

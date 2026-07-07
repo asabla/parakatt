@@ -1,4 +1,4 @@
-.PHONY: all rust swift-package swift-package-force xcode build release package test clean run launcher
+.PHONY: all rust cli swift-package swift-package-force xcode build release package test clean run launcher
 
 VERSION := 0.1.0
 APP_NAME := Parakatt
@@ -12,6 +12,10 @@ all: rust swift-package xcode build
 # Build the Rust core library
 rust:
 	cargo build --release -p parakatt-core
+
+# Build the experimental cross-platform CLI
+cli:
+	cargo build --release -p parakatt-cli
 
 # Run Rust tests
 test:
