@@ -230,8 +230,8 @@ struct ModelsSettingsView: View {
             .padding()
         }
         .onAppear { refreshModels() }
-        .onReceive(appState.$isDownloading) { _ in refreshModels() }
-        .onReceive(appState.$isModelLoaded) { _ in refreshModels() }
+        .onReceive(appState.model.$isDownloading) { _ in refreshModels() }
+        .onReceive(appState.model.$isModelLoaded) { _ in refreshModels() }
     }
 
     private func refreshModels() {

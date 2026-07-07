@@ -186,9 +186,9 @@ class MenuBarManager: NSObject {
 
     private func observeState() {
         appState.recording.$isRecording
-            .combineLatest(appState.recording.$isProcessing, appState.$isModelLoaded)
-            .combineLatest(appState.$isMeetingActive)
-            .combineLatest(appState.$isDownloading)
+            .combineLatest(appState.recording.$isProcessing, appState.model.$isModelLoaded)
+            .combineLatest(appState.meeting.$isMeetingActive)
+            .combineLatest(appState.model.$isDownloading)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] nested, isDownloading in
                 let (inner, isMeetingActive) = nested
@@ -268,7 +268,7 @@ class MenuBarManager: NSObject {
         // Auto-open the live meeting window when a meeting starts, auto-close
         // (but keep the window instance alive) when it ends. Mirrors the
         // existing settings/history window pattern.
-        appState.$isMeetingActive
+        appState.meeting.$isMeetingActive
             .removeDuplicates()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] isActive in
@@ -354,7 +354,7 @@ class MenuBarManager: NSObject {
             appState.selectedAudioSourcePID = pid_t(sender.tag)
             appState.selectedAudioSourceName = sender.title
             // Persist the bundle ID (look it up from running apps)
-            let apps = AudioSourceService.listRunningAudioApps()
+            let apps = appState.listRunningAudioApps()
             if let app = apps.first(where: { $0.id == pid_t(sender.tag) }) {
                 appState.setPreferredAudioSource(bundleId: app.bundleIdentifier)
             }
@@ -376,7 +376,7 @@ class MenuBarManager: NSObject {
         menu.addItem(.separator())
 
         // Running audio apps
-        let apps = AudioSourceService.listRunningAudioApps()
+        let apps = appState.listRunningAudioApps()
         if apps.isEmpty {
             let emptyItem = NSMenuItem(title: "No audio apps running", action: nil, keyEquivalent: "")
             emptyItem.isEnabled = false
@@ -411,7 +411,7 @@ class MenuBarManager: NSObject {
         menu.addItem(defaultItem)
         menu.addItem(.separator())
 
-        let devices = AudioCaptureService.listInputDevices()
+        let devices = appState.listInputDevices()
         for device in devices {
             let label = device.isDefault ? "\(device.name) (current default)" : device.name
             let item = NSMenuItem(title: label, action: #selector(selectInputDevice(_:)), keyEquivalent: "")

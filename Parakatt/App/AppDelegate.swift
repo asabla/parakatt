@@ -4,10 +4,11 @@ import SwiftUI
 
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
-    let appState = AppState()
+    private let environment = MacAppEnvironment()
+    lazy var appState = AppState(environment: environment)
     private var menuBarManager: MenuBarManager?
     private var hotkeyService: HotkeyService?
-    private var permissionService: PermissionService?
+    private var permissionService: PermissionManaging?
     private var overlayController: RecordingOverlayController?
     private var onboardingWindow: NSWindow?
 
@@ -20,7 +21,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // stderr, which Console.app captures alongside our NSLog lines.
         ParakattCore.initLogging(defaultLevel: "info")
 
-        permissionService = PermissionService()
+        permissionService = environment.permissions
         permissionService?.requestPermissionsIfNeeded()
 
         menuBarManager = MenuBarManager(appState: appState)

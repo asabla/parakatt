@@ -1,14 +1,36 @@
+import Combine
 import Foundation
 
 /// Push-to-talk + single-recording UI state.
 ///
 /// Owns the @Published surface that drives the recording overlay,
-/// menu bar, and live-preview UI. The PTT pipeline itself
-/// (audioBuffer, chunk timer, chunk lock, accumulated text) stays
-/// on AppState for now — a later refactor can move the pipeline
-/// here once the boundary is proven by these published fields.
+/// menu bar, and live-preview UI, plus the raw push-to-talk audio tail
+/// that feeds single-shot, preview, and incremental chunking paths.
 @MainActor
 final class RecordingCoordinator: ObservableObject {
+    /// Sample rate expected by the STT pipeline.
+    let sampleRate: UInt32 = 16_000
+    /// Seconds before transitioning from single-shot preview to incremental chunking.
+    let firstChunkDelaySecs: TimeInterval = 1.0
+    /// How often the PTT dispatch timer wakes up. The dispatch policy, not this timer, gates chunk rate.
+    let pttDispatchTickSecs: TimeInterval = 1.5
+    /// Minimum audio required before dispatching an incremental PTT chunk.
+    let pttMinChunkSecs: Double = 2.0
+    /// Hard upper bound on incremental PTT chunk size.
+    let pttMaxChunkSecs: Double = 12.0
+    /// Consecutive silent callbacks required before treating the current point as a natural pause.
+    let pttPauseSilenceCallbacks: Int = 5
+    /// Overlap between consecutive chunks to avoid cutting words at boundaries.
+    let overlapDurationSecs: Double = 2.0
+    /// Grace period after hotkey release before stopping audio capture.
+    let captureDrainDelaySecs: TimeInterval = 0.6
+    /// Interval between buffered live-preview updates while recording.
+    let streamingInterval: TimeInterval = 2.0
+    /// Minimum samples needed before the first buffered live preview.
+    var minSamplesForStreaming: Int { Int(sampleRate) }
+    /// Minimum new audio since the last preview pass before re-transcribing.
+    let minNewSamplesForRestream = 8000
+
     /// True while the user is actively recording (held or toggled on).
     @Published var isRecording = false
     /// True while a chunk is being transcribed / inserted (UI shows spinner).
@@ -35,4 +57,513 @@ final class RecordingCoordinator: ObservableObject {
     /// Latest tentative tail from the LocalAgreement-2 stream.
     /// Renders in lighter style; expected to flicker.
     @Published var livePreviewTentative: String = ""
+
+    struct AppendResult {
+        let shouldFeedLivePreview: Bool
+        let speechResumed: Bool
+    }
+
+    struct PttChunk {
+        let index: UInt32
+        let samples: [Float]
+    }
+
+    struct BufferedPreviewRequest {
+        let sessionId: String
+        let samples: [Float]
+        let sampleRate: UInt32
+    }
+
+    enum StopProcessingPath {
+        case incrementalTail(sessionId: String, remainingSamples: [Float], sampleRate: UInt32, chunkIndex: UInt32)
+        case singleShot(samples: [Float])
+    }
+
+    enum CapturedAudioValidation {
+        case valid(durationSecs: Double)
+        case empty
+        case tooShort(durationSecs: Double)
+    }
+
+    private var audioBuffer: [Float] = []
+    private let audioBufferLock = NSLock()
+    private var sampleCount = 0
+    /// Number of consecutive near-silent audio callbacks.
+    private var silentCallbackCount = 0
+    /// Threshold: callbacks are ~every 100ms, so 50 = ~5 seconds of silence.
+    private let silenceCallbackThreshold = 50
+    /// After this many consecutive silent callbacks (~10 s) we stop
+    /// feeding the streaming preview model to save CPU/battery.
+    private let livePreviewSleepCallbacks = 100
+    /// Threshold for warning about long push-to-talk recordings (5 minutes).
+    private var longRecordingWarningSamples: Int { 5 * 60 * Int(sampleRate) }
+    private var longRecordingWarned = false
+
+    private var streamingTimer: Timer?
+    private var pttChunkTimer: Timer?
+    private nonisolated(unsafe) let pttChunkLock = NSLock()
+    /// True while the audio engine is still running for a brief grace period after hotkey release.
+    private var isCaptureDraining = false
+    /// Session ID for incremental processing (nil = short recording, single-shot).
+    private var pttSessionId: String?
+    private var pttChunkIndex: UInt32 = 0
+    /// Accumulated text from processed chunks (used to compose live display).
+    private var pttAccumulatedText: String?
+    private var isStreamTranscribing = false
+    /// Sample count of the last buffer we ran the streaming preview on.
+    /// Used to skip re-transcribing essentially the same audio when the
+    /// user goes silent for a few seconds.
+    private var lastStreamingSampleCount = 0
+    /// Buffered preview LocalAgreement-2 session id, set when the fallback
+    /// path takes over (no Nemotron loaded). Cleared on stopRecording.
+    private var bufferedPreviewSessionId: String?
+
+    func resetForNewRecording() {
+        sampleCount = 0
+        silentCallbackCount = 0
+        silenceDetected = false
+        audioClippingDetected = false
+        longRecordingWarned = false
+        currentAudioLevel = 0
+        stopStreamingUpdates()
+        resetPttState()
+        bufferedPreviewSessionId = nil
+        clearBuffer()
+    }
+
+    func clearPreviewDisplay() {
+        liveTranscription = nil
+        livePreviewCommitted = ""
+        livePreviewTentative = ""
+    }
+
+    func applyPreviewText(committed: String, tentative: String) {
+        livePreviewCommitted = committed
+        livePreviewTentative = tentative
+        let display = tentative.isEmpty
+            ? committed
+            : (committed.isEmpty ? tentative : "\(committed) \(tentative)")
+        liveTranscription = display.isEmpty ? nil : display
+    }
+
+    func applyFinalPreviewText(_ text: String) {
+        guard !text.isEmpty else { return }
+        livePreviewCommitted = text
+        livePreviewTentative = ""
+        liveTranscription = text
+    }
+
+    func applyBufferedPreview(committedText: String, tentativeText: String) {
+        // Compose committed chunk text with the current unprocessed tail.
+        let chunkPrefix = pttAccumulatedText ?? ""
+        let committedFull: String
+        if chunkPrefix.isEmpty {
+            committedFull = committedText
+        } else if committedText.isEmpty {
+            committedFull = chunkPrefix
+        } else {
+            committedFull = "\(chunkPrefix) \(committedText)"
+        }
+
+        applyPreviewText(committed: committedFull, tentative: tentativeText)
+    }
+
+    func canStartRecording() -> Bool {
+        !isRecording && !isCaptureDraining
+    }
+
+    func beginRecording() {
+        // Set immediately to prevent races with rapid start/stop.
+        isRecording = true
+        resetForNewRecording()
+    }
+
+    func startRecordingTimers(onPreviewTick: @escaping () -> Void, onIncrementalStart: @escaping () -> Void) {
+        startStreamingUpdates(interval: streamingInterval, onTick: onPreviewTick)
+        startPttTransitionTimer(delay: firstChunkDelaySecs, onFire: onIncrementalStart)
+    }
+
+    func markRecordingStartFailed() {
+        isRecording = false
+    }
+
+    func beginStopRecording() {
+        stopPttChunkTimer()
+        stopStreamingUpdates()
+        isRecording = false
+        currentAudioLevel = 0
+        beginCaptureDrain()
+    }
+
+    func beginIncrementalTailProcessing() {
+        isProcessing = true
+    }
+
+    func completePttSession(text: String) {
+        isProcessing = false
+        liveTranscription = nil
+        lastTranscription = text
+        clearPttAccumulatedText()
+        clearPttSession()
+    }
+
+    func failPttSession() {
+        isProcessing = false
+        liveTranscription = nil
+        clearPttAccumulatedText()
+        clearPttSession()
+    }
+
+    func beginSingleShotProcessing() {
+        isProcessing = true
+    }
+
+    func completeSingleShot(text: String) {
+        isProcessing = false
+        lastTranscription = text
+    }
+
+    func failSingleShot() {
+        isProcessing = false
+    }
+
+    func clearLiveTranscription() {
+        liveTranscription = nil
+    }
+
+    func beginCaptureDrain() {
+        isCaptureDraining = true
+    }
+
+    func finishCaptureDrain() {
+        isCaptureDraining = false
+    }
+
+    nonisolated func withPttChunkLock<T>(_ body: () throws -> T) rethrows -> T {
+        pttChunkLock.lock()
+        defer { pttChunkLock.unlock() }
+        return try body()
+    }
+
+    func clearBuffer() {
+        audioBufferLock.lock()
+        audioBuffer.removeAll()
+        audioBufferLock.unlock()
+    }
+
+    func drainBuffer() -> [Float] {
+        audioBufferLock.lock()
+        let samples = audioBuffer
+        audioBuffer.removeAll()
+        audioBufferLock.unlock()
+        return samples
+    }
+
+    func snapshotBuffer() -> [Float] {
+        audioBufferLock.lock()
+        let samples = audioBuffer
+        audioBufferLock.unlock()
+        return samples
+    }
+
+    func validateCapturedAudio(_ samples: [Float], minimumDurationSecs: Double = 0.5) -> CapturedAudioValidation {
+        guard !samples.isEmpty else { return .empty }
+
+        let durationSecs = Double(samples.count) / Double(sampleRate)
+        guard durationSecs >= minimumDurationSecs else {
+            return .tooShort(durationSecs: durationSecs)
+        }
+
+        return .valid(durationSecs: durationSecs)
+    }
+
+    func appendAudioSamples(_ samples: [Float], isRecording: Bool, livePreviewActive: Bool) -> AppendResult {
+        audioBufferLock.lock()
+        audioBuffer.append(contentsOf: samples)
+        let total = audioBuffer.count
+        audioBufferLock.unlock()
+
+        let shouldFeedLivePreview = livePreviewActive && silentCallbackCount < livePreviewSleepCallbacks
+
+        if total > longRecordingWarningSamples && !longRecordingWarned {
+            longRecordingWarned = true
+            let durationMins = Double(total) / Double(sampleRate) / 60.0
+            NSLog("[Parakatt] WARNING: Push-to-talk recording exceeds %.0f minutes — consider using meeting mode for long recordings", durationMins)
+        }
+
+        // Compute RMS for audio level visualization.
+        let sumOfSquares = samples.reduce(Float(0)) { $0 + $1 * $1 }
+        let rms = sqrt(sumOfSquares / Float(max(samples.count, 1)))
+        // Normalize: typical speech RMS ~0.01-0.1, scale up for display.
+        let normalized = min(rms * 10, 1.0)
+        let smoothed = 0.3 * currentAudioLevel + 0.7 * normalized
+
+        // Detect a "speech resumed after silence" transition so preview can
+        // kick immediately instead of waiting for the next timer tick.
+        let wasSilentBefore = silentCallbackCount > 5
+        if rms < 0.001 {
+            silentCallbackCount += 1
+        } else {
+            silentCallbackCount = 0
+        }
+        let speechResumed = isRecording && wasSilentBefore && rms >= 0.001
+
+        // Detect clipping: any sample at +/-1.0 means the signal is saturated.
+        let maxAmp = samples.lazy.map { abs($0) }.max() ?? 0
+        let clipping = maxAmp >= 0.99
+        currentAudioLevel = smoothed
+        silenceDetected = silentCallbackCount >= silenceCallbackThreshold
+        if clipping { audioClippingDetected = true }
+
+        sampleCount += 1
+        if sampleCount % 50 == 1 {
+            NSLog("[Parakatt] Audio callback #%d, buffer: %d samples (%.1fs)", sampleCount, total, Double(total) / Double(sampleRate))
+        }
+
+        return AppendResult(
+            shouldFeedLivePreview: shouldFeedLivePreview,
+            speechResumed: speechResumed
+        )
+    }
+
+    func refreshPreviewAfterSpeechResumed(_ result: AppendResult, onPreviewRequested: @escaping () -> Void) {
+        guard result.speechResumed else { return }
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            // Bypass the "buffer hasn't grown enough" gate by resetting the
+            // watermark; we want this pass to run even if only one frame arrived.
+            self.resetPreviewWatermark()
+            onPreviewRequested()
+        }
+    }
+
+    func prepareNextPttChunk() -> PttChunk? {
+        let minSamples = Int(pttMinChunkSecs * Double(sampleRate))
+        let maxSamples = Int(pttMaxChunkSecs * Double(sampleRate))
+        let overlapSamples = Int(overlapDurationSecs * Double(sampleRate))
+        let chunkIndex = pttChunkIndex
+
+        audioBufferLock.lock()
+        let bufferLen = audioBuffer.count
+        guard bufferLen >= minSamples else {
+            audioBufferLock.unlock()
+            return nil
+        }
+        let speakerPaused = silentCallbackCount >= pttPauseSilenceCallbacks
+        let bufferAtCap = bufferLen >= maxSamples
+        guard speakerPaused || bufferAtCap else {
+            audioBufferLock.unlock()
+            return nil
+        }
+
+        // Take up to maxSamples worth — variable-length chunks.
+        let take = min(bufferLen, maxSamples)
+        let chunkSamples = Array(audioBuffer.prefix(take))
+        // First chunk has no prior chunk to overlap with — consume everything
+        // to prevent the tail from re-processing the same audio.
+        let consumed = chunkIndex == 0
+            ? chunkSamples.count
+            : max(0, chunkSamples.count - overlapSamples)
+        if consumed > 0 {
+            audioBuffer.removeFirst(consumed)
+        }
+        audioBufferLock.unlock()
+
+        pttChunkIndex += 1
+        return PttChunk(index: chunkIndex, samples: chunkSamples)
+    }
+
+    func startStreamingUpdates(interval: TimeInterval, onTick: @escaping () -> Void) {
+        streamingTimer?.invalidate()
+        lastStreamingSampleCount = 0
+        streamingTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { _ in
+            onTick()
+        }
+    }
+
+    func stopStreamingUpdates() {
+        streamingTimer?.invalidate()
+        streamingTimer = nil
+        lastStreamingSampleCount = 0
+    }
+
+    func startPttTransitionTimer(delay: TimeInterval, onFire: @escaping () -> Void) {
+        stopPttChunkTimer()
+        pttChunkTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { _ in
+            onFire()
+        }
+    }
+
+    func startPttDispatchTimer(interval: TimeInterval, onTick: @escaping () -> Void) {
+        stopPttChunkTimer()
+        pttChunkTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { _ in
+            onTick()
+        }
+    }
+
+    func stopPttChunkTimer() {
+        pttChunkTimer?.invalidate()
+        pttChunkTimer = nil
+    }
+
+    func resetPttState() {
+        pttSessionId = nil
+        pttChunkIndex = 0
+        pttAccumulatedText = nil
+        stopPttChunkTimer()
+    }
+
+    func beginPttSessionDispatch(id: String, onDispatch: @escaping () -> Void) {
+        pttSessionId = id
+        onDispatch()
+        startPttDispatchTimer(interval: pttDispatchTickSecs, onTick: onDispatch)
+    }
+
+    func clearPttSession() {
+        pttSessionId = nil
+    }
+
+    func currentPttSessionId() -> String? {
+        pttSessionId
+    }
+
+    func currentPttChunkIndex() -> UInt32 {
+        pttChunkIndex
+    }
+
+    func applyPttAccumulatedText(_ text: String) {
+        let newAccumulated = text.isEmpty ? nil : text
+        pttAccumulatedText = newAccumulated
+        if let newAccumulated {
+            liveTranscription = newAccumulated
+        }
+    }
+
+    func clearPttAccumulatedText() {
+        pttAccumulatedText = nil
+    }
+
+    func resetPreviewWatermark() {
+        lastStreamingSampleCount = 0
+    }
+
+    func shouldRunBufferedPreview(snapshotCount: Int, minSamples: Int, minNewSamples: Int) -> Bool {
+        guard snapshotCount >= minSamples else { return false }
+
+        // Special case: if the buffer shrank since the last pass (a chunk
+        // fired and consumed audio), always run the preview because there is a
+        // fresh tail to inspect.
+        if snapshotCount < lastStreamingSampleCount {
+            lastStreamingSampleCount = snapshotCount
+            return true
+        }
+
+        let newSamples = snapshotCount - lastStreamingSampleCount
+        if lastStreamingSampleCount > 0 && newSamples < minNewSamples {
+            return false
+        }
+
+        lastStreamingSampleCount = snapshotCount
+        return true
+    }
+
+    func currentBufferedPreviewSessionId() -> String? {
+        bufferedPreviewSessionId
+    }
+
+    func takeBufferedPreviewSessionId() -> String? {
+        let id = bufferedPreviewSessionId
+        bufferedPreviewSessionId = nil
+        return id
+    }
+
+    func finishBufferedPreview(bridge: CoreBridge?) -> String? {
+        guard let sessionId = takeBufferedPreviewSessionId() else { return nil }
+        return (try? bridge?.bufferedPreviewFinish(sessionId: sessionId)) ?? ""
+    }
+
+    func finalizePreview(livePreviewText: String?, bridge: CoreBridge?) {
+        if let livePreviewText {
+            applyFinalPreviewText(livePreviewText)
+        }
+
+        if let bufferedPreviewText = finishBufferedPreview(bridge: bridge) {
+            applyFinalPreviewText(bufferedPreviewText)
+        }
+    }
+
+    func prepareStoppedRecording(livePreviewText: String?, bridge: CoreBridge?) -> StopProcessingPath {
+        finishCaptureDrain()
+        finalizePreview(livePreviewText: livePreviewText, bridge: bridge)
+
+        if let sessionId = currentPttSessionId() {
+            beginIncrementalTailProcessing()
+            // Keep liveTranscription visible while processing the tail.
+            NSLog("[Parakatt] Recording stopped (incremental session, processing tail)")
+            return .incrementalTail(
+                sessionId: sessionId,
+                remainingSamples: drainBuffer(),
+                sampleRate: sampleRate,
+                chunkIndex: currentPttChunkIndex()
+            )
+        }
+
+        clearLiveTranscription()
+        NSLog("[Parakatt] Recording stopped (short, single-shot)")
+        return .singleShot(samples: drainBuffer())
+    }
+
+    func prepareBufferedPreviewRequest(bridge: CoreBridge, livePreviewActive: Bool) -> BufferedPreviewRequest? {
+        // If the cache-aware streaming preview is active we skip the buffered
+        // fallback to avoid duplicate work and conflicting preview text.
+        guard !livePreviewActive else { return nil }
+        guard beginStreamTranscribing() else { return nil }
+
+        let snapshot = snapshotBuffer()
+        guard shouldRunBufferedPreview(
+            snapshotCount: snapshot.count,
+            minSamples: minSamplesForStreaming,
+            minNewSamples: minNewSamplesForRestream
+        ) else {
+            finishStreamTranscribing()
+            return nil
+        }
+
+        // Limit snapshot to last 30 seconds to avoid OOM on very long recordings.
+        let maxSamples = 30 * Int(sampleRate)
+        let trimmed = snapshot.count > maxSamples
+            ? Array(snapshot.suffix(maxSamples))
+            : snapshot
+
+        guard let sessionId = ensureBufferedPreviewSession(bridge: bridge) else {
+            finishStreamTranscribing()
+            return nil
+        }
+
+        return BufferedPreviewRequest(sessionId: sessionId, samples: trimmed, sampleRate: sampleRate)
+    }
+
+    func ensureBufferedPreviewSession(bridge: CoreBridge) -> String? {
+        if bufferedPreviewSessionId == nil {
+            let id = UUID().uuidString
+            do {
+                try bridge.bufferedPreviewStart(sessionId: id)
+                bufferedPreviewSessionId = id
+            } catch {
+                NSLog("[Parakatt] Buffered preview start failed: %@", error.localizedDescription)
+            }
+        }
+        return bufferedPreviewSessionId
+    }
+
+    func beginStreamTranscribing() -> Bool {
+        guard !isStreamTranscribing else { return false }
+        isStreamTranscribing = true
+        return true
+    }
+
+    func finishStreamTranscribing() {
+        isStreamTranscribing = false
+    }
 }

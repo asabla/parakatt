@@ -50,6 +50,35 @@ make all
 make run
 ```
 
+### Experimental CLI
+
+Parakatt also has an early Rust CLI for Linux/headless use. It reuses the same Rust core as the macOS app, stores data in platform-standard directories, and currently supports model management plus transcription of 16 kHz mono WAV or raw f32le audio.
+
+```bash
+# Build the CLI
+cargo build --release -p parakatt-cli
+
+# Show resolved config/model paths
+./target/release/parakatt paths
+
+# Download the default Parakeet model
+./target/release/parakatt models download parakeet-tdt-0.6b-v3
+
+# List transcription modes
+./target/release/parakatt modes list
+
+# Transcribe a 16 kHz mono WAV file
+./target/release/parakatt transcribe audio.wav
+
+# Search saved transcription history
+./target/release/parakatt history search "release notes"
+
+# Show aggregate stats
+./target/release/parakatt stats
+```
+
+The macOS menu bar app remains the primary desktop app. The CLI is the first step toward Linux support; future desktop work should build on the portable Rust core/CLI path rather than the macOS Swift integration layer.
+
 ## Permissions
 
 Parakatt requires the following macOS permissions:

@@ -67,12 +67,23 @@ jobs:
       - name: Run Swift tests
         run: |
           set -o pipefail
+          set +e
           xcodebuild test \
             -project Parakatt.xcodeproj \
             -scheme Parakatt \
             -destination 'platform=macOS' \
             -only-testing:ParakattTests \
             CODE_SIGN_IDENTITY="-" \
-            CODE_SIGNING_REQUIRED=NO
+            CODE_SIGNING_REQUIRED=NO 2>&1 | tee xcodebuild.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -ne 0 ]; then
+            grep -Ei "error:|fatal error:|Testing failed|Command SwiftCompile failed|Command CompileSwiftSources failed|BUILD FAILED|TEST FAILED" xcodebuild.log | while IFS= read -r line; do
+              line=${line//'%'/'%25'}
+              line=${line//$'\r'/'%0D'}
+              printf '::error title=xcodebuild diagnostic::%s\n' "$line"
+            done
+          fi
+          exit "$status"
         env:
           NSUnbufferedIO: "YES"

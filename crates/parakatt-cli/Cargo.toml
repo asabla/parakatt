@@ -1,0 +1,15 @@
+[package]
+name = "parakatt-cli"
+version = "0.1.0"
+edition = "2021"
+description = "Command-line interface for Parakatt transcription"
+
+[[bin]]
+name = "parakatt"
+path = "src/main.rs"
+
+[dependencies]
+dirs = "6"
+hound = "3"
+parakatt-core = { path = "../parakatt-core" }
+serde_json = "1"

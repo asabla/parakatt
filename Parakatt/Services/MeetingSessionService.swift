@@ -56,8 +56,8 @@ class MeetingSessionService {
 
     // MARK: - Audio sources
 
-    private let micCapture = AudioCaptureService()
-    private let systemCapture = SystemAudioCaptureService()
+    private let micCapture: AudioCapturing
+    private let systemCapture: SystemAudioCapturing
 
     // MARK: - State
 
@@ -113,8 +113,14 @@ class MeetingSessionService {
         return Date().timeIntervalSince(startTime)
     }
 
-    init(bridge: CoreBridge) {
+    init(
+        bridge: CoreBridge,
+        micCapture: AudioCapturing,
+        systemCapture: SystemAudioCapturing
+    ) {
         self.bridge = bridge
+        self.micCapture = micCapture
+        self.systemCapture = systemCapture
         self.sessionId = UUID().uuidString
     }
 
