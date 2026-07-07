@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use parakatt_core::download::DownloadState;
 use parakatt_core::engine::Engine;
+use parakatt_core::storage::{StoredTranscription, TranscriptionQuery};
 use parakatt_core::{init_logging, AppContext, CoreError, EngineConfig, TimestampedSegment};
 use serde_json::json;
 
@@ -54,6 +55,7 @@ fn run() -> CliResult<()> {
     match command.as_str() {
         "paths" => print_paths(&paths),
         "models" => run_models(args, &paths),
+        "history" => run_history(args, &paths),
         "transcribe" => run_transcribe(args, &paths),
         _ => Err(format!("unknown command: {command}")),
     }
@@ -89,6 +91,80 @@ fn run_models(mut args: Vec<String>, paths: &AppPaths) -> CliResult<()> {
             Ok(())
         }
         _ => Err(format!("unknown models subcommand: {subcommand}")),
+    }
+}
+
+fn run_history(mut args: Vec<String>, paths: &AppPaths) -> CliResult<()> {
+    if args.is_empty() || take_flag(&mut args, "--help") || take_flag(&mut args, "-h") {
+        print_history_usage();
+        return Ok(());
+    }
+
+    let subcommand = args.remove(0);
+    let engine = create_engine(paths, DEFAULT_MODE)?;
+
+    match subcommand.as_str() {
+        "list" => {
+            let limit = take_u32_option(&mut args, "--limit")?.unwrap_or(20);
+            let offset = take_u32_option(&mut args, "--offset")?.unwrap_or(0);
+            let source_filter = take_option(&mut args, "--source")?;
+            let format = take_option(&mut args, "--format")?.unwrap_or_else(|| "text".to_string());
+            ensure_no_args(&args, "history list")?;
+
+            let records = engine
+                .list_transcriptions(TranscriptionQuery {
+                    search_text: None,
+                    source_filter,
+                    limit,
+                    offset,
+                })
+                .map_err(format_core_error)?;
+            print_transcriptions(&records, &format)
+        }
+        "search" => {
+            let limit = take_u32_option(&mut args, "--limit")?.unwrap_or(50);
+            let offset = take_u32_option(&mut args, "--offset")?.unwrap_or(0);
+            let source_filter = take_option(&mut args, "--source")?;
+            let format = take_option(&mut args, "--format")?.unwrap_or_else(|| "text".to_string());
+            let query = take_required_arg(&mut args, "search query")?;
+            ensure_no_args(&args, "history search")?;
+
+            let records = engine
+                .list_transcriptions(TranscriptionQuery {
+                    search_text: Some(query),
+                    source_filter,
+                    limit,
+                    offset,
+                })
+                .map_err(format_core_error)?;
+            print_transcriptions(&records, &format)
+        }
+        "show" => {
+            let format = take_option(&mut args, "--format")?.unwrap_or_else(|| "text".to_string());
+            let id = take_required_arg(&mut args, "transcription id")?;
+            ensure_no_args(&args, "history show")?;
+
+            let record = engine.get_transcription(id).map_err(format_core_error)?;
+            print_transcription(&record, &format)
+        }
+        "delete" => {
+            if args.is_empty() {
+                return Err("missing transcription id".to_string());
+            }
+            let count = if args.len() == 1 {
+                engine
+                    .delete_transcription(args.remove(0))
+                    .map_err(format_core_error)?;
+                1
+            } else {
+                engine
+                    .delete_transcriptions(args)
+                    .map_err(format_core_error)?
+            };
+            println!("Deleted {count} transcription(s)");
+            Ok(())
+        }
+        _ => Err(format!("unknown history subcommand: {subcommand}")),
     }
 }
 
@@ -307,6 +383,7 @@ Commands:\n\
   models list                   List known speech models\n\
   models download <model-id>    Download a model\n\
   models delete <model-id>      Delete a downloaded model\n\
+  history list                  List saved transcriptions\n\
   transcribe [options] <file>   Transcribe 16 kHz mono WAV or raw f32le audio\n\n\
 Run `parakatt <command> --help` for command-specific help."
     );
@@ -318,6 +395,16 @@ fn print_models_usage() {
   parakatt models list\n\
   parakatt models download <model-id>\n\
   parakatt models delete <model-id>"
+    );
+}
+
+fn print_history_usage() {
+    println!(
+        "Usage:\n\
+  parakatt history list [--limit N] [--offset N] [--source SOURCE] [--format text|json]\n\
+  parakatt history search [options] <query>\n\
+  parakatt history show [--format text|json] <id>\n\
+  parakatt history delete <id> [id ...]"
     );
 }
 
@@ -370,6 +457,16 @@ fn take_option(args: &mut Vec<String>, flag: &str) -> CliResult<Option<String>> 
     Ok(None)
 }
 
+fn take_u32_option(args: &mut Vec<String>, flag: &str) -> CliResult<Option<u32>> {
+    take_option(args, flag)?
+        .map(|value| {
+            value
+                .parse::<u32>()
+                .map_err(|_| format!("{flag} requires a non-negative integer"))
+        })
+        .transpose()
+}
+
 fn take_flag(args: &mut Vec<String>, flag: &str) -> bool {
     if let Some(index) = args.iter().position(|arg| arg == flag) {
         args.remove(index);
@@ -407,6 +504,79 @@ fn format_bytes(bytes: u64) -> String {
     } else {
         format!("{value:.1} {}", UNITS[unit])
     }
+}
+
+fn print_transcriptions(records: &[StoredTranscription], format: &str) -> CliResult<()> {
+    match format {
+        "text" => {
+            println!("{:<36} {:<20} {:<13} {:<10} TEXT", "ID", "CREATED", "SOURCE", "MODE");
+            for record in records {
+                println!(
+                    "{:<36} {:<20} {:<13} {:<10} {}",
+                    record.id,
+                    record.created_at,
+                    record.source,
+                    record.mode,
+                    preview_text(&record.text, 80)
+                );
+            }
+            Ok(())
+        }
+        "json" => {
+            let values: Vec<_> = records.iter().map(transcription_json).collect();
+            println!("{}", json!(values));
+            Ok(())
+        }
+        _ => Err(format!("unknown output format: {format}; use text or json")),
+    }
+}
+
+fn print_transcription(record: &StoredTranscription, format: &str) -> CliResult<()> {
+    match format {
+        "text" => {
+            println!("id: {}", record.id);
+            println!("created_at: {}", record.created_at);
+            println!("duration_secs: {:.2}", record.duration_secs);
+            println!("source: {}", record.source);
+            println!("mode: {}", record.mode);
+            if let Some(audio_source) = &record.audio_source {
+                println!("audio_source: {audio_source}");
+            }
+            if let Some(title) = &record.title {
+                println!("title: {title}");
+            }
+            println!("\n{}", record.text);
+            Ok(())
+        }
+        "json" => {
+            println!("{}", transcription_json(record));
+            Ok(())
+        }
+        _ => Err(format!("unknown output format: {format}; use text or json")),
+    }
+}
+
+fn transcription_json(record: &StoredTranscription) -> serde_json::Value {
+    json!({
+        "id": &record.id,
+        "created_at": &record.created_at,
+        "duration_secs": record.duration_secs,
+        "source": &record.source,
+        "mode": &record.mode,
+        "audio_source": &record.audio_source,
+        "app_context": &record.app_context,
+        "title": &record.title,
+        "text": &record.text,
+    })
+}
+
+fn preview_text(text: &str, max_chars: usize) -> String {
+    let flattened = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut preview: String = flattened.chars().take(max_chars).collect();
+    if flattened.chars().count() > max_chars {
+        preview.push_str("...");
+    }
+    preview
 }
 
 fn segment_json(segment: &TimestampedSegment) -> serde_json::Value {
