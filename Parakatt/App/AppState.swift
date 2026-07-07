@@ -930,11 +930,6 @@ class AppState: ObservableObject {
             livePreview.enqueue(samples)
         }
 
-        // Warn once when push-to-talk exceeds 5 minutes.
-        if let durationMins = result.longRecordingWarningMinutes {
-            NSLog("[Parakatt] WARNING: Push-to-talk recording exceeds %.0f minutes — consider using meeting mode for long recordings", durationMins)
-        }
-
         if result.speechResumed {
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
@@ -944,10 +939,6 @@ class AppState: ObservableObject {
                 self.recording.resetPreviewWatermark()
                 self.updateLiveTranscription()
             }
-        }
-
-        if let callbackNumber = result.callbackNumberToLog {
-            NSLog("[Parakatt] Audio callback #%d, buffer: %d samples (%.1fs)", callbackNumber, result.totalSamples, Double(result.totalSamples) / Double(recording.sampleRate))
         }
     }
 

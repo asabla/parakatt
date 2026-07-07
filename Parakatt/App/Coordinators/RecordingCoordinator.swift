@@ -58,11 +58,8 @@ final class RecordingCoordinator: ObservableObject {
     @Published var livePreviewTentative: String = ""
 
     struct AppendResult {
-        let totalSamples: Int
         let shouldFeedLivePreview: Bool
         let speechResumed: Bool
-        let longRecordingWarningMinutes: Double?
-        let callbackNumberToLog: Int?
     }
 
     struct PttChunk {
@@ -282,12 +279,10 @@ final class RecordingCoordinator: ObservableObject {
 
         let shouldFeedLivePreview = livePreviewActive && silentCallbackCount < livePreviewSleepCallbacks
 
-        let longWarning: Double?
         if total > longRecordingWarningSamples && !longRecordingWarned {
             longRecordingWarned = true
-            longWarning = Double(total) / Double(sampleRate) / 60.0
-        } else {
-            longWarning = nil
+            let durationMins = Double(total) / Double(sampleRate) / 60.0
+            NSLog("[Parakatt] WARNING: Push-to-talk recording exceeds %.0f minutes — consider using meeting mode for long recordings", durationMins)
         }
 
         // Compute RMS for audio level visualization.
@@ -315,14 +310,13 @@ final class RecordingCoordinator: ObservableObject {
         if clipping { audioClippingDetected = true }
 
         sampleCount += 1
-        let callbackToLog = sampleCount % 50 == 1 ? sampleCount : nil
+        if sampleCount % 50 == 1 {
+            NSLog("[Parakatt] Audio callback #%d, buffer: %d samples (%.1fs)", sampleCount, total, Double(total) / Double(sampleRate))
+        }
 
         return AppendResult(
-            totalSamples: total,
             shouldFeedLivePreview: shouldFeedLivePreview,
-            speechResumed: speechResumed,
-            longRecordingWarningMinutes: longWarning,
-            callbackNumberToLog: callbackToLog
+            speechResumed: speechResumed
         )
     }
 
