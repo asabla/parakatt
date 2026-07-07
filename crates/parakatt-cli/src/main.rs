@@ -8,7 +8,9 @@ use std::time::Duration;
 use parakatt_core::download::DownloadState;
 use parakatt_core::engine::Engine;
 use parakatt_core::storage::{StoredTranscription, TranscriptionQuery};
-use parakatt_core::{init_logging, AppContext, CoreError, EngineConfig, TimestampedSegment};
+use parakatt_core::{
+    init_logging, AppContext, CoreError, EngineConfig, ModeConfig, TimestampedSegment,
+};
 use serde_json::json;
 
 const DEFAULT_MODEL: &str = "parakeet-tdt-0.6b-v3";
@@ -55,7 +57,9 @@ fn run() -> CliResult<()> {
     match command.as_str() {
         "paths" => print_paths(&paths),
         "models" => run_models(args, &paths),
+        "modes" => run_modes(args, &paths),
         "history" => run_history(args, &paths),
+        "stats" => run_stats(args, &paths),
         "transcribe" => run_transcribe(args, &paths),
         _ => Err(format!("unknown command: {command}")),
     }
@@ -91,6 +95,25 @@ fn run_models(mut args: Vec<String>, paths: &AppPaths) -> CliResult<()> {
             Ok(())
         }
         _ => Err(format!("unknown models subcommand: {subcommand}")),
+    }
+}
+
+fn run_modes(mut args: Vec<String>, paths: &AppPaths) -> CliResult<()> {
+    if args.is_empty() || take_flag(&mut args, "--help") || take_flag(&mut args, "-h") {
+        print_modes_usage();
+        return Ok(());
+    }
+
+    let subcommand = args.remove(0);
+    let engine = create_engine(paths, DEFAULT_MODE)?;
+
+    match subcommand.as_str() {
+        "list" => {
+            let format = take_option(&mut args, "--format")?.unwrap_or_else(|| "text".to_string());
+            ensure_no_args(&args, "modes list")?;
+            print_modes(&engine.list_modes(), &format)
+        }
+        _ => Err(format!("unknown modes subcommand: {subcommand}")),
     }
 }
 
@@ -227,6 +250,20 @@ fn run_transcribe(mut args: Vec<String>, paths: &AppPaths) -> CliResult<()> {
         }
         _ => Err(format!("unknown output format: {format}; use text or json")),
     }
+}
+
+fn run_stats(mut args: Vec<String>, paths: &AppPaths) -> CliResult<()> {
+    if take_flag(&mut args, "--help") || take_flag(&mut args, "-h") {
+        print_stats_usage();
+        return Ok(());
+    }
+
+    let format = take_option(&mut args, "--format")?.unwrap_or_else(|| "text".to_string());
+    ensure_no_args(&args, "stats")?;
+
+    let engine = create_engine(paths, DEFAULT_MODE)?;
+    let stats = engine.get_statistics().map_err(format_core_error)?;
+    print_stats(&stats, &format)
 }
 
 fn create_engine(paths: &AppPaths, active_mode: &str) -> CliResult<Engine> {
@@ -383,7 +420,9 @@ Commands:\n\
   models list                   List known speech models\n\
   models download <model-id>    Download a model\n\
   models delete <model-id>      Delete a downloaded model\n\
+  modes list                    List configured transcription modes\n\
   history list                  List saved transcriptions\n\
+  stats                         Show aggregate transcription statistics\n\
   transcribe [options] <file>   Transcribe 16 kHz mono WAV or raw f32le audio\n\n\
 Run `parakatt <command> --help` for command-specific help."
     );
@@ -396,6 +435,10 @@ fn print_models_usage() {
   parakatt models download <model-id>\n\
   parakatt models delete <model-id>"
     );
+}
+
+fn print_modes_usage() {
+    println!("Usage:\n  parakatt modes list [--format text|json]");
 }
 
 fn print_history_usage() {
@@ -415,6 +458,10 @@ fn print_transcribe_usage() {
 Input must be 16 kHz mono audio. WAV supports 16/24/32-bit integer PCM or 32-bit float.\n\
 Use --raw-f32le for headerless little-endian f32 samples."
     );
+}
+
+fn print_stats_usage() {
+    println!("Usage:\n  parakatt stats [--format text|json]");
 }
 
 fn default_models_dir() -> CliResult<PathBuf> {
@@ -503,6 +550,68 @@ fn format_bytes(bytes: u64) -> String {
         format!("{} {}", bytes, UNITS[unit])
     } else {
         format!("{value:.1} {}", UNITS[unit])
+    }
+}
+
+fn print_modes(modes: &[ModeConfig], format: &str) -> CliResult<()> {
+    match format {
+        "text" => {
+            println!("{:<16} {:<12} {:<12} DICTIONARY", "NAME", "STT", "LLM");
+            for mode in modes {
+                println!(
+                    "{:<16} {:<12} {:<12} {}",
+                    mode.name,
+                    mode.stt_provider.as_deref().unwrap_or("default"),
+                    mode.llm_provider.as_deref().unwrap_or("none"),
+                    if mode.dictionary_enabled { "yes" } else { "no" }
+                );
+            }
+            Ok(())
+        }
+        "json" => {
+            let values: Vec<_> = modes.iter().map(mode_json).collect();
+            println!("{}", json!(values));
+            Ok(())
+        }
+        _ => Err(format!("unknown output format: {format}; use text or json")),
+    }
+}
+
+fn mode_json(mode: &ModeConfig) -> serde_json::Value {
+    json!({
+        "name": &mode.name,
+        "stt_provider": &mode.stt_provider,
+        "llm_provider": &mode.llm_provider,
+        "system_prompt": &mode.system_prompt,
+        "dictionary_enabled": mode.dictionary_enabled,
+    })
+}
+
+fn print_stats(stats: &[Vec<String>], format: &str) -> CliResult<()> {
+    match format {
+        "text" => {
+            for row in stats {
+                if row.len() >= 2 {
+                    println!("{:<24} {}", row[0], row[1]);
+                }
+            }
+            Ok(())
+        }
+        "json" => {
+            let values: Vec<_> = stats
+                .iter()
+                .filter_map(|row| {
+                    if row.len() >= 2 {
+                        Some(json!({ "key": &row[0], "value": &row[1] }))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            println!("{}", json!(values));
+            Ok(())
+        }
+        _ => Err(format!("unknown output format: {format}; use text or json")),
     }
 }
 

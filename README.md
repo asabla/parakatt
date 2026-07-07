@@ -64,11 +64,17 @@ cargo build --release -p parakatt-cli
 # Download the default Parakeet model
 ./target/release/parakatt models download parakeet-tdt-0.6b-v3
 
+# List transcription modes
+./target/release/parakatt modes list
+
 # Transcribe a 16 kHz mono WAV file
 ./target/release/parakatt transcribe audio.wav
 
 # Search saved transcription history
 ./target/release/parakatt history search "release notes"
+
+# Show aggregate stats
+./target/release/parakatt stats
 ```
 
 The macOS menu bar app remains the primary desktop app. The CLI is the first step toward Linux support; future desktop work should build on the portable Rust core/CLI path rather than the macOS Swift integration layer.
