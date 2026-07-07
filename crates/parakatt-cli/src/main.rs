@@ -36,7 +36,11 @@ fn run() -> CliResult<()> {
     init_logging(Some("warn".to_string()));
 
     let mut args: Vec<String> = env::args().skip(1).collect();
-    if args.is_empty() || args.first().is_some_and(|arg| arg == "--help" || arg == "-h") {
+    if args.is_empty()
+        || args
+            .first()
+            .is_some_and(|arg| arg == "--help" || arg == "-h")
+    {
         print_usage();
         return Ok(());
     }
@@ -203,8 +207,7 @@ fn run_transcribe(mut args: Vec<String>, paths: &AppPaths) -> CliResult<()> {
         return Ok(());
     }
 
-    let model_id = take_option(&mut args, "--model")?
-        .unwrap_or_else(|| DEFAULT_MODEL.to_string());
+    let model_id = take_option(&mut args, "--model")?.unwrap_or_else(|| DEFAULT_MODEL.to_string());
     let mode = take_option(&mut args, "--mode")?.unwrap_or_else(|| DEFAULT_MODE.to_string());
     let format = take_option(&mut args, "--format")?.unwrap_or_else(|| "text".to_string());
     let raw_f32le = take_flag(&mut args, "--raw-f32le");
@@ -212,13 +215,12 @@ fn run_transcribe(mut args: Vec<String>, paths: &AppPaths) -> CliResult<()> {
     let audio_path = PathBuf::from(take_required_arg(&mut args, "audio file")?);
     ensure_no_args(&args, "transcribe")?;
 
-    let (samples, sample_rate) = if raw_f32le
-        || audio_path.extension().and_then(|s| s.to_str()) == Some("raw")
-    {
-        (read_raw_f32le(&audio_path)?, TARGET_SAMPLE_RATE)
-    } else {
-        read_wav(&audio_path)?
-    };
+    let (samples, sample_rate) =
+        if raw_f32le || audio_path.extension().and_then(|s| s.to_str()) == Some("raw") {
+            (read_raw_f32le(&audio_path)?, TARGET_SAMPLE_RATE)
+        } else {
+            read_wav(&audio_path)?
+        };
 
     if sample_rate != TARGET_SAMPLE_RATE {
         return Err(format!(
