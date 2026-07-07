@@ -7,6 +7,20 @@ private let transcriptionSignpostLog = OSLog(subsystem: "com.parakatt.app", cate
 /// Runs one-off transcription jobs and reports results back to AppState.
 @MainActor
 final class TranscriptionCoordinator {
+    func startPttSession(bridge: CoreBridge?) -> String? {
+        guard let bridge else { return nil }
+
+        let sessionId = UUID().uuidString
+        do {
+            try bridge.startSession(sessionId: sessionId)
+            return sessionId
+        } catch {
+            NSLog("[Parakatt] Failed to start PTT session: %@ — will use single-shot on stop",
+                  error.localizedDescription)
+            return nil
+        }
+    }
+
     func processSingleShot(
         samples: [Float],
         sampleRate: UInt32,

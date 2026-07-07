@@ -809,17 +809,8 @@ class AppState: ObservableObject {
 
     /// Transition from throwaway streaming preview to incremental session-based processing.
     private func startIncrementalSession() {
-        guard isRecording, let bridge else { return }
-
-        let sessionId = UUID().uuidString
-
-        do {
-            try bridge.startSession(sessionId: sessionId)
-        } catch {
-            NSLog("[Parakatt] Failed to start PTT session: %@ — will use single-shot on stop",
-                  error.localizedDescription)
-            return  // PTT session stays nil → falls through to single-shot
-        }
+        guard isRecording else { return }
+        guard let sessionId = transcription.startPttSession(bridge: bridge) else { return }
 
         recording.beginPttSessionDispatch(id: sessionId) { [weak self] in
             self?.dispatchPttChunk()
