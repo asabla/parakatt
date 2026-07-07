@@ -199,7 +199,6 @@ class AppState: ObservableObject {
     /// Set by AppDelegate after init; used for hotkey reconfiguration.
     var hotkeyService: HotkeyService?
     private var audioCaptureService: AudioCapturing?
-    private var textInsertionService: TextInserting?
     private var contextService: AppContextProviding?
 
     // MARK: - Engine bridge
@@ -247,7 +246,7 @@ class AppState: ObservableObject {
         FileLogService.shared.logStartup()
 
         // Set up services
-        textInsertionService = environment.makeTextInserter()
+        textOutput.configure(inserter: environment.makeTextInserter())
         contextService = environment.makeContextProvider()
         notifications.requestAuthorization(environment: environment)
 
@@ -419,8 +418,7 @@ class AppState: ObservableObject {
                     if !result.text.isEmpty {
                         self.errorMessage = self.textOutput.insertIfEnabled(
                             text: result.text,
-                            autoPaste: self.autoPaste,
-                            inserter: self.textInsertionService
+                            autoPaste: self.autoPaste
                         )
                         NSLog("[Parakatt] PTT session result (%@, %.2fs): %@",
                               mode, result.durationSecs, result.text)
@@ -782,8 +780,7 @@ class AppState: ObservableObject {
                 if !result.text.isEmpty {
                     self.errorMessage = self.textOutput.insertIfEnabled(
                         text: result.text,
-                        autoPaste: self.autoPaste,
-                        inserter: self.textInsertionService
+                        autoPaste: self.autoPaste
                     )
                     self.notifications.sendTranscriptionReady(
                         environment: self.environment,
