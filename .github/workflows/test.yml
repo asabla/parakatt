@@ -67,12 +67,20 @@ jobs:
       - name: Run Swift tests
         run: |
           set -o pipefail
+          set +e
           xcodebuild test \
             -project Parakatt.xcodeproj \
             -scheme Parakatt \
             -destination 'platform=macOS' \
             -only-testing:ParakattTests \
             CODE_SIGN_IDENTITY="-" \
-            CODE_SIGNING_REQUIRED=NO
+            CODE_SIGNING_REQUIRED=NO 2>&1 | tee xcodebuild.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -ne 0 ]; then
+            tail_output=$(tail -120 xcodebuild.log | sed -e 's/%/%25/g' -e 's/\r/%0D/g' -e ':a;N;$!ba;s/\n/%0A/g')
+            printf '::error title=xcodebuild test failed::%s\n' "$tail_output"
+          fi
+          exit "$status"
         env:
           NSUnbufferedIO: "YES"
