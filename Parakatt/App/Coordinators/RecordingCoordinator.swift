@@ -73,6 +73,11 @@ final class RecordingCoordinator: ObservableObject {
         let sampleRate: UInt32
     }
 
+    enum StopProcessingPath {
+        case incrementalTail(sessionId: String, remainingSamples: [Float], sampleRate: UInt32, chunkIndex: UInt32)
+        case singleShot(samples: [Float])
+    }
+
     enum CapturedAudioValidation {
         case valid(durationSecs: Double)
         case empty
@@ -485,6 +490,27 @@ final class RecordingCoordinator: ObservableObject {
         if let bufferedPreviewText = finishBufferedPreview(bridge: bridge) {
             applyFinalPreviewText(bufferedPreviewText)
         }
+    }
+
+    func prepareStoppedRecording(livePreviewText: String?, bridge: CoreBridge?) -> StopProcessingPath {
+        finishCaptureDrain()
+        finalizePreview(livePreviewText: livePreviewText, bridge: bridge)
+
+        if let sessionId = currentPttSessionId() {
+            beginIncrementalTailProcessing()
+            // Keep liveTranscription visible while processing the tail.
+            NSLog("[Parakatt] Recording stopped (incremental session, processing tail)")
+            return .incrementalTail(
+                sessionId: sessionId,
+                remainingSamples: drainBuffer(),
+                sampleRate: sampleRate,
+                chunkIndex: currentPttChunkIndex()
+            )
+        }
+
+        clearLiveTranscription()
+        NSLog("[Parakatt] Recording stopped (short, single-shot)")
+        return .singleShot(samples: drainBuffer())
     }
 
     func prepareBufferedPreviewRequest(bridge: CoreBridge, livePreviewActive: Bool) -> BufferedPreviewRequest? {

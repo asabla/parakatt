@@ -373,22 +373,11 @@ class AppState: ObservableObject {
         // orange mic indicator actually turns off. Successive
         // dictations within the window stay warm (no cold-start).
         audioInput.stopCaptureAndPrewarm(prewarmWindowSecs: 20)
-        recording.finishCaptureDrain()
-
-        recording.finalizePreview(livePreviewText: livePreview.stopIfActive(), bridge: bridge)
-
-        if let sessionId = recording.currentPttSessionId() {
+        switch recording.prepareStoppedRecording(livePreviewText: livePreview.stopIfActive(), bridge: bridge) {
+        case .incrementalTail(let sessionId, let remainingSamples, let sampleRate, let currentIndex):
             // Path B: incremental session was active — only process the tail.
-            recording.beginIncrementalTailProcessing()
-            // Keep liveTranscription visible while processing the tail.
-            NSLog("[Parakatt] Recording stopped (incremental session, processing tail)")
-
-            let remainingSamples = recording.drainBuffer()
-
             let context = self.context.currentContext()
             let mode = activeMode
-            let currentIndex = recording.currentPttChunkIndex()
-            let sampleRate = recording.sampleRate
 
             transcription.finishPttSession(
                 sessionId: sessionId,
@@ -423,13 +412,8 @@ class AppState: ObservableObject {
                     NSLog("[Parakatt] PTT session finish FAILED: %@", message)
                 }
             )
-        } else {
+        case .singleShot(let samples):
             // Path A: short recording, no session — single-shot processing.
-            recording.clearLiveTranscription()
-            NSLog("[Parakatt] Recording stopped (short, single-shot)")
-
-            let samples = recording.drainBuffer()
-
             switch recording.validateCapturedAudio(samples) {
             case .valid:
                 processAudio(samples)
