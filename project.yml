@@ -106,3 +106,5 @@ targets:
         CODE_SIGN_STYLE: Automatic
     dependencies:
       - target: ParakattApp
+      - package: ParakattCore
+      - package: HotKey
