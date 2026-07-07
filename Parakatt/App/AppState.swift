@@ -324,7 +324,7 @@ class AppState: ObservableObject {
         recording.beginRecording()
 
         do {
-            try audioCaptureService?.startCapture()
+            try audioInput.startCapture(audioCaptureService)
             recording.clearPreviewDisplay()
             errorMessage = nil
 
@@ -366,7 +366,6 @@ class AppState: ObservableObject {
 
     /// Called after the capture drain grace period to stop capture and process remaining audio.
     private func finishStopRecording() {
-        audioCaptureService?.stopCapture()
         // Re-prewarm so the next hotkey press doesn't pay the macOS
         // mic cold-start cost (which can be 2-5s after a few seconds
         // of inactivity). The pre-warm fills a 500ms ring that the
@@ -376,7 +375,7 @@ class AppState: ObservableObject {
         // within that time the engine is torn down so the macOS
         // orange mic indicator actually turns off. Successive
         // dictations within the window stay warm (no cold-start).
-        audioCaptureService?.prewarm(windowSecs: 20)
+        audioInput.stopCaptureAndPrewarm(audioCaptureService, prewarmWindowSecs: 20)
         recording.finishCaptureDrain()
 
         if let finalText = livePreview.stopIfActive() {
