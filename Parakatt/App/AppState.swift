@@ -930,15 +930,8 @@ class AppState: ObservableObject {
             livePreview.enqueue(samples)
         }
 
-        if result.speechResumed {
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                // Bypass the "buffer hasn't grown enough" gate by
-                // resetting the watermark; we want this pass to run
-                // even if only ~one frame of new audio has arrived.
-                self.recording.resetPreviewWatermark()
-                self.updateLiveTranscription()
-            }
+        recording.refreshPreviewAfterSpeechResumed(result) { [weak self] in
+            self?.updateLiveTranscription()
         }
     }
 
