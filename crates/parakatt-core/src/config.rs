@@ -108,12 +108,15 @@ impl Default for GeneralConfig {
 pub struct SttConfig {
     /// Model ID to use, e.g. "whisper-base.en"
     pub active_model: Option<String>,
+    #[serde(default)]
+    pub settings: crate::speech::SpeechSettings,
 }
 
 impl Default for SttConfig {
     fn default() -> Self {
         Self {
             active_model: Some("parakeet-tdt-0.6b-v3".to_string()),
+            settings: Default::default(),
         }
     }
 }

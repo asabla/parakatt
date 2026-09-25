@@ -9,6 +9,7 @@ pub mod local_agreement;
 pub mod models;
 pub mod modes;
 pub mod session;
+pub mod speech;
 pub mod storage;
 pub mod stt;
 pub(crate) mod util;

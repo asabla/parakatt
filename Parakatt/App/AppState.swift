@@ -227,6 +227,7 @@ class AppState: ObservableObject {
     /// recording. Used by appendAudioSamples to decide whether to
     /// also feed the buffered v3 path.
     private var livePreviewActive = false
+    private var previewFailedForRecording = false
 
     // MARK: - Lifecycle
 
@@ -295,6 +296,8 @@ class AppState: ObservableObject {
                 preview.onError = { [weak self] msg in
                     NSLog("[Parakatt] LivePreview disabled: %@", msg)
                     self?.livePreviewActive = false
+                    self?.previewFailedForRecording = true
+                    self?.errorMessage = msg
                 }
                 livePreview = preview
             }
@@ -326,52 +329,45 @@ class AppState: ObservableObject {
             return
         }
 
-        // Check if any model is downloaded; if not, prompt user to download
-        let models = bridge?.listModels() ?? []
-        let downloadedModel = models.first(where: { $0.downloaded })
+        reloadSpeechModels()
+    }
 
-        // Find the offline commit-path model (parakeet-*) and the
-        // optional streaming preview model (nemotron-*). Both can be
-        // downloaded; we register both.
-        let offlineModel = models.first(where: { $0.downloaded && $0.id.hasPrefix("parakeet-") })
-        let streamingModel = models.first(where: { $0.downloaded && $0.id.hasPrefix("nemotron-") })
+    private let modelLoadQueue = DispatchQueue(label: "com.parakatt.model-loading", qos: .userInitiated)
+    private var modelLoadGeneration = UUID()
 
-        if let model = offlineModel {
-            // Load the downloaded model on a background thread (Metal/GPU init is heavy)
-            let modelId = model.id
-            let streamingId = streamingModel?.id
-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                guard let self, let bridge = self.bridge else { return }
-
-                NSLog("[Parakatt] Loading offline model '%@' in background...", modelId)
-                do {
-                    try bridge.loadModel(modelId)
-                    DispatchQueue.main.async {
-                        self.isModelLoaded = true
-                        self.activeModelId = modelId
-                        NSLog("[Parakatt] Offline model loaded — ready to transcribe")
-                    }
-                } catch {
-                    DispatchQueue.main.async {
-                        NSLog("[Parakatt] Offline model load failed: \(error) — transcription won't work until a model is loaded")
-                    }
+    func reloadSpeechModels() {
+        guard let bridge else { return }
+        let generation = UUID()
+        modelLoadGeneration = generation
+        modelLoadQueue.async { [weak self] in
+            let models = bridge.listModels()
+            let settings = bridge.getSpeechSettings()
+            let offline = models.first { $0.downloaded && $0.providerType == "parakeet" }
+            let preview: ModelInfo?
+            if let id = settings.previewModel { preview = models.first { $0.id == id && $0.downloaded } }
+            else { preview = models.first { $0.downloaded && $0.id == "nemotron-speech-streaming-en-0.6b" } }
+            do {
+                if let offline { try bridge.loadModel(offline.id) }
+                DispatchQueue.main.async {
+                    guard let self, self.modelLoadGeneration == generation else { return }
+                    self.isModelLoaded = offline != nil
+                    self.activeModelId = offline?.id
+                    self.needsModelDownload = offline == nil
                 }
-
-                // Optionally register the streaming preview model
-                // alongside it. Failure here is non-fatal — the
-                // commit path still works.
-                if let streamingId {
-                    do {
-                        try bridge.loadModel(streamingId)
-                        NSLog("[Parakatt] Streaming model registered: %@", streamingId)
-                    } catch {
-                        NSLog("[Parakatt] Streaming model register failed: %@", error.localizedDescription)
-                    }
+                // A settings change invalidates the earlier selection, even if
+                // the final model finished loading before preview startup.
+                let current = bridge.getSpeechSettings()
+                if let preview, bridge.streamingPreviewEnabled(),
+                   current.previewModel == settings.previewModel,
+                   current.language == settings.language, current.cpuThreads == settings.cpuThreads {
+                    try bridge.loadModel(preview.id)
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    guard let self, self.modelLoadGeneration == generation else { return }
+                    self.errorMessage = error.localizedDescription
                 }
             }
-        } else {
-            NSLog("[Parakatt] No offline model downloaded — user needs to download one")
-            needsModelDownload = true
         }
     }
 
@@ -425,6 +421,7 @@ class AppState: ObservableObject {
             currentAudioLevel = 0
             liveTranscription = nil
             errorMessage = nil
+            previewFailedForRecording = false
             livePreviewCommitted = ""
             livePreviewTentative = ""
 
@@ -516,12 +513,12 @@ class AppState: ObservableObject {
         // committed text. This becomes the canonical preview while
         // the commit pipeline finishes processing the buffer tail.
         if livePreviewActive {
-            let finalText = livePreview?.stop() ?? ""
             livePreviewActive = false
-            if !finalText.isEmpty {
-                livePreviewCommitted = finalText
-                livePreviewTentative = ""
-                liveTranscription = finalText
+            livePreview?.stop { [weak self] finalText in
+                guard let self, !self.isRecording, self.isProcessing, !finalText.isEmpty else { return }
+                self.livePreviewCommitted = finalText
+                self.livePreviewTentative = ""
+                self.liveTranscription = finalText
             }
         }
 
@@ -1235,6 +1232,40 @@ class AppState: ObservableObject {
         }
     }
 
+    func previewEnabled() -> Bool { bridge?.streamingPreviewEnabled() ?? true }
+    func setPreviewEnabled(_ enabled: Bool) {
+        do {
+            try bridge?.setStreamingPreviewEnabled(enabled)
+            if !enabled {
+                livePreview?.cancel()
+                livePreviewActive = false
+                stopStreamingUpdates()
+                livePreviewCommitted = ""
+                livePreviewTentative = ""
+            } else if isRecording {
+                previewFailedForRecording = false
+                if let livePreview, livePreview.isStreamingAvailable {
+                    try livePreview.start()
+                    livePreviewActive = true
+                } else { startStreamingUpdates() }
+            } else { reloadSpeechModels() }
+        } catch { errorMessage = error.localizedDescription }
+    }
+
+    func querySpeechStatus(completion: @escaping (SpeechRuntimeStatus) -> Void) {
+        guard let bridge else { return }
+        DispatchQueue.global(qos: .utility).async {
+            let status = bridge.speechRuntimeStatus()
+            DispatchQueue.main.async { completion(status) }
+        }
+    }
+
+    func speechSettings() -> SpeechSettings? { bridge?.getSpeechSettings() }
+    func saveSpeechSettings(_ settings: SpeechSettings) {
+        do { try bridge?.setSpeechSettings(settings); reloadSpeechModels() }
+        catch { errorMessage = error.localizedDescription }
+    }
+
     // MARK: - Transcription history
 
     func listTranscriptions(
@@ -1291,6 +1322,11 @@ class AppState: ObservableObject {
     // MARK: - Model management
 
     func loadModel(_ modelId: String) {
+        if modelId.hasPrefix("nemotron-"), var settings = speechSettings() {
+            settings.previewModel = modelId
+            saveSpeechSettings(settings)
+            return
+        }
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let signpostID = OSSignpostID(log: signpostLog)
             os_signpost(.begin, log: signpostLog, name: "LoadModel", signpostID: signpostID, "%{public}s", modelId)
@@ -1690,7 +1726,7 @@ class AppState: ObservableObject {
         // we don't need to also run the buffered preview — they
         // both publish to livePreviewCommitted/Tentative and one
         // will dominate. Skip to save CPU.
-        if livePreviewActive { return }
+        if livePreviewActive || previewFailedForRecording || bridge.streamingPreviewEnabled() == false { return }
 
         // Snapshot the current buffer (unprocessed tail during incremental mode)
         audioBufferLock.lock()

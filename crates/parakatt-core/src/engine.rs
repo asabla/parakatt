@@ -1,7 +1,7 @@
 /// Core engine that orchestrates the full pipeline:
 /// audio → preprocessing → STT → dictionary → LLM → result.
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use crate::config::Config;
@@ -68,6 +68,11 @@ pub struct Engine {
     /// (currently Nemotron). Independent of `stt` — both can be
     /// loaded at the same time, neither is required.
     streaming: Mutex<Option<Box<dyn StreamingProvider>>>,
+    streaming_readiness: Mutex<crate::speech::ModelReadiness>,
+    model_generation: AtomicU64,
+    offline_generation: AtomicU64,
+    model_lifecycle: Mutex<()>,
+
     /// Active streaming sessions keyed by Swift-supplied session id.
     /// Each session owns its own per-recording cache state plus a
     /// LocalAgreement-2 commit policy.
@@ -122,6 +127,11 @@ impl Engine {
             config: Mutex::new(config),
             stt: Mutex::new(None),
             streaming: Mutex::new(None),
+            streaming_readiness: Mutex::new(crate::speech::ModelReadiness::Unavailable),
+            model_generation: AtomicU64::new(0),
+            offline_generation: AtomicU64::new(0),
+            model_lifecycle: Mutex::new(()),
+
             streaming_sessions: Mutex::new(std::collections::HashMap::new()),
             buffered_preview_la2: Mutex::new(std::collections::HashMap::new()),
             llm: Mutex::new(None),
@@ -210,30 +220,75 @@ impl Engine {
     /// the commit path and `streaming` for the live preview path.
     pub fn load_model(&self, model_id: &str) -> Result<(), CoreError> {
         let model_path = models::model_path(&self.models_dir, model_id);
-        let manifest = models::model_file_set(model_id)
-            .ok_or_else(|| CoreError::ModelNotFound(model_id.into()))?;
-        models::verify_model(&model_path, manifest)?;
 
         if model_id.starts_with("nemotron-") {
-            let provider = NemotronProvider::new(&model_path, model_id)?;
+            let lifecycle = self.model_lifecycle.lock().unwrap();
+            let generation = self.model_generation.fetch_add(1, Ordering::SeqCst) + 1;
+            *self.streaming_readiness.lock().unwrap() = crate::speech::ModelReadiness::Loading;
+            let settings = self.config.lock().unwrap().stt.settings.clone();
+            drop(lifecycle);
+            let loaded = (|| {
+                let manifest = models::model_file_set(model_id)
+                    .ok_or_else(|| CoreError::ModelNotFound(model_id.into()))?;
+                models::verify_model(&model_path, manifest)?;
+                NemotronProvider::load(
+                    &model_path,
+                    model_id,
+                    settings.language,
+                    settings.cpu_threads,
+                )
+            })();
+            let _lifecycle = self.model_lifecycle.lock().unwrap();
+            if generation != self.model_generation.load(Ordering::SeqCst) {
+                return Err(CoreError::ModelLoadFailed(
+                    "Model selection changed during loading".into(),
+                ));
+            }
+            let provider = match loaded {
+                Ok(provider) => provider,
+                Err(error) => {
+                    *self.streaming_readiness.lock().unwrap() =
+                        crate::speech::ModelReadiness::Failed {
+                            message: error.to_string(),
+                        };
+                    return Err(error);
+                }
+            };
             let mut streaming_guard =
                 crate::util::lock_named(&self.streaming, "Streaming", CoreError::ModelLoadFailed)?;
             *streaming_guard = Some(Box::new(provider));
+            *self.streaming_readiness.lock().unwrap() = crate::speech::ModelReadiness::Ready;
             log::info!("Streaming provider registered: {}", model_id);
             return Ok(());
         }
 
+        let generation = {
+            let _lifecycle = self.model_lifecycle.lock().unwrap();
+            self.offline_generation.fetch_add(1, Ordering::SeqCst) + 1
+        };
         // model_path is a directory for Parakeet models
         let provider: Box<dyn SttProvider> = if model_id.starts_with("parakeet-") {
-            Box::new(ParakeetProvider::load(&model_path, model_id)?)
+            {
+                let manifest = models::model_file_set(model_id)
+                    .ok_or_else(|| CoreError::ModelNotFound(model_id.into()))?;
+                models::verify_model(&model_path, manifest)?;
+                Box::new(ParakeetProvider::load(&model_path, model_id)?)
+            }
         } else {
             return Err(CoreError::ModelNotFound(format!(
                 "Unknown model type: {model_id}"
             )));
         };
 
+        let _lifecycle = self.model_lifecycle.lock().unwrap();
+        if generation != self.offline_generation.load(Ordering::SeqCst) {
+            return Err(CoreError::ModelLoadFailed(
+                "Model selection changed during loading".into(),
+            ));
+        }
         let mut stt_guard = crate::util::lock_named(&self.stt, "STT", CoreError::ModelLoadFailed)?;
         *stt_guard = Some(provider);
+        drop(stt_guard);
 
         // Update config
         let mut config_guard =
@@ -246,8 +301,57 @@ impl Engine {
         Ok(())
     }
 
+    pub fn get_speech_settings(&self) -> crate::speech::SpeechSettings {
+        self.config.lock().unwrap().stt.settings.clone()
+    }
+
+    pub fn set_speech_settings(
+        &self,
+        settings: crate::speech::SpeechSettings,
+    ) -> Result<(), CoreError> {
+        settings.validate()?;
+        let _lifecycle = self.model_lifecycle.lock().unwrap();
+        if !self.streaming_sessions.lock().unwrap().is_empty() {
+            return Err(CoreError::ConfigError(
+                "Stop recording before changing speech settings".into(),
+            ));
+        }
+        let mut config = self.config.lock().unwrap();
+        let mut updated = config.clone();
+        updated.stt.settings = settings;
+        updated.save(&self.config_dir)?;
+        *config = updated;
+        drop(config);
+        self.model_generation.fetch_add(1, Ordering::SeqCst);
+        self.offline_generation.fetch_add(1, Ordering::SeqCst);
+        *self.streaming.lock().unwrap() = None;
+        *self.streaming_readiness.lock().unwrap() = crate::speech::ModelReadiness::Unavailable;
+        Ok(())
+    }
+
+    pub fn speech_runtime_status(&self) -> crate::speech::SpeechRuntimeStatus {
+        let settings = self.get_speech_settings();
+        let actual_backend = self
+            .stt
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|p| p.backend())
+            .unwrap_or(crate::speech::SpeechBackend::Cpu);
+        crate::speech::SpeechRuntimeStatus {
+            readiness: self.streaming_readiness.lock().unwrap().clone(),
+            requested_backend: settings.backend,
+            actual_backend,
+            message: (settings.backend == crate::speech::SpeechBackend::WebGpu && actual_backend != crate::speech::SpeechBackend::WebGpu).then(|| {
+                "WebGPU is unavailable or has not passed release validation on this system; using CPU".into()
+            }),
+        }
+    }
+
     /// Unload the current STT model to free resources.
     pub fn unload_model(&self) {
+        let _lifecycle = self.model_lifecycle.lock().unwrap();
+        self.offline_generation.fetch_add(1, Ordering::SeqCst);
         if let Ok(mut guard) = self.stt.lock() {
             *guard = None;
         }
@@ -259,6 +363,12 @@ impl Engine {
     /// streaming-preview opt-in flag — call
     /// [`should_use_streaming_preview`] for the combined check.
     pub fn is_streaming_model_loaded(&self) -> bool {
+        if !matches!(
+            *self.streaming_readiness.lock().unwrap(),
+            crate::speech::ModelReadiness::Ready
+        ) {
+            return false;
+        }
         self.streaming
             .lock()
             .map(|g| g.as_ref().is_some_and(|p| p.is_loaded()) || g.is_some())
@@ -298,6 +408,7 @@ impl Engine {
     /// Caller should pair this with [`finish_streaming_session`] or
     /// [`cancel_streaming_session`] to release model state.
     pub fn start_streaming_session(&self, session_id: String) -> Result<(), CoreError> {
+        let _lifecycle = self.model_lifecycle.lock().unwrap();
         let streaming_guard =
             crate::util::lock_named(&self.streaming, "Streaming", CoreError::TranscriptionFailed)?;
         let provider = streaming_guard
@@ -1128,6 +1239,16 @@ impl Engine {
         if models::model_file_set(&model_id).is_none() {
             return Err(CoreError::ModelNotFound(model_id));
         }
+        let _lifecycle = self.model_lifecycle.lock().unwrap();
+        if model_id.starts_with("nemotron-") {
+            self.model_generation.fetch_add(1, Ordering::SeqCst);
+            self.streaming_sessions.lock().unwrap().clear();
+            *self.streaming.lock().unwrap() = None;
+            *self.streaming_readiness.lock().unwrap() = crate::speech::ModelReadiness::Unavailable;
+        }
+        if model_id.starts_with("parakeet-") {
+            self.offline_generation.fetch_add(1, Ordering::SeqCst);
+        }
         let model_path = self.models_dir.join(&model_id);
 
         if !model_path.exists() {
@@ -1140,7 +1261,7 @@ impl Engine {
                 crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
             if config_guard.stt.active_model.as_deref() == Some(&model_id) {
                 drop(config_guard);
-                self.unload_model();
+                *self.stt.lock().unwrap() = None;
             }
         }
 

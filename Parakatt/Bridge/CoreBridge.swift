@@ -56,6 +56,13 @@ class CoreBridge {
         engine.isModelLoaded()
     }
 
+    func streamingPreviewEnabled() -> Bool { (try? engine.getStreamingPreviewEnabled()) ?? true }
+    func setStreamingPreviewEnabled(_ value: Bool) throws { try engine.setStreamingPreviewEnabled(enabled: value) }
+    func shouldUseStreamingPreview() -> Bool { engine.shouldUseStreamingPreview() }
+    func getSpeechSettings() -> SpeechSettings { engine.getSpeechSettings() }
+    func setSpeechSettings(_ settings: SpeechSettings) throws { try engine.setSpeechSettings(settings: settings) }
+    func speechRuntimeStatus() -> SpeechRuntimeStatus { engine.speechRuntimeStatus() }
+
     /// List available models with download status.
     func listModels() -> [ModelInfo] {
         engine.listModels()
