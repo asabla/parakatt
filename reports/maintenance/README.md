@@ -11,19 +11,31 @@ The final model remains Parakeet TDT 0.6B v3, revision `8f23f0c03c8761650bdb5b40
 | Original parakeet-rs 0.3.4, CPU | 5.0044% | 13.2429% | 458 / 885 ms | 482 / 861 ms | Baseline |
 | Unmodified 0.3.8, CPU | 5.0914% | 13.7108% | See JSON | See JSON | Rejected: accuracy regression |
 | 0.3.8 with compatible v3 frontend, CPU | 5.0044% | 13.2429% | 468 / 851 ms | 505 / 886 ms | Accuracy passes; no speed improvement claimed |
-| 0.3.8 with compatible v3 frontend, WebGPU encoder | 5.0044% | 13.2429% | 97 / 138 ms | 102 / 142 ms | Accuracy and acceleration gates pass on this hardware and OS |
+| 0.3.8 with compatible v3 frontend, WebGPU encoder (final rerun) | 5.0044% | 13.2429% | 100 / 149 ms | 107 / 157 ms | Accuracy and acceleration gates pass on this hardware and OS |
 
 The upstream 0.3.8 audio frontend changed the FFT window alignment and frame count. The small, opt-in [vendor patch](../../vendor/parakeet-rs/PARAKATT-PATCH.md) retains the prior frontend for final Parakeet v3 transcription. Nemotron uses the upstream frontend. Do not remove this patch without repeating both language accuracy gates.
 
-The measured WebGPU median improvement is 78.85% for English and 78.90% for Swedish against the original CPU baseline. The decoder stays on CPU. Cold model load was 1.53–2.03 seconds; peak process RSS was about 2.75 GB. CPU cold load was about 1.08 seconds and peak RSS about 2.94 GB. Cold runs do not clear the OS file cache.
+The final WebGPU rerun measured a median improvement of 78.06% for English and 77.79% for Swedish against the original CPU baseline. Both p95 values improved. The decoder stays on CPU. Cold model load was 1.46–1.52 seconds; peak process RSS was about 2.75 GB. See [final gate results](webgpu-final-gates.json) and [the benchmark report](webgpu-final.md). This run used clean source commit `6b287adfb7357a6323652147846d55b330ba7f9c` after the other task workloads ended. The original matrix promotion remains recorded in `webgpu-gates.json` (78.85% / 78.90% improvement); the final rerun confirms the same combination. CPU cold load was about 1.08 seconds and peak RSS about 2.94 GB. Cold runs do not clear the OS file cache.
 
 [The validation matrix](../../crates/parakatt-core/backend-validation.json) enables automatic WebGPU only for the tested model revision, Apple M3 Max, OS build `26A428`, four CPU threads, and ORT API 28. Unknown combinations use CPU. Explicit CPU settings remain CPU. Backend initialization or inference failure retries on CPU without publishing a duplicate result. Preview acceleration is unvalidated and remains unavailable.
 
 The INT8 candidate failed the accuracy screen (English 7.66%, Swedish 19.47% WER). It is not available in the production model registry. INT4 and Core ML are outside this change.
 
-Nemotron 3.5 is an explicit multilingual preview option. It does not replace the existing English preview automatically. Its screening WER was 10.75% English and 23.87% Swedish; the existing English preview measured 8.79% English WER. These are preview results, separate from final Parakeet transcription. A one-pass preview screen does not establish a latency acceptance result. New model downloads require an explicit Settings action.
+Nemotron 3.5 is an explicit multilingual preview option. It does not replace the existing English preview automatically. Its full three-cold/ten-warm run measured 10.75% English and 23.87% Swedish WER, identical in each pass; the existing English preview measured 8.79% English WER. These are preview results, separate from final Parakeet transcription. The existing English preview comparison is a one-pass screen. The full Nemotron run overlapped other checks during some passes, so its latency measurements are diagnostic and do not promote defaults. See [all preview observations](nemotron-acceptance.json). New model downloads require an explicit Settings action.
 
 The CPU thread screen tested 1, 2, 4, and 8 threads on a 20-utterance subset. Builds and another preview benchmark ran during parts of this screen. It is diagnostic only; the default remains four threads. Five German and five French utterances passed through final v3 as additional language smoke tests, not full language acceptance. Nine edge fixtures compared CPU and WebGPU output: silence, short speech, pauses, a chunk boundary, and synthetic mixed sources. Outputs matched. The same nine fixtures also completed with Nemotron 3.5, including its padded final chunks and automatic language detection for mixed sources. Silence produced no text. Swedish preview errors remain visible in [nemotron-edges.json](nemotron-edges.json). Simultaneous-source WER is diagnostic.
+
+Preview measurements from that full run:
+
+| Measurement | English median / p95 | Swedish median / p95 |
+|---|---:|---:|
+| First text, compute time | 269 / 419 ms | 274 / 454 ms |
+| Audio available at first text | 1.68 / 2.24 s | 1.68 / 2.80 s |
+| Stable text, compute time | 363 / 542 ms | 437 / 617 ms |
+| Audio available at stable text | 2.24 / 2.80 s | 2.52 / 3.36 s |
+| Complete utterance inference | 1.70 / 3.23 s | 1.82 / 3.19 s |
+
+Shared-model session creation had a median of about 42 microseconds in both languages. Model load was 1.35–1.45 seconds and peak RSS about 2.75 GB. The model supplied the 8,960-sample chunk size through its metadata. [Timing aggregates](preview-timing-summary.json) retain the counts. Audio position and compute time are separate worker measurements; neither is a live capture-to-display measurement.
 
 ## Correctness and compatibility checks
 
@@ -72,4 +84,4 @@ scripts/profile-ui.sh
 
 Do not run competing builds or benchmarks during latency acceptance runs. The benchmark command writes JSON and Markdown with source, worker, runtime-lock, model, hardware, OS, backend, accuracy, load, and memory provenance. The JSON retains observations. Some early reports were collected while the maintenance worktree was dirty; their immutable worker hashes identify the binaries tested. Do not treat the commit field in such a report as a clean source build.
 
-Official implementation references: [shared Nemotron models](https://github.com/altunenes/parakeet-rs/blob/v0.3.8/examples/shared_model.rs), [OpenAI Responses](https://platform.openai.com/docs/api-reference/responses/create), [Anthropic Messages](https://platform.claude.com/docs/en/api/messages/create), and [Ollama chat](https://docs.ollama.com/api/chat).
+Official implementation references: [shared Nemotron models](https://github.com/altunenes/parakeet-rs/blob/v0.3.8/examples/shared_model.rs), [OpenAI Responses](https://platform.openai.com/docs/api-reference/responses/create), [Anthropic Messages](https://platform.claude.com/docs/en/api/messages/create), and [Ollama chat](https://docs.ollama.com/api/chat), and [Ollama thinking metadata](https://github.com/ollama/ollama/blob/main/docs/capabilities/thinking.mdx).

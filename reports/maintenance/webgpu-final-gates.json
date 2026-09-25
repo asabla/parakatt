@@ -1,0 +1,19 @@
+{
+  "passed": true,
+  "acceleration": true,
+  "languages": {
+    "en_us": {
+      "no_accuracy_regression": true,
+      "median_improvement": 0.7806314290507823,
+      "p95_no_regression": true
+    },
+    "sv_se": {
+      "no_accuracy_regression": true,
+      "median_improvement": 0.7779096458019701,
+      "p95_no_regression": true
+    }
+  },
+  "failures": [],
+  "baseline_binary": "4c8dbea0bba012cfdd410252149d9a10be6fc03378bdd35db88d2abad5ca08c4",
+  "candidate_binary": "21e4e5f8b4a4ee74eaeaae73b8fe9453483b174752b984b852abafdefb364379"
+}

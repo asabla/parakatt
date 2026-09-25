@@ -62,5 +62,21 @@
     "INT4",
     "Core ML"
   ],
-  "release_ready": false
+  "release_ready": false,
+  "final_speech_benchmark": {
+    "source_commit": "6b287adfb7357a6323652147846d55b330ba7f9c",
+    "clean": true,
+    "cold_runs": 3,
+    "warm_runs": 10,
+    "accuracy_no_regression_both_languages": true,
+    "acceleration_gates": "passed",
+    "report": "webgpu-final-gates.json"
+  },
+  "preview_benchmark": {
+    "cold_runs": 3,
+    "warm_runs": 10,
+    "accuracy_repeatable": true,
+    "latency_acceptance": false,
+    "report": "nemotron-acceptance.json"
+  }
 }
