@@ -24,11 +24,19 @@ for label, report in (("baseline", base), ("candidate", candidate)):
         rows = [r for r in report["observations"] if r["language"] == language and r["phase"] == "warm"]
         if len(rows) != 1000 or len({r["id"] for r in rows}) != 100 or len({r["run"] for r in rows}) != 10:
             failures.append(f"{label} needs 100 {language} fixtures in ten warm runs")
+        for run in range(10):
+            batch = [r for r in rows if r["run"] == run]
+            if len(batch) != 100 or len({r["id"] for r in batch}) != 100:
+                failures.append(f"{label} {language} warm run {run + 1} is incomplete or duplicated")
 for language in ("en_us", "sv_se"):
     identities = []
     for report in (base, candidate):
         identities.append({(r["id"], r["words"], r["audio_secs"]) for r in report["observations"] if r["language"] == language and r["phase"] == "warm"})
     if identities[0] != identities[1]: failures.append(f"{language} fixture identities or references differ")
+if args.acceleration:
+    actual = {r.get("backend", "").replace("_", "").lower() for r in candidate["observations"]}
+    if actual != {"webgpu"}:
+        failures.append("Acceleration observations must all use WebGPU; CPU fallback is not acceleration evidence")
 results = {}
 for language in ("en_us", "sv_se"):
     before, after = base["summary"][language], candidate["summary"][language]

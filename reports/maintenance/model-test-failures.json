@@ -1,0 +1,12 @@
+[
+  {
+    "case": "missing-model",
+    "exit": 101,
+    "expected_failure": true
+  },
+  {
+    "case": "missing-fixture",
+    "exit": 101,
+    "expected_failure": true
+  }
+]

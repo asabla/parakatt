@@ -31,6 +31,7 @@ swift-package-force: rust
 
 # Generate the Xcode project from project.yml
 xcode:
+	@test "$$(xcodegen --version)" = "Version: 2.46.0" || (echo "Install XcodeGen 2.46.0 with scripts/install-xcodegen.sh"; exit 1)
 	xcodegen generate
 
 # Build the macOS app via xcodebuild (Debug)
@@ -124,7 +125,7 @@ verify-launcher:
 	python3 scripts/verify-launcher.py
 
 benchmark:
-	cargo build --locked --release --example model_bench
+	cargo build --locked --release --example model_bench --features "$(PARAKATT_SPEECH_FEATURES)"
 	python3 scripts/benchmark.py $(ARGS)
 
 # Candidate package only. Production selection still requires a validation matrix entry.

@@ -6,7 +6,7 @@ TASK_OUTPUT=${1:-"$TASK_ROOT/target/maintenance/ui-profile"}
 TASK_TEMPLATE=${2:-"Time Profiler"}
 mkdir -p "$(dirname "$TASK_OUTPUT")"
 cd "$TASK_ROOT"
-xcodegen generate
+make xcode
 xcodebuild build-for-testing -project Parakatt.xcodeproj -scheme Parakatt -configuration Debug -derivedDataPath target/xcode > "$TASK_OUTPUT-build.log" 2>&1
 TASK_DEVELOPER=$(xcode-select -p)
 TASK_PLATFORM="$TASK_DEVELOPER/Platforms/MacOSX.platform/Developer"

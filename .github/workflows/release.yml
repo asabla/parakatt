@@ -8,6 +8,10 @@ on:
 permissions:
   contents: write
 
+env:
+  DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+  MACOSX_DEPLOYMENT_TARGET: "14.0"
+
 jobs:
   build:
     name: Build and Release
@@ -41,13 +45,22 @@ jobs:
       - name: Generate Xcode project
         run: make xcode
 
+      - name: Verify Rust and Swift before packaging
+        run: |
+          cargo fmt --check
+          cargo clippy --locked --all-targets --all-features -- -D warnings
+          cargo test --locked
+          xcodebuild test -project Parakatt.xcodeproj -scheme Parakatt -destination 'platform=macOS' CODE_SIGN_IDENTITY="-" CODE_SIGNING_REQUIRED=NO
+        env:
+          PARAKATT_DATA_ROOT: ${{ github.workspace }}/target/release-test-data
+
       - name: Build Release
         run: make release
 
       - name: Get build products path
         id: build-path
         run: |
-          BUILD_DIR=$(xcodebuild -project Parakatt.xcodeproj -scheme Parakatt -configuration Release -showBuildSettings 2>/dev/null | grep ' BUILT_PRODUCTS_DIR' | awk '{print $NF}')
+          BUILD_DIR=$(python3 scripts/build-products.py Release)
           echo "dir=$BUILD_DIR" >> "$GITHUB_OUTPUT"
 
       - name: Verify stable launcher
@@ -62,7 +75,9 @@ jobs:
           cp bin/parakatt-launcher "${{ steps.build-path.outputs.dir }}/Parakatt.app/Contents/MacOS/Parakatt"
 
       - name: Verify stable launcher CDHash
-        run: python3 scripts/verify-launcher.py "${{ steps.build-path.outputs.dir }}/Parakatt.app/Contents/MacOS/Parakatt"
+        run: |
+          python3 scripts/verify-app.py "${{ steps.build-path.outputs.dir }}/Parakatt.app"
+          python3 scripts/smoke-app.py "${{ steps.build-path.outputs.dir }}/Parakatt.app"
 
       # TODO: Add Developer ID signing and notarization when an Apple Developer
       # Program membership is available. This would replace the self-signed
@@ -97,6 +112,9 @@ jobs:
           files: |
             dist/Parakatt-${{ steps.version.outputs.version }}-arm64.zip
             dist/Parakatt-${{ steps.version.outputs.version }}-arm64.dmg
+            reports/maintenance/*.md
+            reports/maintenance/*.json
+            crates/parakatt-core/backend-validation.json
 
   # Uncomment after creating the asabla/homebrew-tap repository
   # update-homebrew:

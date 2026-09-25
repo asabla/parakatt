@@ -59,12 +59,27 @@ def main():
         assert hashlib.sha256(Path(sample["path"]).read_bytes()).hexdigest() == sample["sha256"]
     if not args.binary.exists():
         worker = "streaming_bench" if args.streaming else "model_bench"
-        subprocess.run(["cargo", "build", "--locked", "--release", "--example", worker], cwd=ROOT, check=True)
+        build = ["cargo", "build", "--locked", "--release", "--example", worker]
+        if args.backend == "webgpu": build += ["--features", "webgpu"]
+        subprocess.run(build, cwd=ROOT, check=True)
         if not args.binary.exists(): raise FileNotFoundError(args.binary)
     provenance = {"commit": command("git", "rev-parse", "HEAD"), "dirty": bool(command("git", "status", "--porcelain")), "runtime_lock_sha256": hashlib.sha256((ROOT / "Cargo.lock").read_bytes()).hexdigest()}
     model_manifests = json.loads((ROOT / "crates/parakatt-core/model-manifests.json").read_text())
     model_manifests += json.loads((ROOT / "crates/parakatt-core/model-candidates.json").read_text())
+    provenance["binary_sha256"] = hashlib.sha256(args.binary.read_bytes()).hexdigest()
+    provenance["requested_backend"] = args.backend
     provenance["model_manifest"] = next(m for m in model_manifests if m["id"] == args.model_id)
+    for file in provenance["model_manifest"]["files"]:
+        path = args.model / file["name"]
+        if path.stat().st_size != file["size"]:
+            raise RuntimeError(f"Model file size differs from manifest: {file['name']}")
+        digest = hashlib.sha256()
+        with path.open("rb") as source:
+            for block in iter(lambda: source.read(1024 * 1024), b""):
+                digest.update(block)
+        if digest.hexdigest() != file["sha256"]:
+            raise RuntimeError(f"Model file hash differs from manifest: {file['name']}")
+    provenance["model_files_verified"] = True
     observations, loads = [], []
     worker_args = [str(args.binary), str(args.model), args.backend, str(args.threads)]
     for run in range(args.cold_runs + 1):
@@ -75,6 +90,9 @@ def main():
             line = process.stdout.readline()
             if not line: raise RuntimeError("Benchmark worker failed before model readiness; see its stderr")
             loads.append(json.loads(line))
+            actual = loads[-1]["backend"].replace("_", "").lower()
+            if actual != args.backend:
+                raise RuntimeError(f"Requested {args.backend}, worker loaded {actual}")
             iterations = 1 if run < args.cold_runs else args.warm_runs
             for iteration in range(iterations):
                 batch = samples[:1] if run < args.cold_runs else samples
@@ -105,7 +123,7 @@ def main():
     report.update(cold_runs=args.cold_runs, warm_runs=args.warm_runs, screening=args.subset or args.warm_runs < 10 or args.cold_runs < 3, streaming=args.streaming, cpu_threads=args.threads, os_build=command("sysctl", "-n", "kern.osversion"))
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.with_suffix(".json").write_text(json.dumps(report, indent=2))
-    markdown = "# Speech benchmark\n\n" + f"Commit: {report['commit']} (dirty={report['dirty']})\n\n| Language | WER | Median seconds | p95 seconds | Real-time factor |\n|---|---:|---:|---:|---:|\n"
+    markdown = "# Speech benchmark\n\n" + f"Commit: {report['commit']} (dirty={report['dirty']})\n\nHardware: {report['hardware']}. OS: {report['os']} ({report['os_build']}).\n\nModel: {args.model_id}, revision `{report['model_manifest']['revision']}`. Backend: {loads[-1]['backend']}.\n\nRuntime lock SHA-256: `{report['runtime_lock_sha256']}`. Worker SHA-256: `{report['binary_sha256']}`.\n\n| Language | WER | Median seconds | p95 seconds | Real-time factor |\n|---|---:|---:|---:|---:|\n"
     for language, row in summary.items():
         markdown += f"| {language} | {row['wer']:.4f} | {row['median_secs']:.4f} | {row['p95_secs']:.4f} | {row['real_time_factor']:.4f} |\n"
     markdown += "\nCold runs use new processes; the OS file cache is not purged. Peak memory is the process maximum RSS from macOS time. Preview compute times exclude audio arrival; audio times report how much audio was available. UI latency requires separate Instruments measurements.\n"
