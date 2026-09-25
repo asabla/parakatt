@@ -47,6 +47,12 @@ Shared-model session creation had a median of about 42 microseconds in both lang
 - Provider tests use local mock HTTP servers. They cover Responses and Anthropic payloads, headers, UTF-8 streaming, required terminal events, output limits, retries, cancellation, and Ollama thinking capability checks. They are not proof of live provider compatibility.
 - Dependency audit: no reported vulnerabilities in the recorded audit. `RUSTSEC-2024-0436` remains: `paste 1.0.15` is unmaintained through `tokenizers -> parakeet-rs`. See [advisories.json](advisories.json).
 
+## Default Make build follow-up
+
+A later check of plain `make` found two gaps in the earlier validation: PATH selected cargo-swift 0.11.0, and Xcode's global build directory retained an old static FFI include directory that shadowed the new framework headers. Earlier validation used the pinned local generator and a separate Xcode build directory, so it did not expose that combination.
+
+Make now prefers `target/tools/bin` and uses `target/xcode` by default. The build-products helper, run targets, and CI tests use the same directory. The setup instructions install the pinned generator locally. Plain `make` and `make release` both passed after this change, without a command-line PATH override. Release product discovery resolved the correct app. Global Xcode caches and global tool installations were left unchanged.
+
 ## UI measurements and limits
 
 Views observe their relevant coordinators. History searches run off the main actor, debounce for 250 ms, and discard stale results. Detail segments load on selection and are cached. Timeline rows are lazy. Meter updates are limited to 20 Hz, and automatic scrolling stops when the user leaves the bottom.

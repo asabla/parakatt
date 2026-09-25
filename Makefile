@@ -1,5 +1,9 @@
 .PHONY: all rust swift-package swift-package-force xcode build release package test clean run launcher
 
+# Keep the generated FFI package separate from older global Xcode artifacts.
+export PARAKATT_DERIVED_DATA ?= $(CURDIR)/target/xcode
+# Prefer repository-local pinned tools; retain PATH as a fallback for CI.
+export PATH := $(CURDIR)/target/tools/bin:$(PATH)
 export MACOSX_DEPLOYMENT_TARGET := 14.0
 export PARAKATT_SPEECH_FEATURES ?= webgpu
 # Use the selected Xcode SDK, including when Command Line Tools has a newer SDK.
@@ -36,11 +40,11 @@ xcode:
 
 # Build the macOS app via xcodebuild (Debug)
 build:
-	xcodebuild -project Parakatt.xcodeproj -scheme Parakatt -configuration Debug ARCHS=arm64 build
+	xcodebuild -project Parakatt.xcodeproj -scheme Parakatt -derivedDataPath "$(PARAKATT_DERIVED_DATA)" -configuration Debug ARCHS=arm64 build
 
 # Build the macOS app in Release configuration
 release:
-	xcodebuild -project Parakatt.xcodeproj -scheme Parakatt -configuration Release ARCHS=arm64 build
+	xcodebuild -project Parakatt.xcodeproj -scheme Parakatt -derivedDataPath "$(PARAKATT_DERIVED_DATA)" -configuration Release ARCHS=arm64 build
 
 # Get the Release build products directory
 RELEASE_BUILD_DIR = $(shell python3 scripts/build-products.py Release)
@@ -98,11 +102,11 @@ package: verify-launcher release
 # Run the built app (with log output)
 run:
 	@pkill -f Parakatt 2>/dev/null; sleep 1; \
-	"$$(xcodebuild -project Parakatt.xcodeproj -scheme Parakatt -configuration Debug -showBuildSettings 2>/dev/null | grep ' BUILT_PRODUCTS_DIR' | awk '{print $$NF}')/Parakatt.app/Contents/MacOS/Parakatt"
+	"$$(python3 scripts/build-products.py Debug)/Parakatt.app/Contents/MacOS/Parakatt"
 
 # Run the built app detached (no logs)
 run-detached:
-	@open "$$(xcodebuild -project Parakatt.xcodeproj -scheme Parakatt -configuration Debug -showBuildSettings 2>/dev/null | grep ' BUILT_PRODUCTS_DIR' | awk '{print $$NF}')/Parakatt.app"
+	@open "$$(python3 scripts/build-products.py Debug)/Parakatt.app"
 
 # Download the Parakeet TDT 0.6B v3 multilingual ONNX model (~2.55GB)
 download-model:
