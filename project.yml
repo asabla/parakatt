@@ -6,12 +6,16 @@ options:
   xcodeVersion: "16.0"
   createIntermediateGroups: true
 
+settings:
+  base:
+    ARCHS: arm64
+
 packages:
   ParakattCore:
     path: ParakattCore
   HotKey:
     url: https://github.com/soffes/HotKey
-    from: "0.2.1"
+    revision: "a3cf605d7a96f6ff50e04fcb6dea6e2613cfcbe4" # HotKey 0.2.1
 
 targets:
   # Framework containing all application code.
@@ -106,3 +110,4 @@ targets:
         CODE_SIGN_STYLE: Automatic
     dependencies:
       - target: ParakattApp
+      - package: ParakattCore

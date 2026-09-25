@@ -1,5 +1,8 @@
 .PHONY: all rust swift-package swift-package-force xcode build release package test clean run launcher
 
+export MACOSX_DEPLOYMENT_TARGET := 14.0
+export SDKROOT ?= $(shell xcodebuild -version -sdk macosx Path 2>/dev/null)
+
 VERSION := 0.1.0
 APP_NAME := Parakatt
 DMG_NAME := $(APP_NAME)-$(VERSION)-arm64.dmg
@@ -30,11 +33,11 @@ xcode:
 
 # Build the macOS app via xcodebuild (Debug)
 build:
-	xcodebuild -project Parakatt.xcodeproj -scheme Parakatt -configuration Debug build
+	xcodebuild -project Parakatt.xcodeproj -scheme Parakatt -configuration Debug ARCHS=arm64 build
 
 # Build the macOS app in Release configuration
 release:
-	xcodebuild -project Parakatt.xcodeproj -scheme Parakatt -configuration Release build
+	xcodebuild -project Parakatt.xcodeproj -scheme Parakatt -configuration Release ARCHS=arm64 build
 
 # Get the Release build products directory
 RELEASE_BUILD_DIR = $(shell xcodebuild -project Parakatt.xcodeproj -scheme Parakatt -configuration Release -showBuildSettings 2>/dev/null | grep ' BUILT_PRODUCTS_DIR' | awk '{print $$NF}')
