@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "ort_crate": "2.0.0-rc.13",
+  "onnxruntime": "1.28.0",
+  "target": "aarch64-apple-darwin",
+  "archive_url": "https://cdn.pyke.io/0/pyke:ort-rs/ms@1.28.0/aarch64-apple-darwin+coreml,webgpu.tar.lzma2",
+  "archive_sha256": "c887d7ec10b06832d95e0fa035a28425794b26e1a5c34804bda7c6b50f7197a3",
+  "native_file": "libwebgpu_dawn.dylib",
+  "native_sha256": "752c206d5771513b869c206a237e78673dd1fac766b18859b2fa6f44ce6cccad",
+  "minimum_macos": "13.4"
+}

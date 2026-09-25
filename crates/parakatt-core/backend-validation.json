@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "validated": [
+    {
+      "model_id": "parakeet-tdt-0.6b-v3",
+      "model_revision": "8f23f0c03c8761650bdb5b40aaf3e40d2c15f1ce",
+      "hardware": "Apple M3 Max",
+      "os_build": "26A428",
+      "backend": "web_gpu",
+      "cpu_threads": 4,
+      "runtime_api_version": 28,
+      "packaged_startup": true,
+      "english_no_regression": true,
+      "swedish_no_regression": true,
+      "median_improvement": 0.7885,
+      "p95_no_regression": true,
+      "evidence": "reports/maintenance/webgpu-gates.json"
+    }
+  ],
+  "candidates": [
+    {
+      "precision": "int8",
+      "status": "rejected",
+      "reason": "English WER 0.0766 and Swedish WER 0.1947 exceed the FP32 baseline. Not available in the production registry."
+    },
+    {
+      "model_id": "nemotron-3.5-asr-streaming-0.6b",
+      "backend": "web_gpu",
+      "status": "unvalidated",
+      "reason": "Multilingual preview uses CPU. This entry does not enable automatic acceleration."
+    }
+  ]
+}

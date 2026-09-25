@@ -20,6 +20,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // stderr, which Console.app captures alongside our NSLog lines.
         ParakattCore.initLogging(defaultLevel: "info")
 
+        if runMaintenanceSmokeIfRequested() { return }
+
         permissionService = PermissionService()
         permissionService?.requestPermissionsIfNeeded()
 
