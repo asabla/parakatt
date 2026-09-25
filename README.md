@@ -51,6 +51,8 @@ make all
 make run
 ```
 
+`make run` and `make run-detached` install the checked-in stable launcher before starting the app. Microphone permission is checked when recording starts. If macOS asks for access, grant it and start recording again. Use **Input Device > MacBook Pro Microphone** to test the built-in microphone explicitly; **System Default** follows macOS, including connected headsets.
+
 Make prefers tools in `target/tools/bin` and uses `target/xcode` for Xcode build output. This keeps generated bindings separate from older global Xcode artifacts. Set `PARAKATT_DERIVED_DATA` to use a different build directory.
 
 ## Permissions

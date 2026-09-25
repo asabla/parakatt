@@ -1,9 +1,10 @@
 import Cocoa
+import AVFoundation
 
 /// Manages permission requests.
 ///
 /// Accessibility is needed for text insertion into other apps.
-/// Microphone permission is requested automatically by AVAudioEngine.
+/// Microphone permission is checked explicitly when capture is requested.
 /// System Audio Recording is handled by Core Audio taps (permission prompt
 /// is triggered automatically on first tap creation).
 class PermissionService {
@@ -11,6 +12,7 @@ class PermissionService {
     private static let lastKnownVersionKey = "lastKnownAppVersion"
 
     func requestPermissionsIfNeeded() {
+        NSLog("[Parakatt] Microphone authorization at startup: %@", MicrophoneAuthorization.description(AVCaptureDevice.authorizationStatus(for: .audio)))
         handlePostUpdateRecovery()
         checkAccessibilityPermission()
     }

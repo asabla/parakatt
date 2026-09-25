@@ -1,4 +1,4 @@
-.PHONY: all rust swift-package swift-package-force xcode build release package test clean run launcher
+.PHONY: all rust swift-package swift-package-force xcode build release package test clean run launcher prepare-run run-detached
 
 # Keep the generated FFI package separate from older global Xcode artifacts.
 export PARAKATT_DERIVED_DATA ?= $(CURDIR)/target/xcode
@@ -67,8 +67,7 @@ launcher:
 	@codesign -dvvv "$(LAUNCHER_BIN)" 2>&1 | grep CDHash
 
 # Package the Release .app, swapping in the stable launcher for distribution.
-# For dev builds, the Xcode-compiled launcher is fine (TCC resets only matter
-# for distributed releases).
+# Local run targets also reuse this launcher to keep the executable identity stable.
 package: verify-launcher release
 	@if [ ! -f "$(LAUNCHER_BIN)" ]; then \
 		echo "Error: pre-built launcher not found at $(LAUNCHER_BIN)"; \
@@ -99,13 +98,18 @@ package: verify-launcher release
 		echo "Skipping DMG (install create-dmg: brew install create-dmg)"; \
 	fi
 
+# Reuse the release launcher identity for local microphone and Accessibility grants.
+prepare-run: verify-launcher
+	cp "$(LAUNCHER_BIN)" "$$(python3 scripts/build-products.py Debug)/Parakatt.app/Contents/MacOS/Parakatt"
+	python3 scripts/verify-launcher.py "$$(python3 scripts/build-products.py Debug)/Parakatt.app/Contents/MacOS/Parakatt"
+
 # Run the built app (with log output)
-run:
+run: prepare-run
 	@pkill -f Parakatt 2>/dev/null; sleep 1; \
 	"$$(python3 scripts/build-products.py Debug)/Parakatt.app/Contents/MacOS/Parakatt"
 
 # Run the built app detached (no logs)
-run-detached:
+run-detached: prepare-run
 	@open "$$(python3 scripts/build-products.py Debug)/Parakatt.app"
 
 # Download the Parakeet TDT 0.6B v3 multilingual ONNX model (~2.55GB)
