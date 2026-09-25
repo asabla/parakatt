@@ -6,6 +6,10 @@ import UniformTypeIdentifiers
 struct TranscriptionHistoryView: View {
     @EnvironmentObject var appState: AppState
 
+    @State private var queryGeneration = UUID()
+    @State private var searchTask: Task<Void, Never>?
+    @State private var segmentCache: [String: HistoryDetailData] = [:]
+    @State private var selectedDetail = HistoryDetailData()
     @State private var searchText = ""
     @State private var sourceFilter: String? = nil
     @State private var transcriptions: [StoredTranscription] = []
@@ -53,6 +57,9 @@ struct TranscriptionHistoryView: View {
         }
         .frame(minWidth: 700, minHeight: 480)
         .onAppear { refresh() }
+        .onReceive(appState.$historyRevision.dropFirst()) { _ in refresh(invalidateCache: true) }
+        .onChange(of: selectedId) { loadSegments() }
+        .onDisappear { searchTask?.cancel(); queryGeneration = UUID() }
     }
 
     // MARK: - Sidebar
@@ -203,7 +210,7 @@ struct TranscriptionHistoryView: View {
                             Button(role: .destructive) {
                                 appState.deleteTranscription(id: item.id)
                                 if selectedId == item.id { selectedId = nil }
-                                refresh()
+                                refresh(invalidateCache: true)
                             } label: {
                                 Label("Delete", systemImage: "trash")
                             }
@@ -213,7 +220,7 @@ struct TranscriptionHistoryView: View {
             }
         }
         .searchable(text: $searchText, prompt: "Search transcriptions")
-        .onChange(of: searchText) { refresh() }
+        .onChange(of: searchText) { refresh(debounce: true) }
         .onSubmit(of: .search) { refresh() }
         .alert("Delete \(selectedIds.count) transcription\(selectedIds.count == 1 ? "" : "s")?",
                isPresented: $showDeleteConfirmation) {
@@ -224,7 +231,7 @@ struct TranscriptionHistoryView: View {
                 selectedIds.removeAll()
                 isSelectionMode = false
                 selectedId = nil
-                refresh()
+                refresh(invalidateCache: true)
             }
         } message: {
             Text("This action cannot be undone.")
@@ -238,17 +245,21 @@ struct TranscriptionHistoryView: View {
         if let id = selectedId, let item = transcriptions.first(where: { $0.id == id }) {
             TranscriptionDetailView(
                 item: item,
-                segments: appState.getTranscriptionSegments(id: id),
+                segments: selectedDetail.segments,
+                recognizedText: selectedDetail.recognizedText,
+                processingStatus: selectedDetail.processingStatus,
+                hasSpeakerLabels: selectedDetail.hasSpeakerLabels,
                 onTitleChanged: { newTitle in
                     appState.updateTranscriptionTitle(id: id, title: newTitle)
-                    refresh()
+                    refresh(invalidateCache: true)
                 },
                 onDelete: {
                     appState.deleteTranscription(id: id)
                     selectedId = nil
-                    refresh()
-                }
-            )
+                    refresh(invalidateCache: true)
+                },
+                speakerHues: selectedDetail.speakerHues
+            ).id(id)
         } else {
             emptyDetailView
         }
@@ -298,12 +309,34 @@ struct TranscriptionHistoryView: View {
 
     // MARK: - Helpers
 
-    private func refresh() {
-        transcriptions = appState.listTranscriptions(
-            searchText: searchText.isEmpty ? nil : searchText,
-            sourceFilter: sourceFilter,
-            limit: 500
-        )
+    private func refresh(debounce: Bool = false, invalidateCache: Bool = false) {
+        searchTask?.cancel()
+        let generation = UUID()
+        queryGeneration = generation
+        if invalidateCache { segmentCache.removeAll() }
+        searchTask = Task { @MainActor in
+            if debounce {
+                do { try await Task.sleep(nanoseconds: 250_000_000) } catch { return }
+            }
+            guard !Task.isCancelled else { return }
+            appState.queryHistory(search: searchText.isEmpty ? nil : searchText, source: sourceFilter) { rows in
+                guard queryGeneration == generation else { return }
+                transcriptions = rows
+                loadSegments()
+            }
+        }
+    }
+
+    private func loadSegments() {
+        guard let id = selectedId else { selectedDetail = HistoryDetailData(); return }
+        if let cached = segmentCache[id] { selectedDetail = cached; return }
+        selectedDetail = HistoryDetailData()
+        let generation = queryGeneration
+        appState.queryDetail(id: id) { rows in
+            guard queryGeneration == generation else { return }
+            segmentCache[id] = rows
+            if selectedId == id { selectedDetail = rows }
+        }
     }
 
     private func copyText(_ text: String) {
