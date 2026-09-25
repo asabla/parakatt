@@ -1,0 +1,66 @@
+{
+  "date": "2026-09-25",
+  "implementation_commit": "891a23cac52dd7b07eef4513acc297ab87cadd04",
+  "hardware": "Apple M3 Max",
+  "os_build": "26A428",
+  "rust": "1.94.1",
+  "xcode": "26.4 (17E192)",
+  "rust_tests": {
+    "passed": 177,
+    "failed": 0,
+    "opt_in_model_tests_ignored": 1,
+    "documentation_examples_ignored": 2
+  },
+  "real_model_test": {
+    "passed": true,
+    "languages": [
+      "en_us",
+      "sv_se"
+    ],
+    "missing_prerequisites_fail": true
+  },
+  "swift_tests": {
+    "executed": 25,
+    "skipped": 1,
+    "failed": 0
+  },
+  "checks": {
+    "formatting": "passed",
+    "clippy_all_targets_all_features": "passed",
+    "regenerated_binding_build": "passed",
+    "release_build": "passed",
+    "packaged_webgpu_startup": "passed",
+    "stable_launcher_identity": "passed",
+    "macos_14_macho_targets": "passed",
+    "workflow_yaml_parse": "passed",
+    "python_compile": "passed",
+    "shell_syntax": "passed"
+  },
+  "providers": {
+    "mock_http": "passed",
+    "live_credentials": "not_run"
+  },
+  "advisory": {
+    "vulnerabilities": 0,
+    "unresolved": [
+      "RUSTSEC-2024-0436: paste 1.0.15 unmaintained, via tokenizers and parakeet-rs"
+    ]
+  },
+  "release_gates_pending": [
+    "macOS 14 runtime on hardware",
+    "other hardware and OS backend validation",
+    "installed-app permission persistence across update",
+    "live provider compatibility with selected models",
+    "live capture control and capture-to-display preview latency",
+    "compositor frame-stall measurement",
+    "remote CI execution"
+  ],
+  "scope_exclusions": [
+    "new diarization",
+    "signing and notarization",
+    "full Swift concurrency migration",
+    "INT4",
+    "Core ML"
+  ],
+  "release_ready": false
+}

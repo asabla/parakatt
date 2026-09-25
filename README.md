@@ -19,7 +19,7 @@ Local-first voice-to-text transcription for macOS. Lives in your menu bar, trans
 
 - macOS 14.0 (Sonoma) or later
 - Apple Silicon (ARM64)
-- ~2.5 GB disk space for the speech recognition model (downloaded on first launch)
+- ~2.5 GB disk space for the speech recognition model (downloaded explicitly in Settings)
 
 ## Installation
 
@@ -36,12 +36,13 @@ brew install --cask parakatt
 
 ### Build from Source
 
-You'll need: Rust, [XcodeGen](https://github.com/yonaskolb/XcodeGen), [cargo-swift](https://github.com/nicklimmern/cargo-swift), and Xcode 16+.
+Use the Rust version in `rust-toolchain.toml`. You also need [XcodeGen](https://github.com/yonaskolb/XcodeGen), [cargo-swift](https://github.com/nicklimmern/cargo-swift), and Xcode 16+. The release package targets Apple Silicon and macOS 14.
 
 ```bash
 # Install build tools
-brew install xcodegen
-cargo install cargo-swift
+./scripts/install-xcodegen.sh  # XcodeGen 2.46.0
+export PATH="/tmp/parakatt-xcodegen/.build/release:$PATH"
+cargo install cargo-swift --version 0.11.1 --locked
 
 # Build everything
 make all
@@ -64,7 +65,13 @@ You'll be prompted to grant these when needed. They can be managed in **System S
 
 Configuration is stored at `~/Library/Application Support/Parakatt/config/config.toml`. The default settings use dictation mode with auto-paste enabled.
 
-LLM post-processing can be configured in the settings UI to use a local Ollama/LM Studio instance or a cloud provider (OpenAI, Anthropic).
+Select speech models and execution settings in **Settings > Models**. Downloads use pinned revisions and verify every required file. Parakeet v3 produces the final transcript. Nemotron 3.5 is an optional multilingual preview; select English, Swedish, or Automatic language detection. New preview downloads do not change an existing selection.
+
+Automatic execution uses WebGPU only for combinations in `crates/parakatt-core/backend-validation.json`. Other systems use CPU. CPU remains available as an explicit setting and as a fallback. See [maintenance validation](reports/maintenance/README.md) for measured results and limits.
+
+Configure optional LLM processing in **Settings > LLM**. Ollama and LM Studio run locally. OpenAI and Anthropic require a model and a provider-specific Keychain credential. They remain disabled until configured. Recognized text appears first; completed processing replaces each accepted chunk. Failures and queue limits preserve recognized text. History keeps the recognized timeline separate from processed text.
+
+For reproducible benchmarks, fixture attribution, and release checks, see [the validation commands](reports/maintenance/README.md).
 
 ## Unsigned Builds
 
