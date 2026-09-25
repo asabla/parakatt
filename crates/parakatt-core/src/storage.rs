@@ -110,6 +110,11 @@ impl Storage {
                     speaker TEXT,
                     FOREIGN KEY (transcription_id) REFERENCES transcriptions(id) ON DELETE CASCADE
                 );
+                CREATE TABLE IF NOT EXISTS transcription_processing (
+                    transcription_id TEXT PRIMARY KEY REFERENCES transcriptions(id) ON DELETE CASCADE,
+                    recognized_text TEXT NOT NULL,
+                    status TEXT NOT NULL
+                );
                 CREATE INDEX IF NOT EXISTS idx_segments_transcription
                     ON transcript_segments(transcription_id);
 
@@ -145,6 +150,80 @@ impl Storage {
         }
 
         Ok(())
+    }
+
+    pub fn save_complete(
+        &self,
+        transcription: &StoredTranscription,
+        segments: &[TimestampedSegment],
+        summary: &crate::processing::ProcessingSummary,
+    ) -> Result<String, CoreError> {
+        let tx = self
+            .conn
+            .unchecked_transaction()
+            .map_err(|e| CoreError::IoError(e.to_string()))?;
+        let id = self.save(transcription)?;
+        self.save_segments(&id, segments, None)?;
+        self.save_processing(&id, summary)?;
+        tx.commit().map_err(|e| CoreError::IoError(e.to_string()))?;
+        Ok(id)
+    }
+    pub fn export_to(&self, path: &Path) -> Result<(), CoreError> {
+        self.conn
+            .backup(rusqlite::MAIN_DB, path, None)
+            .map_err(|e| CoreError::IoError(e.to_string()))
+    }
+    pub fn import_from(&mut self, source: &Path, work_directory: &Path) -> Result<(), CoreError> {
+        let staging = work_directory.join(format!("restore-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&staging).map_err(|e| CoreError::IoError(e.to_string()))?;
+        let result = (|| {
+            let input =
+                Connection::open_with_flags(source, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+                    .map_err(|e| CoreError::IoError(e.to_string()))?;
+            let integrity: String = input
+                .query_row("PRAGMA quick_check", [], |r| r.get(0))
+                .map_err(|e| CoreError::IoError(e.to_string()))?;
+            if integrity != "ok" {
+                return Err(CoreError::IoError(
+                    "The backup failed its integrity check".into(),
+                ));
+            }
+            input.prepare("SELECT id,created_at,duration_secs,source,mode,audio_source,app_context,title,text FROM transcriptions LIMIT 0").map_err(|e|CoreError::IoError(e.to_string()))?;
+            input
+                .backup(rusqlite::MAIN_DB, staging.join("transcriptions.db"), None)
+                .map_err(|e| CoreError::IoError(e.to_string()))?;
+            let verified = Self::open(&staging)?;
+            verified
+                .conn
+                .execute_batch("PRAGMA wal_checkpoint(TRUNCATE)")
+                .map_err(|e| CoreError::IoError(e.to_string()))?;
+            drop(verified);
+            self.conn
+                .restore(
+                    rusqlite::MAIN_DB,
+                    staging.join("transcriptions.db"),
+                    None::<fn(rusqlite::backup::Progress)>,
+                )
+                .map_err(|e| CoreError::IoError(e.to_string()))?;
+            Ok(())
+        })();
+        let _ = std::fs::remove_dir_all(staging);
+        result
+    }
+
+    pub fn save_processing(
+        &self,
+        id: &str,
+        summary: &crate::processing::ProcessingSummary,
+    ) -> Result<(), CoreError> {
+        self.conn.execute("INSERT INTO transcription_processing (transcription_id, recognized_text, status) VALUES (?1, ?2, ?3) ON CONFLICT(transcription_id) DO UPDATE SET recognized_text=excluded.recognized_text, status=excluded.status", params![id, summary.recognized_text, summary.status]).map_err(|e|CoreError::IoError(e.to_string()))?;
+        Ok(())
+    }
+    pub fn get_processing(
+        &self,
+        id: &str,
+    ) -> Result<crate::processing::ProcessingSummary, CoreError> {
+        self.conn.query_row("SELECT COALESCE(p.recognized_text,t.text), COALESCE(p.status,'legacy') FROM transcriptions t LEFT JOIN transcription_processing p ON p.transcription_id=t.id WHERE t.id=?1", [id], |row| Ok(crate::processing::ProcessingSummary { recognized_text:row.get(0)?,status:row.get(1)? })).map_err(|e|CoreError::IoError(e.to_string()))
     }
 
     /// Save a new transcription. Returns the generated ID.
@@ -943,5 +1022,72 @@ mod tests {
         };
         let results2 = storage.list(&query2).unwrap();
         assert_eq!(results2.len(), 3);
+    }
+    #[test]
+    fn completed_record_is_atomic_and_preserves_recognized_text() {
+        let dir = tempfile::tempdir().unwrap();
+        let storage = Storage::open(dir.path()).unwrap();
+        let row = sample_transcription("meeting", "Polished wording.");
+        let summary = crate::processing::ProcessingSummary {
+            recognized_text: "raw speech".into(),
+            status: "completed".into(),
+        };
+        storage.conn.execute_batch("CREATE TRIGGER reject_summary BEFORE INSERT ON transcription_processing BEGIN SELECT RAISE(ABORT,'test'); END;").unwrap();
+        assert!(storage.save_complete(&row, &[], &summary).is_err());
+        assert!(storage.get(&row.id).is_err());
+        storage
+            .conn
+            .execute_batch("DROP TRIGGER reject_summary")
+            .unwrap();
+        storage.save_complete(&row, &[], &summary).unwrap();
+        assert_eq!(
+            storage.get_processing(&row.id).unwrap().recognized_text,
+            "raw speech"
+        );
+        assert_eq!(storage.get(&row.id).unwrap().text, "Polished wording.");
+        storage.delete(&row.id).unwrap();
+        assert!(storage.get_processing(&row.id).is_err());
+    }
+    #[test]
+    fn backup_restore_includes_wal_and_processing_and_rejects_corruption() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut storage = Storage::open(dir.path()).unwrap();
+        let row = sample_transcription("meeting", "display");
+        let summary = crate::processing::ProcessingSummary {
+            recognized_text: "recognized".into(),
+            status: "degraded".into(),
+        };
+        storage.save_complete(&row, &[], &summary).unwrap();
+        let backup = dir.path().join("backup.db");
+        storage.export_to(&backup).unwrap();
+        storage.delete(&row.id).unwrap();
+        storage.import_from(&backup, dir.path()).unwrap();
+        assert_eq!(storage.get_processing(&row.id).unwrap().status, "degraded");
+        let corrupt = dir.path().join("corrupt.db");
+        std::fs::write(&corrupt, b"not sqlite").unwrap();
+        assert!(storage.import_from(&corrupt, dir.path()).is_err());
+        assert_eq!(storage.get(&row.id).unwrap().text, "display");
+        assert_eq!(
+            storage
+                .list(&TranscriptionQuery {
+                    search_text: Some("display".into()),
+                    source_filter: None,
+                    limit: 10,
+                    offset: 0
+                })
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+    #[test]
+    fn legacy_rows_remain_readable_without_processing_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        let storage = Storage::open(dir.path()).unwrap();
+        let row = sample_transcription("push_to_talk", "old history");
+        storage.save(&row).unwrap();
+        let summary = storage.get_processing(&row.id).unwrap();
+        assert_eq!(summary.recognized_text, "old history");
+        assert_eq!(summary.status, "legacy");
     }
 }
