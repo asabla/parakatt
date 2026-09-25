@@ -1318,6 +1318,22 @@ class AppState: ObservableObject {
 
     private var downloadPollTimer: Timer?
 
+    @Published var modelInventoryRevision: UInt64 = 0
+    private var modelQueryGeneration = UUID()
+
+    func queryModels(completion: @escaping ([ParakattCore.ModelInfo]) -> Void) {
+        guard let bridge else { completion([]); return }
+        let generation = UUID()
+        modelQueryGeneration = generation
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let rows = bridge.listModels()
+            DispatchQueue.main.async {
+                guard self?.modelQueryGeneration == generation else { return }
+                completion(rows)
+            }
+        }
+    }
+
     func listModels() -> [ParakattCore.ModelInfo] {
         bridge?.listModels() ?? []
     }
@@ -1340,18 +1356,18 @@ class AppState: ObservableObject {
     }
 
     func deleteModel(_ modelId: String) {
-        do {
-            try bridge?.deleteModel(modelId)
-            // If the deleted model was loaded, reset state
-            if activeModelId == modelId {
-                isModelLoaded = false
-                activeModelId = nil
-                needsModelDownload = listModels().first(where: { $0.downloaded }) == nil
-            }
-            NSLog("[Parakatt] Deleted model: %@", modelId)
-        } catch {
-            errorMessage = "Failed to delete model: \(error.localizedDescription)"
-            NSLog("[Parakatt] Delete model failed: %@", error.localizedDescription)
+        guard let bridge else { return }
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            do {
+                try bridge.deleteModel(modelId)
+                let models = bridge.listModels()
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    if self.activeModelId == modelId { self.isModelLoaded = false; self.activeModelId = nil }
+                    self.needsModelDownload = !models.contains { $0.providerType == "parakeet" && $0.downloaded }
+                    self.modelInventoryRevision &+= 1
+                }
+            } catch { DispatchQueue.main.async { self?.errorMessage = error.localizedDescription } }
         }
     }
 
@@ -1377,10 +1393,11 @@ class AppState: ObservableObject {
         case .completed:
             stopDownloadPolling()
             isDownloading = false
-            needsModelDownload = false
-            NSLog("[Parakatt] Download completed: %@", progress.modelId)
-            // Auto-load the just-downloaded model
-            loadModel(progress.modelId)
+            modelInventoryRevision &+= 1
+            if progress.modelId == "parakeet-tdt-0.6b-v3" {
+                needsModelDownload = false
+                loadModel(progress.modelId)
+            }
 
         case .failed(let message):
             stopDownloadPolling()

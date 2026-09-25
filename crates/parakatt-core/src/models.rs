@@ -1,110 +1,195 @@
-/// Model registry and management.
-///
-/// Tracks available models, their download status, and provides
-/// metadata for the settings UI.
-use std::path::{Path, PathBuf};
+//! Pinned, verified model installations. Call verification on a worker thread.
+use crate::{CoreError, ModelInfo, ModelInstallationState};
+use sha2::{Digest, Sha256};
+use std::{
+    collections::HashMap,
+    fs,
+    io::Read,
+    path::{Path, PathBuf},
+    sync::{Mutex, OnceLock},
+    time::SystemTime,
+};
 
-use crate::ModelInfo;
-
-/// Download metadata for a model: HuggingFace repo URL and list of files.
-pub struct ModelFileSet {
-    pub repo_url: &'static str,
-    pub files: &'static [&'static str],
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct ModelFile {
+    pub name: String,
+    pub size: u64,
+    pub sha256: String,
 }
-
-/// Get the download file set for a known model.
-pub fn model_file_set(model_id: &str) -> Option<ModelFileSet> {
-    match model_id {
-        // Multilingual offline commit-path model. Default Parakatt
-        // model since the v2-deprecation overhaul.
-        "parakeet-tdt-0.6b-v3" => Some(ModelFileSet {
-            repo_url: "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main",
-            files: &[
-                "vocab.txt",
-                "decoder_joint-model.onnx",
-                "encoder-model.onnx",
-                "encoder-model.onnx.data",
-            ],
-        }),
-        // Cache-aware streaming model used for the live preview path
-        // (English only). See `crate::stt::nemotron` for usage.
-        // File names are dictated by `parakeet-rs::Nemotron::from_pretrained`:
-        //   encoder.onnx + encoder.onnx.data
-        //   decoder_joint.onnx
-        //   tokenizer.model      (SentencePiece protobuf, NOT vocab.txt)
-        "nemotron-speech-streaming-en-0.6b" => Some(ModelFileSet {
-            repo_url: "https://huggingface.co/altunenes/parakeet-rs/resolve/main/nemotron-speech-streaming-en-0.6b",
-            files: &[
-                "tokenizer.model",
-                "encoder.onnx",
-                "encoder.onnx.data",
-                "decoder_joint.onnx",
-            ],
-        }),
-        _ => None,
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct ModelManifest {
+    pub id: String,
+    pub display_name: String,
+    pub provider_type: String,
+    pub repo: String,
+    pub revision: String,
+    pub subdirectory: String,
+    pub precision: String,
+    pub languages: Vec<String>,
+    pub files: Vec<ModelFile>,
+}
+impl ModelManifest {
+    pub fn url(&self, name: &str) -> String {
+        format!(
+            "https://huggingface.co/{}/resolve/{}/{}{}",
+            self.repo, self.revision, self.subdirectory, name
+        )
     }
 }
-
-/// Known models that can be downloaded and used.
-pub fn available_models() -> Vec<ModelInfo> {
-    vec![
-        ModelInfo {
-            id: "parakeet-tdt-0.6b-v3".to_string(),
-            provider_type: "parakeet".to_string(),
-            display_name: "Parakeet TDT 0.6B v3 (Multilingual)".to_string(),
-            description: Some(
-                "NVIDIA Parakeet. 25 European languages, native punctuation, \
-                 reduced silence-hallucination training. Required for the \
-                 committed transcript path."
-                    .to_string(),
-            ),
-            size_bytes: 2_550_000_000, // ~2.55 GB full precision
-            downloaded: false,
-        },
-        ModelInfo {
-            id: "nemotron-speech-streaming-en-0.6b".to_string(),
-            provider_type: "nemotron-streaming".to_string(),
-            display_name: "Nemotron Speech Streaming 0.6B (English live preview)".to_string(),
-            description: Some(
-                "NVIDIA cache-aware streaming Parakeet variant. Provides \
-                 sub-second live preview for English dictation. Optional — \
-                 if absent, the live preview falls back to the v3 commit \
-                 model with LocalAgreement-2."
-                    .to_string(),
-            ),
-            size_bytes: 1_200_000_000, // ~1.2 GB full precision
-            downloaded: false,
-        },
-    ]
+pub fn manifests() -> &'static [ModelManifest] {
+    static MANIFESTS: OnceLock<Vec<ModelManifest>> = OnceLock::new();
+    MANIFESTS.get_or_init(|| {
+        serde_json::from_str(include_str!("../model-manifests.json"))
+            .expect("checked-in model manifests must be valid")
+    })
 }
-
-/// Check which models are actually downloaded in the models directory.
-/// A model is "downloaded" if its directory contains a .onnx file and the
-/// expected vocabulary file (vocab.txt for Parakeet, tokenizer.model for
-/// Nemotron-style streaming models).
-pub fn list_models_with_status(models_dir: &Path) -> Vec<ModelInfo> {
-    let mut models = available_models();
-    for model in &mut models {
-        let dir = model_path(models_dir, &model.id);
-        let has_vocab = dir.join("vocab.txt").exists() || dir.join("tokenizer.model").exists();
-        model.downloaded = dir.exists() && has_onnx_file(&dir) && has_vocab;
-    }
-    models
+pub fn model_file_set(id: &str) -> Option<&'static ModelManifest> {
+    manifests().iter().find(|m| m.id == id)
 }
-
-/// Get the expected directory path for a model.
-pub fn model_path(models_dir: &Path, model_id: &str) -> PathBuf {
-    models_dir.join(model_id)
-}
-
-/// Check if a directory contains at least one .onnx file.
-fn has_onnx_file(dir: &Path) -> bool {
-    if let Ok(entries) = std::fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            if entry.path().extension().and_then(|s| s.to_str()) == Some("onnx") {
-                return true;
-            }
+pub fn model_path(root: &Path, id: &str) -> PathBuf {
+    let legacy = root.join(id);
+    if let Some(manifest) = model_file_set(id) {
+        let pinned = legacy.join(&manifest.revision);
+        if pinned.is_dir() {
+            return pinned;
         }
     }
-    false
+    legacy
+}
+
+pub fn verify_file(path: &Path, file: &ModelFile) -> Result<(), CoreError> {
+    let mut input = fs::File::open(path).map_err(io_error)?;
+    if input.metadata().map_err(io_error)?.len() != file.size {
+        return Err(CoreError::ModelLoadFailed(format!(
+            "Size mismatch: {}",
+            file.name
+        )));
+    }
+    let mut hash = Sha256::new();
+    let mut buffer = vec![0; 1024 * 1024];
+    loop {
+        let n = input.read(&mut buffer).map_err(io_error)?;
+        if n == 0 {
+            break;
+        }
+        hash.update(&buffer[..n]);
+    }
+    if format!("{:x}", hash.finalize()) != file.sha256 {
+        return Err(CoreError::ModelLoadFailed(format!(
+            "Checksum mismatch: {}",
+            file.name
+        )));
+    }
+    Ok(())
+}
+fn io_error(e: std::io::Error) -> CoreError {
+    CoreError::IoError(e.to_string())
+}
+type Signature = Vec<(String, u64, SystemTime)>;
+static VERIFIED: OnceLock<Mutex<HashMap<PathBuf, Signature>>> = OnceLock::new();
+
+pub fn verify_model(directory: &Path, manifest: &ModelManifest) -> Result<(), CoreError> {
+    let signature: Signature = manifest
+        .files
+        .iter()
+        .map(|file| {
+            let metadata = fs::metadata(directory.join(&file.name)).map_err(io_error)?;
+            Ok((
+                file.sha256.clone(),
+                metadata.len(),
+                metadata.modified().map_err(io_error)?,
+            ))
+        })
+        .collect::<Result<_, CoreError>>()?;
+    let cache = VERIFIED.get_or_init(|| Mutex::new(HashMap::new()));
+    if cache.lock().unwrap().get(directory) == Some(&signature) {
+        return Ok(());
+    }
+    for file in &manifest.files {
+        verify_file(&directory.join(&file.name), file)?;
+    }
+    cache
+        .lock()
+        .unwrap()
+        .insert(directory.to_path_buf(), signature);
+    Ok(())
+}
+
+pub fn available_models() -> Vec<ModelInfo> {
+    manifests()
+        .iter()
+        .map(|m| ModelInfo {
+            id: m.id.clone(),
+            provider_type: m.provider_type.clone(),
+            display_name: m.display_name.clone(),
+            description: Some(format!(
+                "{}; {}. Verified revision {}.",
+                if m.languages.len() == 1 {
+                    "English".to_string()
+                } else {
+                    format!(
+                        "{} languages, including English and Swedish",
+                        m.languages.len()
+                    )
+                },
+                m.precision,
+                &m.revision[..8]
+            )),
+            size_bytes: m.files.iter().map(|f| f.size).sum(),
+            downloaded: false,
+            installation: ModelInstallationState::Missing,
+            revision: m.revision.clone(),
+        })
+        .collect()
+}
+pub fn list_models_with_status(root: &Path) -> Vec<ModelInfo> {
+    available_models()
+        .into_iter()
+        .map(|mut model| {
+            let directory = model_path(root, &model.id);
+            model.installation = if !directory.exists() {
+                ModelInstallationState::Missing
+            } else {
+                match verify_model(&directory, model_file_set(&model.id).unwrap()) {
+                    Ok(()) => ModelInstallationState::Verified,
+                    Err(_) => ModelInstallationState::RepairRequired { message: "This installation is incomplete or does not match the pinned model revision. Repair verifies all required files before activation.".into() },
+                }
+            };
+            model.downloaded = matches!(model.installation, ModelInstallationState::Verified);
+            model
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn rejects_same_size_corruption_and_missing_files() {
+        let directory = tempfile::tempdir().unwrap();
+        let file = ModelFile {
+            name: "encoder".into(),
+            size: 3,
+            sha256: format!("{:x}", Sha256::digest(b"abc")),
+        };
+        let path = directory.path().join(&file.name);
+        assert!(verify_file(&path, &file).is_err());
+        fs::write(&path, b"abc").unwrap();
+        assert!(verify_file(&path, &file).is_ok());
+        fs::write(&path, b"abd").unwrap();
+        assert!(verify_file(&path, &file).is_err());
+    }
+    #[test]
+    fn manifests_are_complete_and_pinned() {
+        for m in manifests() {
+            assert_eq!(m.revision.len(), 40);
+            assert_eq!(m.files.len(), 4);
+            for file in &m.files {
+                assert_eq!(file.sha256.len(), 64);
+                assert!(file.size > 0);
+                assert!(!file.name.contains('/'));
+            }
+        }
+        assert!(model_file_set("../anything").is_none());
+    }
 }

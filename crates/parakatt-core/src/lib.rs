@@ -155,6 +155,13 @@ pub struct ModeConfig {
     pub dictionary_enabled: bool,
 }
 
+#[derive(Debug, Clone, uniffi::Enum)]
+pub enum ModelInstallationState {
+    Missing,
+    Verified,
+    RepairRequired { message: String },
+}
+
 /// Metadata about a downloadable/available model.
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct ModelInfo {
@@ -165,6 +172,8 @@ pub struct ModelInfo {
     pub description: Option<String>,
     pub size_bytes: u64,
     pub downloaded: bool,
+    pub installation: ModelInstallationState,
+    pub revision: String,
 }
 
 /// Hotkey configuration exposed via FFI.

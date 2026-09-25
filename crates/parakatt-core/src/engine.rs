@@ -210,6 +210,9 @@ impl Engine {
     /// the commit path and `streaming` for the live preview path.
     pub fn load_model(&self, model_id: &str) -> Result<(), CoreError> {
         let model_path = models::model_path(&self.models_dir, model_id);
+        let manifest = models::model_file_set(model_id)
+            .ok_or_else(|| CoreError::ModelNotFound(model_id.into()))?;
+        models::verify_model(&model_path, manifest)?;
 
         if model_id.starts_with("nemotron-") {
             let provider = NemotronProvider::new(&model_path, model_id)?;
@@ -1073,7 +1076,7 @@ impl Engine {
 
         // Check not already downloading
         {
-            let p = crate::util::lock_named(
+            let mut p = crate::util::lock_named(
                 &self.download_progress,
                 "Download progress",
                 CoreError::IoError,
@@ -1083,6 +1086,7 @@ impl Engine {
                     "A download is already in progress".into(),
                 ));
             }
+            p.state = DownloadState::Downloading;
         }
 
         // Reset cancel flag
@@ -1121,7 +1125,10 @@ impl Engine {
 
     /// Delete a downloaded model's files.
     pub fn delete_model(&self, model_id: String) -> Result<(), CoreError> {
-        let model_path = models::model_path(&self.models_dir, &model_id);
+        if models::model_file_set(&model_id).is_none() {
+            return Err(CoreError::ModelNotFound(model_id));
+        }
+        let model_path = self.models_dir.join(&model_id);
 
         if !model_path.exists() {
             return Ok(());

@@ -64,247 +64,313 @@ impl DownloadProgress {
     }
 }
 
-const CHUNK_SIZE: usize = 8 * 1024; // 8KB read chunks
-
-/// Download all files for a model, reporting progress and respecting cancellation.
-///
-/// - Skips files that already exist in the model directory.
-/// - Downloads to `.part` temp files, renames on completion.
-/// - Cleans up `.part` files on failure or cancellation.
+/// Download into revision-specific staging. Existing installations are untouched.
 pub fn download_model(
     models_dir: &Path,
     model_id: &str,
     progress: Arc<Mutex<DownloadProgress>>,
     cancel: Arc<AtomicBool>,
 ) -> Result<(), CoreError> {
-    let file_set = models::model_file_set(model_id).ok_or_else(|| {
-        CoreError::ModelNotFound(format!("No download info for model: {model_id}"))
-    })?;
-
-    let model_dir = models_dir.join(model_id);
-    fs::create_dir_all(&model_dir)
-        .map_err(|e| CoreError::IoError(format!("Failed to create model dir: {e}")))?;
-
-    let total_files = file_set.files.len() as u32;
-
-    // Initialize progress
-    {
-        let mut p = lock_progress(&progress);
-        *p = DownloadProgress {
-            model_id: model_id.to_string(),
-            state: DownloadState::Downloading,
-            current_file: String::new(),
-            file_index: 0,
-            total_files,
-            bytes_downloaded: 0,
-            bytes_total: 0,
+    let result = download_inner(models_dir, model_id, &progress, &cancel);
+    if let Err(error) = &result {
+        lock_progress(&progress).state = DownloadState::Failed {
+            message: error.to_string(),
         };
     }
-
+    result
+}
+/// Explicit benchmark-only candidates. These are not selectable by the app.
+pub fn download_candidate(root: &Path, id: &str) -> Result<(), CoreError> {
+    let candidates: Vec<models::ModelManifest> =
+        serde_json::from_str(include_str!("../model-candidates.json"))
+            .expect("candidate manifests");
+    let manifest = candidates
+        .iter()
+        .find(|m| m.id == id)
+        .ok_or_else(|| CoreError::ModelNotFound(id.into()))?;
+    download_manifest(
+        root,
+        manifest,
+        &Mutex::new(DownloadProgress::idle()),
+        &AtomicBool::new(false),
+        None,
+    )
+}
+fn download_inner(
+    root: &Path,
+    id: &str,
+    progress: &Mutex<DownloadProgress>,
+    cancel: &AtomicBool,
+) -> Result<(), CoreError> {
+    let manifest = models::model_file_set(id).ok_or_else(|| CoreError::ModelNotFound(id.into()))?;
+    download_manifest(root, manifest, progress, cancel, None)
+}
+fn download_manifest(
+    root: &Path,
+    manifest: &models::ModelManifest,
+    progress: &Mutex<DownloadProgress>,
+    cancel: &AtomicBool,
+    test_url: Option<&str>,
+) -> Result<(), CoreError> {
+    let id = &manifest.id;
+    let url = |name: &str| {
+        test_url
+            .map(|url| format!("{url}/{name}"))
+            .unwrap_or_else(|| manifest.url(name))
+    };
+    let stage = root
+        .join(".staging")
+        .join(format!("{id}-{}", manifest.revision));
+    let active = root.join(id).join(&manifest.revision);
+    fs::create_dir_all(&stage).map_err(io_error)?;
+    *lock_progress(progress) = DownloadProgress {
+        model_id: id.into(),
+        state: DownloadState::Downloading,
+        current_file: String::new(),
+        file_index: 0,
+        total_files: manifest.files.len() as u32,
+        bytes_downloaded: 0,
+        bytes_total: 0,
+    };
     let client = reqwest::blocking::Client::builder()
-        .timeout(None) // Large files, no overall timeout
         .connect_timeout(std::time::Duration::from_secs(30))
+        .timeout(std::time::Duration::from_secs(1800))
         .build()
-        .map_err(|e| CoreError::IoError(format!("HTTP client error: {e}")))?;
-
-    for (i, filename) in file_set.files.iter().enumerate() {
-        // Check cancel before starting each file
+        .map_err(|e| CoreError::IoError(e.to_string()))?;
+    for (index, file) in manifest.files.iter().enumerate() {
         if cancel.load(Ordering::Relaxed) {
-            cleanup_part_files(&model_dir, file_set.files);
-            let mut p = lock_progress(&progress);
-            p.state = DownloadState::Cancelled;
+            lock_progress(progress).state = DownloadState::Cancelled;
             return Ok(());
         }
-
-        let dest = model_dir.join(filename);
-
-        // Skip files that already exist
-        if dest.exists() {
-            log::info!("Skipping {filename} — already exists");
-            let mut p = lock_progress(&progress);
-            p.file_index = i as u32 + 1;
-            p.current_file = filename.to_string();
+        let destination = stage.join(&file.name);
+        {
+            let mut p = lock_progress(progress);
+            p.file_index = index as u32;
+            p.current_file = file.name.clone();
+            p.bytes_total = file.size;
+            p.bytes_downloaded = 0;
+        }
+        if models::verify_file(&destination, file).is_ok() {
             continue;
         }
-
-        let part_path = model_dir.join(format!("{filename}.part"));
-        let url = format!("{}/{filename}", file_set.repo_url);
-
-        // Check for existing partial download to resume
-        let existing_bytes: u64 = if part_path.exists() {
-            fs::metadata(&part_path).map(|m| m.len()).unwrap_or(0)
-        } else {
-            0
-        };
-
-        if existing_bytes > 0 {
-            log::info!("Resuming {url} from byte {existing_bytes}");
-        } else {
-            log::info!("Downloading {url}");
+        let part = stage.join(format!("{}.part", file.name));
+        let mut existing = fs::metadata(&part).map(|m| m.len()).unwrap_or(0);
+        if existing == file.size && models::verify_file(&part, file).is_ok() {
+            fs::rename(&part, &destination).map_err(io_error)?;
+            continue;
         }
-
-        // Update progress for this file
-        {
-            let mut p = lock_progress(&progress);
-            p.current_file = filename.to_string();
-            p.file_index = i as u32;
-            p.bytes_downloaded = existing_bytes;
-            p.bytes_total = 0;
+        if existing >= file.size {
+            fs::remove_file(&part).map_err(io_error)?;
+            existing = 0;
         }
-
-        // Send Range header if resuming
-        let mut req = client.get(&url);
-        if existing_bytes > 0 {
-            req = req.header("Range", format!("bytes={existing_bytes}-"));
+        let mut request = client.get(url(&file.name));
+        if existing > 0 {
+            request = request.header("Range", format!("bytes={existing}-"));
         }
-
-        let response = req.send().map_err(|e| {
-            let mut p = lock_progress(&progress);
-            p.state = DownloadState::Failed {
-                message: format!("Failed to download {filename}: {e}"),
-            };
-            CoreError::IoError(format!("Download failed for {filename}: {e}"))
-        })?;
-
-        let status = response.status();
-        if !status.is_success() && status.as_u16() != 206 {
-            // If Range request fails (416 = range not satisfiable), start fresh
-            if status.as_u16() == 416 {
-                log::warn!("Range not satisfiable for {filename}, restarting download");
-                let _ = fs::remove_file(&part_path);
-            } else {
-                let msg = format!("HTTP {} for {filename}", status);
-                let mut p = lock_progress(&progress);
-                p.state = DownloadState::Failed {
-                    message: msg.clone(),
-                };
-                return Err(CoreError::IoError(msg));
-            }
+        let mut response = request
+            .send()
+            .map_err(|e| CoreError::IoError(e.to_string()))?;
+        if response.status().as_u16() == 416 {
+            existing = 0;
+            response = client
+                .get(url(&file.name))
+                .send()
+                .map_err(|e| CoreError::IoError(e.to_string()))?;
         }
-
-        // Determine total file size from Content-Range or Content-Length
-        let total_size = if status.as_u16() == 206 {
-            // Parse Content-Range: bytes 1000-9999/10000
-            response
+        response
+            .error_for_status_ref()
+            .map_err(|e| CoreError::IoError(e.to_string()))?;
+        if response.status().as_u16() == 206 {
+            let range = response
                 .headers()
                 .get("content-range")
                 .and_then(|v| v.to_str().ok())
-                .and_then(|s| s.rsplit('/').next())
-                .and_then(|s| s.parse::<u64>().ok())
-                .unwrap_or(existing_bytes + response.content_length().unwrap_or(0))
+                .unwrap_or("");
+            if !range.starts_with(&format!("bytes {existing}-"))
+                || !range.ends_with(&format!("/{}", file.size))
+            {
+                return Err(CoreError::IoError("Invalid resume range".into()));
+            }
         } else {
-            response.content_length().unwrap_or(0)
-        };
-
-        {
-            let mut p = lock_progress(&progress);
-            p.bytes_total = total_size;
+            existing = 0;
         }
-
-        // Open file in append mode if resuming, create if starting fresh
-        let mut file = if existing_bytes > 0 && status.as_u16() == 206 {
-            fs::OpenOptions::new().append(true).open(&part_path)
-        } else {
-            fs::File::create(&part_path)
-        }
-        .map_err(|e| {
-            let mut p = lock_progress(&progress);
-            p.state = DownloadState::Failed {
-                message: format!("Cannot open {}: {e}", part_path.display()),
-            };
-            CoreError::IoError(format!("Cannot open file: {e}"))
-        })?;
-
-        let mut reader = response;
-        let mut buf = vec![0u8; CHUNK_SIZE];
-        let mut downloaded: u64 = existing_bytes;
-
+        let mut output = fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(existing == 0)
+            .append(existing > 0)
+            .open(&part)
+            .map_err(io_error)?;
+        let mut total = existing;
+        let mut buffer = vec![0; 1024 * 1024];
         loop {
-            // Check cancel between chunks
             if cancel.load(Ordering::Relaxed) {
-                drop(file);
-                cleanup_part_files(&model_dir, file_set.files);
-                let mut p = lock_progress(&progress);
-                p.state = DownloadState::Cancelled;
+                lock_progress(progress).state = DownloadState::Cancelled;
                 return Ok(());
             }
-
-            let n = match reader.read(&mut buf) {
-                Ok(n) => n,
-                Err(e) => {
-                    drop(file);
-                    cleanup_part_files(&model_dir, file_set.files);
-                    let mut p = lock_progress(&progress);
-                    p.state = DownloadState::Failed {
-                        message: format!("Read error for {filename}: {e}"),
-                    };
-                    return Err(CoreError::IoError(format!("Read error: {e}")));
-                }
-            };
-
+            let n = response.read(&mut buffer).map_err(io_error)?;
             if n == 0 {
                 break;
             }
-
-            file.write_all(&buf[..n]).map_err(|e| {
-                cleanup_part_files(&model_dir, file_set.files);
-                let mut p = lock_progress(&progress);
-                p.state = DownloadState::Failed {
-                    message: format!("Write error for {filename}: {e}"),
-                };
-                CoreError::IoError(format!("Write error: {e}"))
-            })?;
-
-            downloaded += n as u64;
-            {
-                let mut p = lock_progress(&progress);
-                p.bytes_downloaded = downloaded;
+            total += n as u64;
+            if total > file.size {
+                return Err(CoreError::IoError("Download exceeds manifest size".into()));
+            }
+            output.write_all(&buffer[..n]).map_err(io_error)?;
+            lock_progress(progress).bytes_downloaded = total;
+        }
+        output.sync_all().map_err(io_error)?;
+        drop(output);
+        if let Err(error) = models::verify_file(&part, file) {
+            let _ = fs::remove_file(&part);
+            return Err(error);
+        }
+        fs::rename(&part, &destination).map_err(io_error)?;
+    }
+    models::verify_model(&stage, manifest)?;
+    if cancel.load(Ordering::Relaxed) {
+        lock_progress(progress).state = DownloadState::Cancelled;
+        return Ok(());
+    }
+    fs::create_dir_all(root.join(id)).map_err(io_error)?;
+    if active.exists() {
+        if models::verify_model(&active, manifest).is_ok() {
+            fs::remove_dir_all(&stage).map_err(io_error)?;
+        } else {
+            let rejected = root
+                .join(".staging")
+                .join(format!("{id}-rejected-{}", uuid::Uuid::new_v4()));
+            fs::rename(&active, &rejected).map_err(io_error)?;
+            if let Err(error) = fs::rename(&stage, &active) {
+                let _ = fs::rename(&rejected, &active);
+                return Err(io_error(error));
             }
         }
-
-        // Verify downloaded size matches total expected size
-        if total_size > 0 && downloaded != total_size {
-            drop(file);
-            cleanup_part_files(&model_dir, file_set.files);
-            let msg = format!(
-                "Size mismatch for {filename}: expected {total_size} bytes, got {downloaded}"
-            );
-            let mut p = lock_progress(&progress);
-            p.state = DownloadState::Failed {
-                message: msg.clone(),
-            };
-            return Err(CoreError::IoError(msg));
-        }
-
-        // Rename .part to final name
-        fs::rename(&part_path, &dest).map_err(|e| {
-            let mut p = lock_progress(&progress);
-            p.state = DownloadState::Failed {
-                message: format!("Failed to rename {}: {e}", part_path.display()),
-            };
-            CoreError::IoError(format!("Rename failed: {e}"))
-        })?;
-
-        log::info!("Downloaded {filename} ({downloaded} bytes, verified)");
+    } else {
+        fs::rename(&stage, &active).map_err(io_error)?;
     }
-
-    // All files done
-    {
-        let mut p = lock_progress(&progress);
-        p.state = DownloadState::Completed;
-        p.file_index = total_files;
-        p.current_file = String::new();
-    }
-
+    let mut p = lock_progress(progress);
+    p.state = DownloadState::Completed;
+    p.file_index = p.total_files;
+    p.current_file.clear();
     Ok(())
 }
+fn io_error(e: std::io::Error) -> CoreError {
+    CoreError::IoError(e.to_string())
+}
 
-/// Remove all `.part` temp files for the given file list.
-fn cleanup_part_files(model_dir: &Path, files: &[&str]) {
-    for filename in files {
-        let part = model_dir.join(format!("{filename}.part"));
-        if part.exists() {
-            let _ = fs::remove_file(&part);
-        }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sha2::{Digest, Sha256};
+    fn fixture() -> models::ModelManifest {
+        let mut m = models::manifests()[0].clone();
+        m.id = "test-model".into();
+        m.files = vec![models::ModelFile {
+            name: "weights".into(),
+            size: 6,
+            sha256: format!("{:x}", Sha256::digest(b"abcdef")),
+        }];
+        m
+    }
+    fn server(
+        body: &'static str,
+        status: u16,
+        header: &'static str,
+    ) -> (String, std::thread::JoinHandle<String>) {
+        use std::net::TcpListener;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = format!("http://{}", listener.local_addr().unwrap());
+        let worker = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            socket
+                .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                .unwrap();
+            let mut request = Vec::new();
+            loop {
+                let mut b = [0; 1024];
+                let n = socket.read(&mut b).unwrap();
+                assert!(n > 0);
+                request.extend_from_slice(&b[..n]);
+                if request.windows(4).any(|v| v == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            write!(socket,"HTTP/1.1 {status} Test\r\nContent-Length: {}\r\nConnection: close\r\n{header}\r\n{body}",body.len()).unwrap();
+            String::from_utf8(request).unwrap()
+        });
+        (address, worker)
+    }
+    #[test]
+    fn resumes_only_with_verified_range_and_activates_complete_files() {
+        let root = tempfile::tempdir().unwrap();
+        let m = fixture();
+        let stage = root
+            .path()
+            .join(".staging")
+            .join(format!("{}-{}", m.id, m.revision));
+        fs::create_dir_all(&stage).unwrap();
+        fs::write(stage.join("weights.part"), b"abc").unwrap();
+        let (url, server) = server("def", 206, "Content-Range: bytes 3-5/6\r\n");
+        let progress = Mutex::new(DownloadProgress::idle());
+        download_manifest(
+            root.path(),
+            &m,
+            &progress,
+            &AtomicBool::new(false),
+            Some(&url),
+        )
+        .unwrap();
+        assert!(server
+            .join()
+            .unwrap()
+            .to_lowercase()
+            .contains("range: bytes=3-"));
+        assert_eq!(progress.lock().unwrap().state, DownloadState::Completed);
+        models::verify_model(&root.path().join(&m.id).join(&m.revision), &m).unwrap();
+    }
+    #[test]
+    fn corruption_keeps_the_previous_installation() {
+        let root = tempfile::tempdir().unwrap();
+        let m = fixture();
+        let legacy = root.path().join(&m.id);
+        fs::create_dir_all(&legacy).unwrap();
+        fs::write(legacy.join("weights"), b"abcdef").unwrap();
+        let (url, server) = server("wrong!", 200, "");
+        assert!(download_manifest(
+            root.path(),
+            &m,
+            &Mutex::new(DownloadProgress::idle()),
+            &AtomicBool::new(false),
+            Some(&url)
+        )
+        .is_err());
+        server.join().unwrap();
+        models::verify_model(&legacy, &m).unwrap();
+        assert!(!legacy.join(&m.revision).exists());
+    }
+    #[test]
+    fn cancellation_does_not_activate_staging() {
+        let root = tempfile::tempdir().unwrap();
+        let m = fixture();
+        let progress = Mutex::new(DownloadProgress::idle());
+        download_manifest(root.path(), &m, &progress, &AtomicBool::new(true), None).unwrap();
+        assert_eq!(progress.lock().unwrap().state, DownloadState::Cancelled);
+        assert!(!root.path().join(&m.id).join(&m.revision).exists());
+    }
+    #[test]
+    fn invalid_resume_range_is_rejected() {
+        let root = tempfile::tempdir().unwrap();
+        let m = fixture();
+        let (url, server) = server("def", 206, "Content-Range: bytes 3-5/6\r\n");
+        assert!(download_manifest(
+            root.path(),
+            &m,
+            &Mutex::new(DownloadProgress::idle()),
+            &AtomicBool::new(false),
+            Some(&url)
+        )
+        .is_err());
+        server.join().unwrap();
     }
 }
