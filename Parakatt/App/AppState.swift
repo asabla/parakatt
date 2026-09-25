@@ -362,11 +362,14 @@ class AppState: ObservableObject {
 
     private let modelLoadQueue = DispatchQueue(label: "com.parakatt.model-loading", qos: .userInitiated)
     private var modelLoadGeneration = UUID()
+    private let finalModelGate = ModelStartupGate()
 
     func reloadSpeechModels() {
         guard let bridge else { return }
         let generation = UUID()
         modelLoadGeneration = generation
+        isModelLoaded = false
+        finalModelGate.update(.loading)
         modelLoadQueue.async { [weak self] in
             let models = bridge.listModels()
             let settings = bridge.getSpeechSettings()
@@ -381,6 +384,7 @@ class AppState: ObservableObject {
                     self.isModelLoaded = offline != nil
                     self.activeModelId = offline?.id
                     self.needsModelDownload = offline == nil
+                    self.finalModelGate.update(offline == nil ? .failed("No verified final model is available. Repair or download Parakeet v3 in Settings.") : .ready)
                 }
                 // A settings change invalidates the earlier selection, even if
                 // the final model finished loading before preview startup.
@@ -394,6 +398,7 @@ class AppState: ObservableObject {
                 DispatchQueue.main.async {
                     guard let self, self.modelLoadGeneration == generation else { return }
                     self.errorMessage = error.localizedDescription
+                    if !self.isModelLoaded { self.finalModelGate.update(.failed(error.localizedDescription)) }
                 }
             }
         }
@@ -570,6 +575,20 @@ class AppState: ObservableObject {
             }
         }
 
+        isProcessing = true
+        let generation = speechGeneration
+        finalModelGate.whenReady { [weak self] error in
+            guard let self, self.speechGeneration == generation else { return }
+            if let error {
+                self.isProcessing = false
+                self.errorMessage = "Transcription model is unavailable: \(error)"
+                return
+            }
+            self.finishCapturedRecording()
+        }
+    }
+
+    private func finishCapturedRecording() {
         if let sessionId = pttSessionId {
             // Path B: incremental session was active — only process the tail.
             isProcessing = true
@@ -676,6 +695,7 @@ class AppState: ObservableObject {
 
             guard !samples.isEmpty else {
                 NSLog("[Parakatt] stopRecording: NO AUDIO IN BUFFER")
+                isProcessing = false
                 errorMessage = "No audio captured — check microphone permission in System Settings > Privacy & Security"
                 return
             }
@@ -683,6 +703,7 @@ class AppState: ObservableObject {
             let durationSecs = Double(samples.count) / Double(sttSampleRate)
             guard durationSecs >= 0.5 else {
                 NSLog("[Parakatt] Recording too short (%.2fs), discarding", durationSecs)
+                isProcessing = false
                 errorMessage = "Recording too short — hold longer to capture audio"
                 return
             }
@@ -1458,6 +1479,8 @@ class AppState: ObservableObject {
             saveSpeechSettings(settings)
             return
         }
+        isModelLoaded = false
+        finalModelGate.update(.loading)
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let signpostID = OSSignpostID(log: signpostLog)
             os_signpost(.begin, log: signpostLog, name: "LoadModel", signpostID: signpostID, "%{public}s", modelId)
@@ -1468,12 +1491,14 @@ class AppState: ObservableObject {
                 try self.bridge?.loadModel(modelId)
                 DispatchQueue.main.async {
                     self.isModelLoaded = true
+                    self.finalModelGate.update(.ready)
                     self.activeModelId = modelId
                     self.errorMessage = nil
                     NSLog("[Parakatt] Loaded model: \(modelId)")
                 }
             } catch {
                 DispatchQueue.main.async {
+                    self.finalModelGate.update(.failed(error.localizedDescription))
                     self.errorMessage = "Failed to load model: \(error.localizedDescription)"
                     NSLog("[Parakatt] Model load failed: \(error)")
                 }
@@ -1685,6 +1710,15 @@ class AppState: ObservableObject {
     /// processing. Called after `firstChunkDelaySecs` of recording.
     private func startIncrementalSession() {
         guard isRecording, let bridge else { return }
+        guard isModelLoaded else {
+            let generation = speechGeneration
+            finalModelGate.whenReady { [weak self] error in
+                guard let self, self.speechGeneration == generation, self.isRecording else { return }
+                if let error { self.errorMessage = error; return }
+                self.startIncrementalSession()
+            }
+            return
+        }
 
         let sessionId = UUID().uuidString
 
@@ -1743,7 +1777,7 @@ class AppState: ObservableObject {
     /// pauses, which is dramatically more responsive than the old
     /// fixed 30 s × 28 s timer.
     private func dispatchPttChunk() {
-        guard let sessionId = pttSessionId, isRecording else { return }
+        guard let sessionId = pttSessionId, isRecording, isModelLoaded else { return }
 
         let minSamples = Int(pttMinChunkSecs * Double(sttSampleRate))
         let maxSamples = Int(pttMaxChunkSecs * Double(sttSampleRate))
@@ -1872,7 +1906,7 @@ class AppState: ObservableObject {
     private var bufferedPreviewSessionId: String?
 
     private func updateLiveTranscription() {
-        guard isRecording, let bridge, !isStreamTranscribing else { return }
+        guard isRecording, isModelLoaded, let bridge, !isStreamTranscribing else { return }
 
         // If the cache-aware streaming preview is doing its thing
         // we don't need to also run the buffered preview — they

@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import Foundation
 import ParakattCore
 
@@ -17,6 +18,7 @@ func runMaintenanceSmokeIfRequested() -> Bool {
         let status = core.speechRuntimeStatus()
         report = ["started": true, "model_loaded": core.isModelLoaded(), "actual_backend": status.actualBackend == .webGpu ? "webgpu" : "cpu", "os": ProcessInfo.processInfo.operatingSystemVersionString]
     } catch { report["error"] = error.localizedDescription }
+    report["microphone_authorization"] = MicrophoneAuthorization.description(AVCaptureDevice.authorizationStatus(for: .audio))
     if let data = try? JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]) {
         try? data.write(to: URL(fileURLWithPath: root).appendingPathComponent("startup.json"), options: .atomic)
     }

@@ -20,7 +20,7 @@
     "missing_prerequisites_fail": true
   },
   "swift_tests": {
-    "executed": 25,
+    "executed": 32,
     "skipped": 1,
     "failed": 0
   },
@@ -81,5 +81,13 @@
     "accuracy_repeatable": true,
     "latency_acceptance": false,
     "report": "nemotron-acceptance.json"
+  },
+  "microphone_followup": {
+    "default_make": "passed",
+    "stable_launcher_startup": "passed",
+    "microphone_authorization": "authorized",
+    "live_audio_capture": "not_run",
+    "default_input_at_readonly_check": "bluetooth headset",
+    "reported_test_selection": "System Default"
   }
 }

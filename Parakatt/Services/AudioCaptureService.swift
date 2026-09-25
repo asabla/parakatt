@@ -4,8 +4,7 @@ import Foundation
 
 /// Captures microphone audio in 16kHz mono Float32 format.
 ///
-/// Selects the best available input device — prefers the system default,
-/// falls back to the built-in microphone if the default produces silence.
+/// Uses the system default input unless the user selects a device explicitly.
 class AudioCaptureService {
     var onAudioSamples: (([Float]) -> Void)?
     /// Called when the audio device list changes (device plugged/unplugged).
@@ -51,6 +50,7 @@ class AudioCaptureService {
 
     /// Currently selected device ID (nil = system default).
     private var selectedDeviceUID: String?
+    private var activeInputUID: String?
 
     /// Pending teardown for the current warm window. Scheduled by
     /// `prewarm(windowSecs:)` and cancelled if a real `startCapture()`
@@ -76,6 +76,7 @@ class AudioCaptureService {
     /// stays lit while the app is warm. Pass nil to keep warm
     /// indefinitely (legacy behavior).
     func prewarm(windowSecs: TimeInterval? = nil) {
+        guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else { return }
         engineLock.lock()
         let alreadyOn = audioEngine != nil
         engineLock.unlock()
@@ -145,10 +146,14 @@ class AudioCaptureService {
     /// is drained to `onAudioSamples` first so the recording starts
     /// half a second before the hotkey was actually pressed.
     func startCapture() throws {
+        do { try MicrophoneAuthorization.requireAccess() }
+        catch { stopCapture(); throw error }
         // Fast path: if we're currently warm (engine running, not
         // delivering), just flip the delivery flag and emit the ring.
         engineLock.lock()
         let warmRunning = (audioEngine != nil) && !deliveryEnabled
+            && Self.warmInputMatches(selectedUID: selectedDeviceUID, activeUID: activeInputUID,
+                                     defaultUID: Self.getDefaultInputDeviceUID())
         engineLock.unlock()
         if warmRunning {
             // Cancel any pending warm-window teardown — we're now a
@@ -174,11 +179,13 @@ class AudioCaptureService {
     private func startEngine() throws {
         teardown()
         tapCallbackCount = 0
+        rawCallbackCount = 0
         engineLock.lock()
         converterSourceRate = 0
         converterPending = false
         engineLock.unlock()
 
+        let requestedInputUID = selectedDeviceUID ?? Self.getDefaultInputDeviceUID()
         let engine = AVAudioEngine()
 
         // Only override the device if the user explicitly selected one.
@@ -187,14 +194,7 @@ class AudioCaptureService {
         // AirPods or any other audio device.
         if let uid = selectedDeviceUID {
             NSLog("[Parakatt] Requesting explicit input device: %@", uid)
-            do {
-                try Self.setInputDevice(engine: engine, uid: uid)
-            } catch {
-                // If the explicit device fails (common with Bluetooth),
-                // fall back to system default rather than failing entirely.
-                NSLog("[Parakatt] WARNING: Failed to set device %@: %@ — using system default",
-                      uid, error.localizedDescription)
-            }
+            try Self.setInputDevice(engine: engine, uid: uid)
         }
 
         let inputNode = engine.inputNode
@@ -204,6 +204,8 @@ class AudioCaptureService {
             NSLog("[Parakatt] ERROR: Input node format has sampleRate=0 — no working input device")
             throw AudioCaptureError.noInputDevice
         }
+
+        NSLog("[Parakatt] Requested input UID: %@; system default UID: %@", selectedDeviceUID ?? "system default", Self.getDefaultInputDeviceUID() ?? "unknown")
 
         // Log the actual device the engine ended up using
         let actualDevice = Self.currentInputDeviceName(engine: engine) ?? "unknown"
@@ -221,6 +223,20 @@ class AudioCaptureService {
             self.engineLock.unlock()
             guard active else { return }
 
+            self.rawCallbackCount += 1
+            if self.rawCallbackCount == 1 || self.rawCallbackCount % 100 == 0,
+               let channels = buffer.floatChannelData {
+                var peak: Float = 0
+                for channel in 0..<Int(buffer.format.channelCount) {
+                    for frame in 0..<Int(buffer.frameLength) {
+                        let value = buffer.format.isInterleaved
+                            ? channels[0][frame * Int(buffer.format.channelCount) + channel]
+                            : channels[channel][frame]
+                        peak = max(peak, abs(value))
+                    }
+                }
+                NSLog("[Parakatt] Raw mic callback #%d: %d frames, %.0fHz %dch, peak=%.6f", self.rawCallbackCount, buffer.frameLength, buffer.format.sampleRate, buffer.format.channelCount, peak)
+            }
             let bufferFormat = buffer.format
             if bufferFormat.sampleRate != self.targetSampleRate || bufferFormat.channelCount != 1 {
                 self.convertAndDeliver(buffer: buffer)
@@ -234,6 +250,7 @@ class AudioCaptureService {
 
         engineLock.lock()
         self.audioEngine = engine
+        self.activeInputUID = requestedInputUID
         engineLock.unlock()
 
         installDeviceChangeListener()
@@ -248,6 +265,11 @@ class AudioCaptureService {
         guard hasEngine else { return }
         teardown()
         NSLog("[Parakatt] Audio capture STOPPED")
+    }
+
+    static func warmInputMatches(selectedUID: String?, activeUID: String?, defaultUID: String?) -> Bool {
+        guard let requested = selectedUID ?? defaultUID else { return false }
+        return activeUID == requested
     }
 
     /// Set the input device by UID. Pass nil for system default.
@@ -543,6 +565,7 @@ class AudioCaptureService {
         deliverSamples(from: outBuf)
     }
 
+    private var rawCallbackCount = 0
     private var tapCallbackCount = 0
 
     private func deliverSamples(from buffer: AVAudioPCMBuffer) {

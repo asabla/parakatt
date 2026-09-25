@@ -53,6 +53,16 @@ A later check of plain `make` found two gaps in the earlier validation: PATH sel
 
 Make now prefers `target/tools/bin` and uses `target/xcode` by default. The build-products helper, run targets, and CI tests use the same directory. The setup instructions install the pinned generator locally. Plain `make` and `make release` both passed after this change, without a command-line PATH override. Release product discovery resolved the correct app. Global Xcode caches and global tool installations were left unchanged.
 
+## Microphone and model-startup follow-up
+
+A user test selected System Default and received silent input while final model loading was still in progress. A later read-only check reported microphone access as authorized for both the Xcode-built and stable launchers. The current default input was a Bluetooth headset; the built-in microphone was available separately. These observations do not prove which device produced the earlier silent samples.
+
+Capture now checks microphone authorization explicitly. An undecided permission requests access and requires another recording action after approval; denied or restricted access fails before engine startup. Raw input peaks and requested/default device UIDs are logged separately from resampled peaks. Explicit device selection no longer silently falls back after a selection error, and a warm engine is not reused when its input differs from the requested input.
+
+Push-to-talk audio stays buffered until the final model is ready. Stopping during model loading also defers processing, with recording generation checks to reject stale completion work. Buffered preview waits for the final model too. `make run` and `make run-detached` prepare and verify the stable launcher before launch.
+
+Plain `make`, stable-launcher startup, and 32 Swift tests (one opt-in test skipped, zero failures) passed. Tests cover permission states, warm-device selection, and retained processing work across model startup. No live microphone audio was captured during these checks. Retest with **Input Device > MacBook Pro Microphone** selected explicitly.
+
 ## UI measurements and limits
 
 Views observe their relevant coordinators. History searches run off the main actor, debounce for 250 ms, and discard stale results. Detail segments load on selection and are cached. Timeline rows are lazy. Meter updates are limited to 20 Hz, and automatic scrolling stops when the user leaves the bottom.
