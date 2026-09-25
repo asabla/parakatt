@@ -29,9 +29,11 @@ impl ParakeetProvider {
             )));
         }
 
-        let model = ParakeetTDT::from_pretrained(model_dir, None).map_err(|e| {
-            CoreError::ModelLoadFailed(format!("Failed to load Parakeet TDT model: {e}"))
-        })?;
+        let model = ParakeetTDT::from_pretrained(model_dir, None)
+            .map(|m| m.with_legacy_frontend())
+            .map_err(|e| {
+                CoreError::ModelLoadFailed(format!("Failed to load Parakeet TDT model: {e}"))
+            })?;
 
         log::info!("Loaded Parakeet TDT model: {}", model_id);
 

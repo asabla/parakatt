@@ -1,8 +1,12 @@
 [workspace]
 members = ["crates/parakatt-core"]
+exclude = ["vendor/parakeet-rs"]
 resolver = "2"
 
 [profile.release]
 lto = "thin"
 codegen-units = 1
 strip = "symbols"
+
+[patch.crates-io]
+parakeet-rs = { path = "vendor/parakeet-rs" }

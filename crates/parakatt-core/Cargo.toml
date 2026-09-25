@@ -10,31 +10,37 @@ name = "parakatt_core"
 
 [dependencies]
 # FFI
-uniffi = { version = "0.30", features = ["cli"] }
+uniffi = { version = "=0.31.1", features = ["cli"] }
 
 # Async runtime
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util"] }
 
 # Speech-to-text (NVIDIA Parakeet via ONNX Runtime).
 # Pinned to an exact patch version: the Parakeet feature dimensions
 # (mel filterbank size, encoder hidden width, etc.) were verified
-# against 0.3.4 during the STT overhaul. A silent minor/patch bump
+# against the pinned release during the STT overhaul. A silent minor/patch bump
 # could shift them and regress accuracy without any compile-time signal.
-parakeet-rs = { version = "=0.3.4", features = ["cpu"] }
+parakeet-rs = { version = "=0.3.8", features = ["cpu"] }
+ort = { version = "=2.0.0-rc.13", default-features = false }
 
 # HTTP client (for remote APIs, Ollama, LM Studio)
-reqwest = { version = "0.12", features = ["json", "blocking"] }
+reqwest = { version = "0.13.5", features = ["json", "blocking", "stream", "query"] }
+
+# Integrity and streaming
+sha2 = "0.10"
+futures-util = "0.3"
+tokio-util = "0.7"
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-toml = "0.8"
+toml = "1.1.6"
 
 # Text processing
 regex = "1"
 
 # Storage
-rusqlite = { version = "0.34", features = ["bundled"] }
+rusqlite = { version = "0.40.2", features = ["bundled", "backup"] }
 uuid = { version = "1", features = ["v4"] }
 chrono = "0.4"
 
@@ -46,11 +52,11 @@ log = "0.4"
 env_logger = "0.11"
 
 # Filesystem
-dirs = "6"
+dirs = "7"
 
 [dev-dependencies]
 hound = "3.5"
-dirs = "6"
+dirs = "7"
 tempfile = "3"
 
 [[example]]
@@ -70,4 +76,7 @@ name = "test_llm_direct"
 path = "examples/test_llm_direct.rs"
 
 [build-dependencies]
-uniffi = { version = "0.30", features = ["build"] }
+uniffi = { version = "=0.31.1", features = ["build"] }
+
+[features]
+webgpu = ["parakeet-rs/webgpu"]

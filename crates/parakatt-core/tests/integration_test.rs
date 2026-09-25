@@ -16,7 +16,7 @@ fn config_dir() -> PathBuf {
 }
 
 fn has_parakeet_model() -> bool {
-    let dir = models_dir().join("parakeet-tdt-0.6b-v3");
+    let dir = parakatt_core::models::model_path(&models_dir(), "parakeet-tdt-0.6b-v3");
     [
         "vocab.txt",
         "encoder-model.onnx",
@@ -106,18 +106,46 @@ fn test_parakeet_transcription() {
 
     assert!(engine.is_model_loaded());
 
-    // 3 seconds of 440Hz tone
-    let samples: Vec<f32> = (0..48000)
-        .map(|i| (2.0 * std::f32::consts::PI * 440.0 * i as f32 / 16000.0).sin() * 0.5)
-        .collect();
-
-    let result = engine
-        .transcribe(samples, 16000, "dictation".into(), None)
-        .expect("Transcription should succeed");
-
-    println!(
-        "Transcription: '{}' ({:.2}s)",
-        result.text, result.duration_secs
-    );
-    assert_eq!(result.provider_name, "parakeet-tdt-0.6b-v3");
+    let fixture_path = std::env::var_os("PARAKATT_FIXTURES")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| {
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../target/fixtures/fleurs/manifest.json")
+        });
+    let fixtures: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(&fixture_path)
+            .expect("Pinned FLEURS fixtures are required; run scripts/prepare-fixtures.py"),
+    )
+    .unwrap();
+    for language in ["en_us", "sv_se"] {
+        let sample = fixtures["samples"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["language"] == language)
+            .expect("Required language fixture");
+        let mut wav = hound::WavReader::open(sample["path"].as_str().unwrap())
+            .expect("Required audio fixture");
+        assert_eq!(wav.spec().sample_rate, 16000);
+        let spec = wav.spec();
+        assert_eq!(spec.channels, 1);
+        let samples = match spec.sample_format {
+            hound::SampleFormat::Float => {
+                wav.samples::<f32>().collect::<Result<Vec<_>, _>>().unwrap()
+            }
+            hound::SampleFormat::Int => wav
+                .samples::<i32>()
+                .map(|s| s.map(|v| v as f32 / 2_f32.powi(spec.bits_per_sample as i32 - 1)))
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap(),
+        };
+        let result = engine
+            .transcribe(samples, 16000, "dictation".into(), None)
+            .expect("Real speech transcription");
+        assert!(
+            !result.text.is_empty(),
+            "No recognized speech for {language}"
+        );
+        assert_eq!(result.provider_name, "parakeet-tdt-0.6b-v3");
+    }
 }
