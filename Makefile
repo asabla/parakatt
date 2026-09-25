@@ -11,32 +11,18 @@ all: rust swift-package xcode build
 
 # Build the Rust core library
 rust:
-	cargo build --release -p parakatt-core
+	cargo build --locked --release -p parakatt-core
 
 # Run Rust tests
 test:
-	cargo test
+	cargo test --locked
 
-# Generate the UniFFI Swift Package from the Rust crate (arm64 only for Apple Silicon).
-# Skips regeneration if Rust sources haven't changed since last build.
-swift-package:
-	@if [ -d ParakattCore ] && [ -f .swift-package-stamp ] && \
-		[ -z "$$(find crates/parakatt-core/src -newer .swift-package-stamp -name '*.rs' 2>/dev/null)" ] && \
-		[ crates/parakatt-core/Cargo.toml -ot .swift-package-stamp ]; then \
-		echo "ParakattCore is up to date (no Rust changes since last build)"; \
-	else \
-		rm -rf ParakattCore .swift-package-stamp; \
-		(cd crates/parakatt-core && echo "y" | cargo swift package --platforms macos --name ParakattCore --target aarch64-apple-darwin) && \
-		mv crates/parakatt-core/ParakattCore . && \
-		touch .swift-package-stamp; \
-	fi
+# Build Rust before fingerprinting and generating the matching Swift bindings.
+swift-package: rust
+	python3 scripts/swift-package.py
 
-# Force regenerate Swift bindings (bypasses incremental check)
-swift-package-force:
-	rm -rf ParakattCore .swift-package-stamp
-	(cd crates/parakatt-core && echo "y" | cargo swift package --platforms macos --name ParakattCore --target aarch64-apple-darwin)
-	mv crates/parakatt-core/ParakattCore .
-	touch .swift-package-stamp
+swift-package-force: rust
+	python3 scripts/swift-package.py --force
 
 # Generate the Xcode project from project.yml
 xcode:
@@ -73,7 +59,7 @@ launcher:
 # Package the Release .app, swapping in the stable launcher for distribution.
 # For dev builds, the Xcode-compiled launcher is fine (TCC resets only matter
 # for distributed releases).
-package: release
+package: verify-launcher release
 	@if [ ! -f "$(LAUNCHER_BIN)" ]; then \
 		echo "Error: pre-built launcher not found at $(LAUNCHER_BIN)"; \
 		echo "Run 'make launcher' first to build the stable launcher binary."; \
@@ -81,12 +67,7 @@ package: release
 	fi
 	@echo "Swapping in stable launcher binary..."
 	cp "$(LAUNCHER_BIN)" "$(RELEASE_BUILD_DIR)/$(APP_NAME).app/Contents/MacOS/$(APP_NAME)"
-	codesign --force --sign - \
-		--entitlements Parakatt/Parakatt.entitlements \
-		--options runtime \
-		"$(RELEASE_BUILD_DIR)/$(APP_NAME).app/Contents/MacOS/$(APP_NAME)"
-	@echo "Stable launcher CDHash:"
-	@codesign -dvvv "$(RELEASE_BUILD_DIR)/$(APP_NAME).app/Contents/MacOS/$(APP_NAME)" 2>&1 | grep CDHash
+	python3 scripts/verify-launcher.py "$(RELEASE_BUILD_DIR)/$(APP_NAME).app/Contents/MacOS/$(APP_NAME)"
 	@mkdir -p dist
 	ditto -c -k --keepParent "$(RELEASE_BUILD_DIR)/$(APP_NAME).app" "dist/$(ZIP_NAME)"
 	@echo "Created dist/$(ZIP_NAME)"
@@ -129,7 +110,7 @@ download-model:
 
 # Run the Parakeet integration test (requires model)
 test-integration:
-	cargo build --example test_parakeet -p parakatt-core
+	cargo build --locked --example test_parakeet -p parakatt-core
 	./target/debug/examples/test_parakeet
 
 # Clean all build artifacts
@@ -140,3 +121,9 @@ clean:
 
 # Quick rebuild after Rust changes only
 rebuild: rust swift-package xcode build
+
+verify-launcher:
+	python3 scripts/verify-launcher.py
+
+benchmark:
+	python3 scripts/benchmark.py $(ARGS)
