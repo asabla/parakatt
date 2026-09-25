@@ -37,12 +37,26 @@ struct TranscriptionDetailView: View {
         VStack(alignment: .leading, spacing: 0) {
             headerSection
             Divider()
-            Picker("Text", selection: $showRecognized) {
-                Text("Processed text").tag(false)
-                Text("Recognized timeline").tag(true)
-            }.pickerStyle(.segmented).padding(.horizontal).padding(.top, 8)
-            if processingStatus == "degraded" { Text("Some sections use recognized text because processing did not complete.").font(.caption).foregroundStyle(.secondary).padding(.horizontal) }
+            VStack(alignment: .leading, spacing: 10) {
+                Picker("Transcript view", selection: $showRecognized) {
+                    Text("Processed text").tag(false)
+                    Text("Recognized timeline").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(maxWidth: 380, alignment: .leading)
+                if processingStatus == "degraded" {
+                    Label("Some sections use recognized text because processing did not complete.", systemImage: "info.circle")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
             textSection
+                .background(Color(nsColor: .textBackgroundColor))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .alert("Delete Transcription?", isPresented: $showDeleteConfirm) {
@@ -61,7 +75,7 @@ struct TranscriptionDetailView: View {
             titleView
 
             // Metadata chips
-            HStack(spacing: 16) {
+            MetadataFlowLayout(spacing: 12) {
                 MetadataChip(
                     icon: item.source == "meeting" ? "person.2.fill" : "mic.fill",
                     text: item.source == "meeting" ? "Meeting" : "Voice Note",
@@ -124,39 +138,51 @@ struct TranscriptionDetailView: View {
                 .tint(.red)
             }
             .buttonStyle(.bordered)
-            .controlSize(.small)
+            .controlSize(.regular)
         }
-        .padding(16)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.4))
+        .padding(20)
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     // MARK: - Title
 
     @ViewBuilder
     private var titleView: some View {
-        if editingTitle {
-            TextField("Title", text: $titleText)
-                .font(.title2.weight(.semibold))
-                .textFieldStyle(.plain)
-                .focused($titleFieldFocused)
-                .onSubmit { commitTitle() }
-                .onExitCommand { cancelTitleEdit() }
-                .onAppear { titleFieldFocused = true }
-        } else {
-            Text(item.title ?? "Untitled")
-                .font(.title2.weight(.semibold))
-                .lineLimit(2)
-                .onTapGesture(count: 2) { beginTitleEdit() }
-                .overlay(alignment: .trailing) {
-                    Button { beginTitleEdit() } label: {
-                        Image(systemName: "pencil.line")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.tertiary)
-                    }
-                    .buttonStyle(.plain)
-                    .offset(x: 24)
+        HStack(alignment: .top, spacing: 8) {
+            if editingTitle {
+                TextField("Title", text: $titleText, axis: .vertical)
+                    .font(.title2.weight(.semibold))
+                    .textFieldStyle(.plain)
+                    .lineLimit(1...2)
+                    .focused($titleFieldFocused)
+                    .onSubmit { commitTitle() }
+                    .onExitCommand { cancelTitleEdit() }
+                    .onAppear { titleFieldFocused = true }
+                Button(action: commitTitle) {
+                    Image(systemName: "checkmark")
                 }
+                .help("Save title")
+                .accessibilityLabel("Save title")
+                Button(action: cancelTitleEdit) {
+                    Image(systemName: "xmark")
+                }
+                .help("Cancel title edit")
+                .accessibilityLabel("Cancel title edit")
+            } else {
+                Text(item.title ?? "Untitled")
+                    .font(.title2.weight(.semibold))
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .onTapGesture(count: 2) { beginTitleEdit() }
+                Button(action: beginTitleEdit) {
+                    Image(systemName: "pencil")
+                }
+                .help("Edit title")
+                .accessibilityLabel("Edit title")
+            }
         }
+        .buttonStyle(.borderless)
     }
 
     private func beginTitleEdit() {
@@ -186,6 +212,7 @@ struct TranscriptionDetailView: View {
                     .font(.system(.body, design: .default))
                     .lineSpacing(4)
                     .textSelection(.enabled)
+                    .frame(maxWidth: 760, alignment: .leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(20)
             } else {
@@ -195,12 +222,6 @@ struct TranscriptionDetailView: View {
         }
     }
 
-    /// True if any segment has a speaker label — used to decide whether
-    /// to render the extra speaker column. Old transcriptions and
-    /// push-to-talk recordings have no speaker data and keep the
-    /// cleaner two-column layout.
-    /// Deterministic hue for a speaker label. Same name → same color
-    /// every time the view renders.
     private func speakerColor(_ name: String) -> Color {
         let hue = speakerHues[name] ?? 0
         return Color(hue: hue, saturation: 0.55, brightness: 0.85)
@@ -255,8 +276,11 @@ struct TranscriptionDetailView: View {
         Text(label)
             .font(.system(.caption, weight: .medium))
             .foregroundStyle(color)
-            .lineLimit(1)
+            .lineLimit(2)
+            .multilineTextAlignment(.trailing)
             .frame(width: 76, alignment: .trailing)
+            .fixedSize(horizontal: false, vertical: true)
+            .help(label)
             .padding(.top, 1)
     }
 
@@ -361,5 +385,44 @@ private struct MetadataChip: View {
                 .font(.caption2)
         }
         .foregroundStyle(color)
+    }
+}
+
+/// Wrap whole metadata labels instead of compressing them into clipped columns.
+private struct MetadataFlowLayout: Layout {
+    let spacing: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        arrange(subviews, width: proposal.width ?? .infinity).size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let layout = arrange(subviews, width: bounds.width)
+        for (index, subview) in subviews.enumerated() {
+            let frame = layout.frames[index]
+            subview.place(at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY),
+                          proposal: ProposedViewSize(frame.size))
+        }
+    }
+
+    private func arrange(_ subviews: Subviews, width: CGFloat) -> (size: CGSize, frames: [CGRect]) {
+        var frames: [CGRect] = []
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var rowHeight: CGFloat = 0
+        var usedWidth: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(ProposedViewSize(width: width, height: nil))
+            if x > 0 && x + size.width > width {
+                x = 0
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            frames.append(CGRect(origin: CGPoint(x: x, y: y), size: size))
+            usedWidth = max(usedWidth, x + size.width)
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
+        return (CGSize(width: usedWidth, height: y + rowHeight), frames)
     }
 }
