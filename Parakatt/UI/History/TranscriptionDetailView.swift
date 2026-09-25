@@ -7,19 +7,41 @@ import UniformTypeIdentifiers
 struct TranscriptionDetailView: View {
     let item: StoredTranscription
     let segments: [TimestampedSegment]
+    let recognizedText: String?
+    let processingStatus: String?
+    let hasSpeakerLabels: Bool
+    let speakerHues: [String: Double]
     let onTitleChanged: (String) -> Void
     let onDelete: () -> Void
 
+    @State private var showRecognized = false
     @State private var editingTitle = false
     @State private var titleText = ""
     @State private var showDeleteConfirm = false
     @State private var copied = false
     @FocusState private var titleFieldFocused: Bool
 
+    init(item: StoredTranscription, segments: [TimestampedSegment], recognizedText: String?, processingStatus: String?, hasSpeakerLabels: Bool, onTitleChanged: @escaping (String) -> Void, onDelete: @escaping () -> Void, initiallyShowRecognized: Bool = false, speakerHues: [String: Double]? = nil) {
+        self.item = item
+        self.segments = segments
+        self.recognizedText = recognizedText
+        self.processingStatus = processingStatus
+        self.hasSpeakerLabels = hasSpeakerLabels
+        self.speakerHues = speakerHues ?? HistoryDetailData(segments: segments).speakerHues
+        self.onTitleChanged = onTitleChanged
+        self.onDelete = onDelete
+        _showRecognized = State(initialValue: initiallyShowRecognized)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             headerSection
             Divider()
+            Picker("Text", selection: $showRecognized) {
+                Text("Processed text").tag(false)
+                Text("Recognized timeline").tag(true)
+            }.pickerStyle(.segmented).padding(.horizontal).padding(.top, 8)
+            if processingStatus == "degraded" { Text("Some sections use recognized text because processing did not complete.").font(.caption).foregroundStyle(.secondary).padding(.horizontal) }
             textSection
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -158,9 +180,9 @@ struct TranscriptionDetailView: View {
 
     private var textSection: some View {
         ScrollView {
-            if segments.isEmpty {
+            if !showRecognized || segments.isEmpty {
                 // Flat text for transcriptions without timestamp data.
-                Text(item.text)
+                Text(showRecognized ? (recognizedText ?? item.text) : item.text)
                     .font(.system(.body, design: .default))
                     .lineSpacing(4)
                     .textSelection(.enabled)
@@ -177,23 +199,17 @@ struct TranscriptionDetailView: View {
     /// to render the extra speaker column. Old transcriptions and
     /// push-to-talk recordings have no speaker data and keep the
     /// cleaner two-column layout.
-    private var hasSpeakerLabels: Bool {
-        segments.contains { $0.speaker != nil }
-    }
-
     /// Deterministic hue for a speaker label. Same name → same color
     /// every time the view renders.
     private func speakerColor(_ name: String) -> Color {
-        var hasher = Hasher()
-        hasher.combine(name)
-        let hash = UInt64(bitPattern: Int64(hasher.finalize()))
-        let hue = Double(hash % 360) / 360.0
+        let hue = speakerHues[name] ?? 0
         return Color(hue: hue, saturation: 0.55, brightness: 0.85)
     }
 
     private var timelineView: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(segments.enumerated()), id: \.offset) { index, segment in
+        LazyVStack(alignment: .leading, spacing: 0) {
+            ForEach(segments.indices, id: \.self) { index in
+                let segment = segments[index]
                 HStack(alignment: .top, spacing: 12) {
                     if hasSpeakerLabels {
                         speakerBadge(segment.speaker)
@@ -259,15 +275,7 @@ struct TranscriptionDetailView: View {
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
 
-            let bodyText: String
-            if segments.isEmpty {
-                bodyText = item.text
-            } else {
-                bodyText = segments.map { seg in
-                    let speaker = seg.speaker.map { "**\($0):** " } ?? ""
-                    return "[\(formatTimestamp(seg.startSecs))] \(speaker)\(seg.text)"
-                }.joined(separator: "\n\n")
-            }
+            let bodyText = TranscriptExport.markdownBody(text: item.text, recognizedText: recognizedText, segments: segments)
 
             let md = """
             # \(item.title ?? "Untitled")
@@ -293,29 +301,7 @@ struct TranscriptionDetailView: View {
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
 
-            var dict: [String: Any] = [
-                "id": item.id,
-                "title": item.title ?? "",
-                "created_at": item.createdAt,
-                "duration_secs": item.durationSecs,
-                "source": item.source,
-                "mode": item.mode,
-                "text": item.text,
-            ]
-
-            if !segments.isEmpty {
-                dict["segments"] = segments.map { seg -> [String: Any] in
-                    var s: [String: Any] = [
-                        "text": seg.text,
-                        "start_secs": seg.startSecs,
-                        "end_secs": seg.endSecs,
-                    ]
-                    if let speaker = seg.speaker {
-                        s["speaker"] = speaker
-                    }
-                    return s
-                }
-            }
+            let dict = TranscriptExport.jsonObject(item: item, recognizedText: recognizedText, status: processingStatus, segments: segments)
 
             if let data = try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted, .sortedKeys]) {
                 try? data.write(to: url)

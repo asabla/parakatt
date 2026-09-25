@@ -8,10 +8,25 @@ import ParakattCore
 struct LiveMeetingView: View {
     @EnvironmentObject var appState: AppState
 
+    var body: some View { LiveMeetingContent(appState: appState, meeting: appState.meeting) }
+}
+
+@available(macOS 14.2, *)
+private struct LiveMeetingContent: View {
+    let appState: AppState
+    @ObservedObject var meeting: MeetingCoordinator
+    @State private var showTimeline = false
+    @State private var followsBottom = true
+    @State private var viewportHeight: CGFloat = 0
+    @State private var contentHeight: CGFloat = 0
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             headerSection
             Divider()
+            Picker("Text", selection: $showTimeline) {
+                Text("Processed text").tag(false)
+                Text("Recognized timeline").tag(true)
+            }.pickerStyle(.segmented).padding(.horizontal).padding(.top, 8)
             timelineSection
             Divider()
             footerSection
@@ -25,11 +40,11 @@ struct LiveMeetingView: View {
         HStack(spacing: 12) {
             // Recording dot — reuses the pulsing style from RecordingOverlay.
             Circle()
-                .fill(appState.isMeetingPaused ? .orange : .red)
+                .fill(meeting.isMeetingPaused ? .orange : .red)
                 .frame(width: 10, height: 10)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(appState.isMeetingPaused ? "Paused" : "Recording")
+                Text(meeting.isMeetingPaused ? "Paused" : "Recording")
                     .font(.system(.title3, weight: .semibold))
                 Text("\(elapsedText) · \(appState.activeMode) mode")
                     .font(.caption)
@@ -45,7 +60,7 @@ struct LiveMeetingView: View {
     }
 
     private var elapsedText: String {
-        let total = Int(appState.meetingElapsedTime)
+        let total = Int(meeting.meetingElapsedTime)
         let hours = total / 3600
         let minutes = (total % 3600) / 60
         let seconds = total % 60
@@ -57,7 +72,7 @@ struct LiveMeetingView: View {
 
     @ViewBuilder
     private var audioStatusBadge: some View {
-        let (label, color, icon) = audioStatusChip(appState.meetingAudioStatus)
+        let (label, color, icon) = audioStatusChip(meeting.meetingAudioStatus)
         HStack(spacing: 6) {
             Image(systemName: icon)
                 .font(.caption)
@@ -93,25 +108,46 @@ struct LiveMeetingView: View {
 
     private var timelineSection: some View {
         Group {
-            if appState.meetingSegments.isEmpty {
+            if meeting.meetingSegments.isEmpty && (meeting.meetingTranscription ?? "").isEmpty {
                 emptyStateView
             } else {
                 VStack(spacing: 0) {
                     ScrollViewReader { proxy in
                         ScrollView {
                             LazyVStack(alignment: .leading, spacing: 8) {
-                                ForEach(Array(appState.meetingSegments.enumerated()), id: \.offset) { idx, segment in
-                                    segmentRow(segment, isLatest: isLatestChunk(segment))
-                                        .id(idx)
+                                if showTimeline {
+                                    ForEach(meeting.meetingSegments.indices, id: \.self) { index in
+                                        segmentRow(meeting.meetingSegments[index], isLatest: isLatestChunk(meeting.meetingSegments[index]))
+                                            .id(index)
+                                    }
+                                } else {
+                                    Text(meeting.meetingTranscription ?? "")
+                                        .textSelection(.enabled)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
                                 }
+                                Color.clear.frame(height: 1).id("transcript-end")
                             }
+                            .background(GeometryReader { geometry in Color.clear.preference(key: TranscriptBottomKey.self, value: TranscriptScrollPosition(height: geometry.size.height, bottom: geometry.frame(in: .named("transcriptScroll")).maxY)) })
                             .padding(.horizontal, 16)
                             .padding(.vertical, 12)
                         }
-                        .onChange(of: appState.meetingSegments.count) { _, newCount in
-                            if newCount > 0 {
+                        .coordinateSpace(name: "transcriptScroll")
+                        .background(GeometryReader { viewport in
+                            Color.clear.onAppear { viewportHeight = viewport.size.height }
+                                .onChange(of: viewport.size.height) { _, height in viewportHeight = height }
+                        })
+                        .onPreferenceChange(TranscriptBottomKey.self) { position in
+                            // Content growth is not a user scroll. Keep the previous follow choice.
+                            if abs(position.height - contentHeight) < 0.5 { followsBottom = position.bottom <= viewportHeight + 40 }
+                            contentHeight = position.height
+                        }
+                        .onChange(of: meeting.meetingTranscription) { _, _ in
+                            if !showTimeline && followsBottom { proxy.scrollTo("transcript-end", anchor: .bottom) }
+                        }
+                        .onChange(of: meeting.meetingSegments.count) { _, newCount in
+                            if newCount > 0 && followsBottom {
                                 withAnimation(.easeOut(duration: 0.2)) {
-                                    proxy.scrollTo(newCount - 1, anchor: .bottom)
+                                    proxy.scrollTo("transcript-end", anchor: .bottom)
                                 }
                             }
                         }
@@ -128,7 +164,7 @@ struct LiveMeetingView: View {
     /// UI never sits idle — mic level bars + a progress bar ticking toward
     /// the next batch arrival.
     private var nextChunkIndicator: some View {
-        let elapsed = appState.meetingElapsedTime
+        let elapsed = meeting.meetingElapsedTime
         let first = appState.meetingFirstChunkSecs
         let interval = appState.meetingChunkIntervalSecs
         let sinceLast: Double
@@ -142,7 +178,7 @@ struct LiveMeetingView: View {
         let remaining = max(0, Int(target - sinceLast))
 
         return HStack(spacing: 10) {
-            MeetingAudioLevelBars(level: appState.meetingMicLevel, tint: .accentColor)
+            MeetingAudioLevelBars(level: meeting.meetingMicLevel, tint: .accentColor)
             ProgressView(value: fraction)
                 .progressViewStyle(.linear)
                 .frame(maxWidth: .infinity)
@@ -157,7 +193,7 @@ struct LiveMeetingView: View {
     }
 
     private func isLatestChunk(_ segment: TimestampedSegment) -> Bool {
-        guard let latestStart = appState.meetingLatestChunkStartSecs else { return false }
+        guard let latestStart = meeting.meetingLatestChunkStartSecs else { return false }
         return segment.startSecs >= latestStart
     }
 
@@ -211,7 +247,7 @@ struct LiveMeetingView: View {
 
             // Live mic level so the user has immediate feedback that audio
             // is being captured even before the first chunk transcribes.
-            MeetingAudioLevelBars(level: appState.meetingMicLevel, tint: .accentColor)
+            MeetingAudioLevelBars(level: meeting.meetingMicLevel, tint: .accentColor)
 
             // Progress bar ticking toward the first chunk dispatch.
             firstChunkProgressBar
@@ -222,7 +258,7 @@ struct LiveMeetingView: View {
 
     private var firstChunkProgressBar: some View {
         let target = appState.meetingFirstChunkSecs
-        let elapsed = min(appState.meetingElapsedTime, target)
+        let elapsed = min(meeting.meetingElapsedTime, target)
         let fraction = target > 0 ? elapsed / target : 0
         let remaining = max(0, Int(target - elapsed))
 
@@ -246,7 +282,7 @@ struct LiveMeetingView: View {
 
     private var footerSection: some View {
         HStack(spacing: 10) {
-            if appState.isMeetingPaused {
+            if meeting.isMeetingPaused {
                 Button {
                     appState.resumeMeeting()
                 } label: {
@@ -316,4 +352,13 @@ private struct MeetingAudioLevelBars: View {
             value: level
         )
     }
+}
+
+private struct TranscriptScrollPosition: Equatable {
+    var height: CGFloat = 0
+    var bottom: CGFloat = 0
+}
+private struct TranscriptBottomKey: PreferenceKey {
+    static var defaultValue = TranscriptScrollPosition()
+    static func reduce(value: inout TranscriptScrollPosition, nextValue: () -> TranscriptScrollPosition) { value = nextValue() }
 }

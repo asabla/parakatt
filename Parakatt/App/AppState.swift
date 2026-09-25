@@ -95,22 +95,43 @@ class AppState: ObservableObject {
     @Published var isDownloading = false
     @Published var downloadProgress: ParakattCore.DownloadProgress?
 
-    // Meeting state
-    @Published var isMeetingActive = false
-    @Published var isMeetingPaused = false
-    @Published var meetingElapsedTime: TimeInterval = 0
-    @Published var meetingTranscription: String?
-    @Published var meetingLatestChunk: String?
-    @Published var meetingSegments: [TimestampedSegment] = []
-    /// Absolute-timestamp index (seconds) where the latest chunk's segments
-    /// begin. Lets the live view highlight "what just arrived" without
-    /// needing a separate copy of the latest chunk's segments.
-    @Published var meetingLatestChunkStartSecs: Double?
-    @Published var meetingAudioStatus: MeetingAudioStatus = .unknown
-    /// Live peak amplitude of the mic capture during a meeting, 0…1.
-    /// Driven from MeetingSessionService.onMicLevel. Smoothed client-side
-    /// to avoid visual jitter on short silences.
-    @Published var meetingMicLevel: Float = 0
+    // Meeting state belongs to the meeting coordinator.
+    var isMeetingActive: Bool {
+        get { meeting.isMeetingActive }
+        set { meeting.isMeetingActive = newValue }
+    }
+    var isMeetingPaused: Bool {
+        get { meeting.isMeetingPaused }
+        set { meeting.isMeetingPaused = newValue }
+    }
+    var meetingElapsedTime: TimeInterval {
+        get { meeting.meetingElapsedTime }
+        set { meeting.meetingElapsedTime = newValue }
+    }
+    var meetingTranscription: String? {
+        get { meeting.meetingTranscription }
+        set { meeting.meetingTranscription = newValue }
+    }
+    var meetingLatestChunk: String? {
+        get { meeting.meetingLatestChunk }
+        set { meeting.meetingLatestChunk = newValue }
+    }
+    var meetingSegments: [TimestampedSegment] {
+        get { meeting.meetingSegments }
+        set { meeting.meetingSegments = newValue }
+    }
+    var meetingLatestChunkStartSecs: Double? {
+        get { meeting.meetingLatestChunkStartSecs }
+        set { meeting.meetingLatestChunkStartSecs = newValue }
+    }
+    var meetingAudioStatus: MeetingAudioStatus {
+        get { meeting.meetingAudioStatus }
+        set { meeting.meetingAudioStatus = newValue }
+    }
+    var meetingMicLevel: Float {
+        get { meeting.meetingMicLevel }
+        set { meeting.meetingMicLevel = newValue }
+    }
     /// Seconds of audio required before the first chunk transcribes.
     /// Surfaced to the UI so it can draw a "until first batch" progress bar.
     var meetingFirstChunkSecs: Double { 30.0 }
@@ -216,6 +237,7 @@ class AppState: ObservableObject {
 
     // MARK: - Engine bridge
 
+    @Published var historyRevision: UInt64 = 0
     private var bridge: CoreBridge?
     private var engineReady = false
 
@@ -231,7 +253,8 @@ class AppState: ObservableObject {
 
     // MARK: - Lifecycle
 
-    init() {
+    init(bridge: CoreBridge? = nil) {
+        self.bridge = bridge
         // Forward each coordinator's objectWillChange into AppState's
         // own so SwiftUI surfaces that observe `appState` (rather than
         // a specific coordinator) keep updating when coordinator state
@@ -240,8 +263,6 @@ class AppState: ObservableObject {
         for inner in [
             settings.objectWillChange,
             context.objectWillChange,
-            recording.objectWillChange,
-            meeting.objectWillChange,
             model.objectWillChange,
         ] {
             inner
@@ -1293,11 +1314,13 @@ class AppState: ObservableObject {
 
     func updateTranscriptionTitle(id: String, title: String) {
         try? bridge?.updateTranscriptionTitle(id: id, title: title)
+        historyRevision &+= 1
     }
 
     func deleteTranscription(id: String) {
         do {
             try bridge?.deleteTranscription(id: id)
+            historyRevision &+= 1
             NSLog("[Parakatt] Deleted transcription: %@", id)
         } catch {
             NSLog("[Parakatt] Failed to delete transcription %@: %@", id, error.localizedDescription)
@@ -1307,6 +1330,7 @@ class AppState: ObservableObject {
     func deleteTranscriptions(ids: [String]) -> Int {
         do {
             let count = try bridge?.deleteTranscriptions(ids: ids) ?? 0
+            historyRevision &+= 1
             NSLog("[Parakatt] Bulk deleted %d transcriptions", count)
             return Int(count)
         } catch {
@@ -1356,6 +1380,24 @@ class AppState: ObservableObject {
 
     @Published var modelInventoryRevision: UInt64 = 0
     private var modelQueryGeneration = UUID()
+
+    func queryHistory(search: String?, source: String?, completion: @escaping ([StoredTranscription]) -> Void) {
+        guard let bridge else { completion([]); return }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let query = TranscriptionQuery(searchText: search, sourceFilter: source, limit: 500, offset: 0)
+            let rows = (try? bridge.listTranscriptions(query: query)) ?? []
+            DispatchQueue.main.async { completion(rows) }
+        }
+    }
+
+    func queryDetail(id: String, completion: @escaping (HistoryDetailData) -> Void) {
+        guard let bridge else { completion(HistoryDetailData()); return }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let rows = (try? bridge.getTranscriptionSegments(id: id)) ?? []
+            let detail = HistoryDetailData(segments: rows)
+            DispatchQueue.main.async { completion(detail) }
+        }
+    }
 
     func queryModels(completion: @escaping ([ParakattCore.ModelInfo]) -> Void) {
         guard let bridge else { completion([]); return }
@@ -1874,6 +1916,7 @@ class AppState: ObservableObject {
     /// feeding the streaming preview model to save CPU/battery. The
     /// silence→speech transition trigger in appendAudioSamples will
     /// resume it on the next sound.
+    private var lastMeterUpdate: CFAbsoluteTime = 0
     private let livePreviewSleepCallbacks: Int = 100
 
     /// Threshold for warning about long push-to-talk recordings (5 minutes).
@@ -1937,10 +1980,14 @@ class AppState: ObservableObject {
         // Detect clipping: any sample at +/-1.0 means the signal is saturated
         let maxAmp = samples.lazy.map { abs($0) }.max() ?? 0
         let clipping = maxAmp >= 0.99
+        let meterNow = CFAbsoluteTimeGetCurrent()
+        if meterNow - lastMeterUpdate >= 0.05 {
+            lastMeterUpdate = meterNow
         DispatchQueue.main.async {
             self.currentAudioLevel = smoothed
             self.silenceDetected = self.silentCallbackCount >= self.silenceCallbackThreshold
             if clipping { self.audioClippingDetected = true }
+        }
         }
 
         sampleCount += 1
@@ -1974,6 +2021,7 @@ class AppState: ObservableObject {
     // MARK: - Directories
 
     private func appSupportDirectory() -> URL {
+        if let path = ProcessInfo.processInfo.environment["PARAKATT_DATA_ROOT"] { return URL(fileURLWithPath: path, isDirectory: true) }
         // Falls back to ~/Library/Application Support if the platform
         // ever decides to return an empty array (which it doesn't on
         // any sane macOS install, but `.first!` was a real crash path).

@@ -223,7 +223,7 @@ struct ModelsSettingsView: View {
                     .background(.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
                 }
 
-                SpeechPreferencesView(appState: appState, models: models, recording: appState.recording)
+                SpeechPreferencesView(appState: appState, models: models, recording: appState.recording, meeting: appState.meeting)
 
                 ForEach(models, id: \.id) { model in
                     ModelRowView(model: model)
@@ -246,6 +246,7 @@ private struct SpeechPreferencesView: View {
     let appState: AppState
     let models: [ParakattCore.ModelInfo]
     @ObservedObject var recording: RecordingCoordinator
+    @ObservedObject var meeting: MeetingCoordinator
     @State private var settings: SpeechSettings?
     @State private var previewEnabled = true
     @State private var runtimeStatus: SpeechRuntimeStatus?
@@ -293,7 +294,7 @@ private struct SpeechPreferencesView: View {
                     Text("Automatic uses validated combinations. WebGPU uses CPU if validation or runtime support is missing. Download a preview model below before selecting it.")
                         .font(.caption).foregroundStyle(.secondary)
                     Button("Apply speech settings") { if let settings { appState.saveSpeechSettings(settings) } }
-                        .disabled(recording.isRecording || recording.isProcessing || appState.isMeetingActive)
+                        .disabled(recording.isRecording || recording.isProcessing || meeting.isMeetingActive)
                 }
             }.padding(8)
         }.onAppear { settings = appState.speechSettings(); previewEnabled = appState.previewEnabled(); refreshStatus() }
