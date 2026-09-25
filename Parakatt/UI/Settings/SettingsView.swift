@@ -223,6 +223,7 @@ struct ModelsSettingsView: View {
                     .background(.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
                 }
 
+
                 ForEach(models, id: \.id) { model in
                     ModelRowView(model: model)
                 }
@@ -230,12 +231,13 @@ struct ModelsSettingsView: View {
             .padding()
         }
         .onAppear { refreshModels() }
+        .onReceive(appState.$modelInventoryRevision) { _ in refreshModels() }
         .onReceive(appState.$isDownloading) { _ in refreshModels() }
         .onReceive(appState.$isModelLoaded) { _ in refreshModels() }
     }
 
     private func refreshModels() {
-        models = appState.listModels()
+        appState.queryModels { models = $0 }
     }
 }
 
@@ -273,6 +275,7 @@ struct ModelRowView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
+                    if case .repairRequired(let message) = model.installation { Text(message).font(.caption).foregroundStyle(.orange) }
                     Text(formatBytes(model.sizeBytes))
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
@@ -289,7 +292,7 @@ struct ModelRowView: View {
                         appState.deleteModel(model.id)
                     }
                 } else {
-                    Button("Download") {
+                    Button("Install or repair") {
                         appState.startModelDownload(model.id)
                     }
                     .disabled(appState.isDownloading)
