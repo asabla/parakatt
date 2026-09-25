@@ -15,6 +15,9 @@ use crate::{CoreError, TranscriptionResult};
 /// For *streaming / live-preview* backends see [`StreamingProvider`]
 /// in `streaming.rs`.
 pub trait SttProvider: Send + Sync {
+    fn backend(&self) -> crate::speech::SpeechBackend {
+        crate::speech::SpeechBackend::Cpu
+    }
     /// Transcribe audio samples (16kHz mono f32) into text.
     fn transcribe(&self, audio: &[f32], sample_rate: u32)
         -> Result<TranscriptionResult, CoreError>;
