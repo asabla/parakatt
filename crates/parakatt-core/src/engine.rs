@@ -27,6 +27,8 @@ use crate::{
 /// flickering hypotheses into committed + tentative text. This
 /// keeps the LA-2 state co-located with the streaming session so
 /// resetting one resets the other automatically.
+type ProcessingJob = (Arc<dyn LlmProvider>, LlmRequest);
+
 struct StreamingPreviewSession {
     inner: Box<dyn StreamingSession>,
     la2: LocalAgreement2,
@@ -72,7 +74,6 @@ pub struct Engine {
     model_generation: AtomicU64,
     offline_generation: AtomicU64,
     model_lifecycle: Mutex<()>,
-
     /// Active streaming sessions keyed by Swift-supplied session id.
     /// Each session owns its own per-recording cache state plus a
     /// LocalAgreement-2 commit policy.
@@ -88,6 +89,9 @@ pub struct Engine {
     download_progress: Arc<Mutex<DownloadProgress>>,
     download_cancel: Arc<AtomicBool>,
     sessions: Mutex<SessionManager>,
+    processing: Mutex<std::collections::HashMap<String, Arc<crate::processing::ProcessingSession>>>,
+    completed_events:
+        Mutex<std::collections::VecDeque<(String, Vec<crate::processing::TranscriptionEvent>)>>,
     storage: Mutex<Storage>,
 }
 
@@ -131,7 +135,6 @@ impl Engine {
             model_generation: AtomicU64::new(0),
             offline_generation: AtomicU64::new(0),
             model_lifecycle: Mutex::new(()),
-
             streaming_sessions: Mutex::new(std::collections::HashMap::new()),
             buffered_preview_la2: Mutex::new(std::collections::HashMap::new()),
             llm: Mutex::new(None),
@@ -139,6 +142,8 @@ impl Engine {
             download_progress: Arc::new(Mutex::new(DownloadProgress::idle())),
             download_cancel: Arc::new(AtomicBool::new(false)),
             sessions: Mutex::new(SessionManager::new()),
+            processing: Mutex::new(std::collections::HashMap::new()),
+            completed_events: Mutex::new(std::collections::VecDeque::new()),
             storage: Mutex::new(Storage::open(&config_dir)?),
         };
 
@@ -161,53 +166,44 @@ impl Engine {
         mode: String,
         context: Option<AppContext>,
     ) -> Result<TranscriptionResult, CoreError> {
-        // 1. Preprocess audio (validate sample rate, trim leading/trailing silence)
-        let processed = crate::audio::preprocess(&audio_samples, sample_rate)?;
-        let leading_trim_secs = processed.leading_trim_secs;
-
-        // 2. Run STT
-        let stt_guard = crate::util::lock_named(&self.stt, "STT", CoreError::TranscriptionFailed)?;
-
-        let stt = stt_guard
+        if sample_rate != crate::audio::TARGET_SAMPLE_RATE
+            || audio_samples.iter().any(|v| !v.is_finite())
+        {
+            return Err(CoreError::AudioError(
+                "Expected finite 16 kHz mono audio".into(),
+            ));
+        }
+        if audio_samples.is_empty() || audio_samples.iter().all(|v| *v == 0.0) {
+            return Err(CoreError::AudioError("Audio contains only silence".into()));
+        }
+        // Keep the synchronous API as an adapter to the same path Swift uses.
+        // An energy threshold must not reject quiet speech before recognition.
+        let provider_name = self
+            .stt
+            .lock()
+            .unwrap()
             .as_ref()
-            .ok_or_else(|| CoreError::TranscriptionFailed("No STT model loaded".into()))?;
-
-        let mut result = stt.transcribe(&processed.samples, sample_rate)?;
-
-        // Shift segment timestamps so they reference the start of the
-        // *original* (un-trimmed) buffer rather than the trimmed waveform
-        // we actually fed into the model.
-        if leading_trim_secs > 0.0 {
-            for seg in result.segments.iter_mut() {
-                seg.start_secs += leading_trim_secs;
-                seg.end_secs += leading_trim_secs;
-            }
-        }
-
-        // 3. Remove filler words (uh, um, mmm, etc.)
-        result.text = crate::filler::remove_fillers(&result.text);
-
-        // 4. Apply dictionary replacements
-        let ctx = context.unwrap_or_default();
-        let dict_guard = crate::util::lock_named(
-            &self.dictionary,
-            "Dictionary",
-            CoreError::TranscriptionFailed,
-        )?;
-        result.text = dict_guard.apply(&result.text, &ctx, &mode);
-        drop(dict_guard);
-
-        // 4. LLM post-processing (if mode has a system prompt and LLM is configured)
-        result.llm_error = self.apply_llm(&mut result.text, &mode, &ctx)?;
-
-        // Auto-save to history. A storage failure here doesn't fail the
-        // transcription itself — the user already has the text — but we
-        // log it as an error so silent persistence loss is visible.
-        if let Err(e) = self.auto_save_transcription(&result, "push_to_talk", &mode, "mic", &ctx) {
-            log::error!("Push-to-talk auto-save failed: {e}");
-        }
-
-        Ok(result)
+            .ok_or_else(|| CoreError::TranscriptionFailed("No STT model loaded".into()))?
+            .name()
+            .to_string();
+        let id = uuid::Uuid::new_v4().to_string();
+        self.start_session(id.clone())?;
+        let result = (|| {
+            self.process_chunk(
+                id.clone(),
+                audio_samples,
+                sample_rate,
+                0,
+                mode.clone(),
+                context.clone(),
+            )?;
+            let mut result =
+                self.finish_session(id.clone(), mode, context, Some("push_to_talk".into()))?;
+            result.provider_name = provider_name;
+            Ok(result)
+        })();
+        self.cancel_session(id);
+        result
     }
 
     /// Load an STT model by ID.
@@ -589,6 +585,7 @@ impl Engine {
             .ok_or_else(|| CoreError::TranscriptionFailed("No STT model loaded".into()))?;
         let mut result = stt.transcribe(&processed.samples, sample_rate)?;
         drop(stt_guard);
+        result.duration_secs = audio_samples.len() as f64 / sample_rate as f64;
 
         // Shift segment timestamps so they refer to the original
         // (un-trimmed) chunk's time base. Important if the caller
@@ -828,19 +825,26 @@ impl Engine {
     /// Load a named profile, replacing the current config and reconfiguring the engine.
     pub fn load_profile(&self, name: String) -> Result<(), CoreError> {
         let new_config = Config::load_profile(&self.config_dir, &name)?;
-
-        // Update dictionary
+        new_config.stt.settings.validate()?;
+        let _lifecycle = self.model_lifecycle.lock().unwrap();
+        if !self.streaming_sessions.lock().unwrap().is_empty()
+            || !self.processing.lock().unwrap().is_empty()
         {
-            let mut dict_guard =
-                crate::util::lock_named(&self.dictionary, "Dictionary", CoreError::ConfigError)?;
-            dict_guard.set_rules(new_config.dictionary.clone());
+            return Err(CoreError::ConfigError(
+                "Stop recording and processing before loading a profile".into(),
+            ));
         }
-
-        // Save as active config and update state
         new_config.save(&self.config_dir)?;
-        let mut cfg = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
-        *cfg = new_config;
-
+        self.dictionary
+            .lock()
+            .unwrap()
+            .set_rules(new_config.dictionary.clone());
+        *self.config.lock().unwrap() = new_config;
+        *self.llm.lock().unwrap() = None;
+        self.model_generation.fetch_add(1, Ordering::SeqCst);
+        self.offline_generation.fetch_add(1, Ordering::SeqCst);
+        *self.streaming.lock().unwrap() = None;
+        *self.streaming_readiness.lock().unwrap() = crate::speech::ModelReadiness::Unavailable;
         log::info!("Loaded profile: {name}");
         Ok(())
     }
@@ -1206,8 +1210,6 @@ impl Engine {
             }
             p.state = DownloadState::Downloading;
         }
-
-        // Reset cancel flag
         self.download_cancel.store(false, Ordering::Relaxed);
 
         let models_dir = self.models_dir.clone();
@@ -1282,9 +1284,35 @@ impl Engine {
 
     /// Start a new chunked transcription session.
     pub fn start_session(&self, session_id: String) -> Result<(), CoreError> {
-        let mut mgr =
-            crate::util::lock_named(&self.sessions, "Session", CoreError::TranscriptionFailed)?;
-        mgr.start(&session_id)
+        let mut processing = self.processing.lock().unwrap();
+        if processing.len() >= 16 {
+            return Err(CoreError::TranscriptionFailed(
+                "Too many active processing sessions".into(),
+            ));
+        }
+        self.sessions.lock().unwrap().start(&session_id)?;
+        self.completed_events
+            .lock()
+            .unwrap()
+            .retain(|(id, _)| id != &session_id);
+        processing.insert(
+            session_id.clone(),
+            crate::processing::ProcessingSession::new(session_id),
+        );
+        Ok(())
+    }
+    pub fn poll_transcription_events(
+        &self,
+        session_id: String,
+    ) -> Vec<crate::processing::TranscriptionEvent> {
+        if let Some(session) = self.processing.lock().unwrap().get(&session_id) {
+            return session.events();
+        }
+        let mut completed = self.completed_events.lock().unwrap();
+        if let Some(index) = completed.iter().position(|(id, _)| id == &session_id) {
+            return completed.remove(index).unwrap().1;
+        }
+        Vec::new()
     }
 
     /// Process one audio chunk within a session.
@@ -1335,6 +1363,13 @@ impl Engine {
         mode: String,
         context: Option<AppContext>,
     ) -> Result<ChunkResult, CoreError> {
+        let processing = self.processing_session(&session_id)?;
+        let _operation = processing.operation.lock().unwrap();
+        if processing.contains(chunk_index, ChunkSource::Mixed) {
+            return Err(CoreError::TranscriptionFailed(
+                "Duplicate chunk identity".into(),
+            ));
+        }
         // Session chunks are deliberately NOT routed through
         // `audio::preprocess`. That helper runs `EnergyVad` (tuned for
         // close-mic push-to-talk at ~ -36 dBFS) and trims leading /
@@ -1380,6 +1415,8 @@ impl Engine {
                 Vec::new(),
             )?;
             chunk_result.llm_error = None;
+            drop(mgr);
+            processing.enqueue(chunk_index, ChunkSource::Mixed, String::new(), None, None)?;
             return Ok(chunk_result);
         }
 
@@ -1413,20 +1450,12 @@ impl Engine {
         let stt_result = stt.transcribe(&audio_samples, sample_rate)?;
         drop(stt_guard);
 
-        // Remove filler words and apply dictionary replacements per-chunk.
         let ctx = context.unwrap_or_default();
-        let mut chunk_text = crate::filler::remove_fillers(&stt_result.text);
-        let dict_guard = crate::util::lock_named(
-            &self.dictionary,
-            "Dictionary",
-            CoreError::TranscriptionFailed,
-        )?;
-        chunk_text = dict_guard.apply(&chunk_text, &ctx, &mode);
-        drop(dict_guard);
+        let chunk_text = stt_result.text;
 
         // Apply LLM post-processing per-chunk to avoid accumulating
         // a huge transcript that overwhelms the LLM at session end.
-        let llm_error = self.apply_llm(&mut chunk_text, &mode, &ctx)?;
+        let llm_error: Option<String> = None;
 
         // Stitch into session with overlap dedup.
         let mut mgr =
@@ -1439,6 +1468,20 @@ impl Engine {
             stt_result.segments,
         )?;
         chunk_result.llm_error = llm_error.clone();
+        drop(mgr);
+        chunk_result.text = self.dictionary.lock().unwrap().apply(
+            &crate::filler::remove_fillers(&chunk_result.text),
+            &ctx,
+            &mode,
+        );
+        self.queue_polishing(
+            &session_id,
+            chunk_index,
+            ChunkSource::Mixed,
+            &chunk_result.text,
+            &mode,
+            &ctx,
+        )?;
         log::info!(
             "session '{}' chunk {} out: {} chars, {} segments{}",
             session_id,
@@ -1489,6 +1532,13 @@ impl Engine {
             );
         }
 
+        let processing = self.processing_session(&session_id)?;
+        let _operation = processing.operation.lock().unwrap();
+        if processing.contains(slice_index, source) {
+            return Err(CoreError::TranscriptionFailed(
+                "Duplicate chunk identity".into(),
+            ));
+        }
         let chunk_duration_secs = audio_samples.len() as f64 / sample_rate as f64;
         log::info!(
             "session '{}' slice {} source={:?}: {} samples ({:.1}s @ {}Hz, overlap={:.1}s)",
@@ -1512,7 +1562,7 @@ impl Engine {
         if audio_samples.is_empty() {
             let mut mgr =
                 crate::util::lock_named(&self.sessions, "Session", CoreError::TranscriptionFailed)?;
-            return mgr.add_chunk_with_source(
+            let result = mgr.add_chunk_with_source(
                 &session_id,
                 source,
                 slice_index,
@@ -1520,7 +1570,10 @@ impl Engine {
                 chunk_duration_secs,
                 chunk_overlap_secs,
                 Vec::new(),
-            );
+            )?;
+            drop(mgr);
+            processing.enqueue(slice_index, source, String::new(), None, None)?;
+            return Ok(result);
         }
 
         // Run STT on this chunk.
@@ -1532,16 +1585,9 @@ impl Engine {
         drop(stt_guard);
 
         let ctx = context.unwrap_or_default();
-        let mut chunk_text = crate::filler::remove_fillers(&stt_result.text);
-        let dict_guard = crate::util::lock_named(
-            &self.dictionary,
-            "Dictionary",
-            CoreError::TranscriptionFailed,
-        )?;
-        chunk_text = dict_guard.apply(&chunk_text, &ctx, &mode);
-        drop(dict_guard);
+        let chunk_text = stt_result.text;
 
-        let llm_error = self.apply_llm(&mut chunk_text, &mode, &ctx)?;
+        let llm_error: Option<String> = None;
 
         let mut mgr =
             crate::util::lock_named(&self.sessions, "Session", CoreError::TranscriptionFailed)?;
@@ -1555,6 +1601,20 @@ impl Engine {
             stt_result.segments,
         )?;
         chunk_result.llm_error = llm_error;
+        drop(mgr);
+        chunk_result.text = self.dictionary.lock().unwrap().apply(
+            &crate::filler::remove_fillers(&chunk_result.text),
+            &ctx,
+            &mode,
+        );
+        self.queue_polishing(
+            &session_id,
+            slice_index,
+            source,
+            &chunk_result.text,
+            &mode,
+            &ctx,
+        )?;
         Ok(chunk_result)
     }
 
@@ -1570,18 +1630,38 @@ impl Engine {
         context: Option<AppContext>,
         source: Option<String>,
     ) -> Result<TranscriptionResult, CoreError> {
+        let session = self.processing_session(&session_id)?;
+        let _operation = session.operation.lock().unwrap();
         // Extract accumulated text, duration, and segments from the session.
         let mut mgr =
             crate::util::lock_named(&self.sessions, "Session", CoreError::TranscriptionFailed)?;
         let (text, duration_secs, segments) = mgr.finish(&session_id)?;
         drop(mgr);
 
+        let processing = self.processing.lock().unwrap().get(&session_id).cloned();
+        let (text, summary, llm_error) = if let Some(session) = processing {
+            let (polished, summary, error) = session.finish()?;
+            (
+                if polished.is_empty() { text } else { polished },
+                summary,
+                error,
+            )
+        } else {
+            (
+                text.clone(),
+                crate::processing::ProcessingSummary {
+                    recognized_text: text,
+                    status: "completed".into(),
+                },
+                None,
+            )
+        };
         let result = TranscriptionResult {
             text,
             duration_secs,
             provider_name: "parakeet".to_string(),
             segments,
-            llm_error: None,
+            llm_error,
         };
 
         let ctx = context.unwrap_or_default();
@@ -1605,7 +1685,14 @@ impl Engine {
         // Swift layer can surface an error to the user instead of
         // returning a successful-looking TranscriptionResult that was
         // never actually saved.
-        self.auto_save_transcription(&result, src, &mode, input, &ctx)?;
+        self.auto_save_transcription(&result, src, &mode, input, &ctx, &summary)?;
+        let mut processing = self.processing.lock().unwrap();
+        let mut completed = self.completed_events.lock().unwrap();
+        if completed.len() >= 16 {
+            completed.pop_front();
+        }
+        completed.push_back((session_id.clone(), session.events()));
+        processing.remove(&session_id);
 
         Ok(result)
     }
@@ -1613,6 +1700,9 @@ impl Engine {
     /// Get the accumulated text for a session on demand, without the per-chunk
     /// cloning overhead of `ChunkResult.accumulated_text`.
     pub fn get_session_text(&self, session_id: String) -> Result<String, CoreError> {
+        if let Some(session) = self.processing.lock().unwrap().get(&session_id) {
+            return Ok(session.text());
+        }
         let mgr =
             crate::util::lock_named(&self.sessions, "Session", CoreError::TranscriptionFailed)?;
         mgr.get_session_text(&session_id)
@@ -1620,12 +1710,22 @@ impl Engine {
 
     /// Cancel and discard a session.
     pub fn cancel_session(&self, session_id: String) {
+        if let Some(session) = self.processing.lock().unwrap().remove(&session_id) {
+            session.cancel();
+        }
         if let Ok(mut mgr) = self.sessions.lock() {
             mgr.cancel(&session_id);
         }
     }
 
     // --- Transcription history CRUD ---
+
+    pub fn get_transcription_processing(
+        &self,
+        id: String,
+    ) -> Result<crate::processing::ProcessingSummary, CoreError> {
+        self.storage.lock().unwrap().get_processing(&id)
+    }
 
     /// Save a transcription to history (for external callers).
     pub fn save_transcription(
@@ -1700,224 +1800,108 @@ impl Engine {
         storage.get_segments(&id)
     }
 
-    /// Export (backup) the database to the given file path.
     pub fn export_database(&self, dest_path: String) -> Result<(), CoreError> {
-        let db_path = self.config_dir.join("transcriptions.db");
-        if !db_path.exists() {
-            return Err(CoreError::IoError("Database file not found".into()));
-        }
-        // Checkpoint WAL to ensure all data is in the main file before copying.
-        {
-            let storage = crate::util::lock_named(&self.storage, "Storage", CoreError::IoError)?;
-            if let Err(e) = storage.checkpoint() {
-                // A failed checkpoint means the WAL hasn't been merged into
-                // the main DB file — the export below will produce a copy
-                // that's missing the most recent writes. Surface it so we
-                // know when the resulting backup is stale.
-                log::warn!("WAL checkpoint before export failed; backup may be stale: {e}");
-            }
-        }
-        std::fs::copy(&db_path, &dest_path)
-            .map_err(|e| CoreError::IoError(format!("Failed to export database: {e}")))?;
-        log::info!("Database exported to {}", dest_path);
-        Ok(())
+        self.storage
+            .lock()
+            .unwrap()
+            .export_to(std::path::Path::new(&dest_path))
     }
-
-    /// Import (restore) a database from the given file path.
-    /// Replaces the current database — existing data will be lost.
     pub fn import_database(&self, source_path: String) -> Result<(), CoreError> {
-        let source = std::path::Path::new(&source_path);
-        if !source.exists() {
-            return Err(CoreError::IoError(format!(
-                "Import file not found: {source_path}"
-            )));
-        }
-        let db_path = self.config_dir.join("transcriptions.db");
-        // Close current storage connection by replacing it.
-        {
-            let mut storage =
-                crate::util::lock_named(&self.storage, "Storage", CoreError::IoError)?;
-            // Copy import file over the database
-            std::fs::copy(source, &db_path)
-                .map_err(|e| CoreError::IoError(format!("Failed to import database: {e}")))?;
-            // Reopen the storage with the new database
-            *storage = Storage::open(&self.config_dir)?;
-        }
-        log::info!("Database imported from {}", source_path);
-        Ok(())
+        self.storage
+            .lock()
+            .unwrap()
+            .import_from(std::path::Path::new(&source_path), &self.config_dir)
     }
 }
 
 impl Engine {
-    /// Test / integration hook: install a streaming provider directly
-    /// without going through `load_model`. Lets integration tests
-    /// inject a `ScriptedStreamingProvider` (or any other
-    /// `StreamingProvider`) to drive the streaming session pipeline
-    /// deterministically. NOT exported via UniFFI — Rust-only API.
     pub fn install_streaming_provider(
         &self,
         provider: Box<dyn StreamingProvider>,
     ) -> Result<(), CoreError> {
-        let mut g =
-            crate::util::lock_named(&self.streaming, "Streaming", CoreError::ModelLoadFailed)?;
-        *g = Some(provider);
+        *self.streaming.lock().unwrap() = Some(provider);
+        *self.streaming_readiness.lock().unwrap() = crate::speech::ModelReadiness::Ready;
         Ok(())
     }
-
-    /// Apply LLM post-processing to text if the mode has a system prompt and
-    /// an LLM provider is configured. Includes a token guard to prevent
-    /// sending excessively long text to the LLM.
-    ///
-    /// Returns:
-    /// - `Ok(None)` on success, or when LLM is not configured / not needed.
-    /// - `Ok(Some(msg))` if LLM was configured for this mode but all
-    ///   retries failed; `text` is left unchanged so the caller can
-    ///   surface the raw STT output to the user along with a warning.
-    /// - `Err(_)` only for unrecoverable internal errors (poisoned locks).
-    fn apply_llm(
+    fn llm_request(
         &self,
-        text: &mut String,
+        text: &str,
         mode: &str,
         ctx: &AppContext,
-    ) -> Result<Option<String>, CoreError> {
+    ) -> Result<Option<ProcessingJob>, CoreError> {
         if text.trim().is_empty() {
             return Ok(None);
         }
-
-        let config_guard = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
-        let all_modes = if config_guard.modes.is_empty() {
+        let config = self.config.lock().unwrap();
+        let all_modes = if config.modes.is_empty() {
             modes::default_modes()
         } else {
-            config_guard.modes.clone()
+            config.modes.clone()
         };
-        let max_words = config_guard.general.llm_max_words as usize;
-        drop(config_guard);
-
-        let mode_config = match modes::find_mode(&all_modes, mode) {
-            Some(m) => m,
-            None => return Ok(None),
+        let max_words = config.general.llm_max_words as usize;
+        drop(config);
+        let Some(mode) = modes::find_mode(&all_modes, mode) else {
+            return Ok(None);
         };
-
-        let base_prompt = match &mode_config.system_prompt {
-            Some(p) => p.clone(),
-            None => return Ok(None),
+        let Some(mut system_prompt) = mode.system_prompt.clone() else {
+            return Ok(None);
         };
-
-        let llm = {
-            let llm_guard = crate::util::lock_named(&self.llm, "LLM", CoreError::LlmError)?;
-            match llm_guard.as_ref() {
-                Some(l) => Arc::clone(l),
-                None => {
-                    log::debug!(
-                        "Mode '{}' has a system prompt but no LLM provider is configured",
-                        mode
-                    );
-                    return Ok(None);
-                }
-            }
+        let Some(provider) = self.llm.lock().unwrap().clone() else {
+            return Ok(None);
         };
-
-        // Token guard: truncate excessively long text to avoid LLM timeouts.
-        // Truncates at the last sentence boundary within the word limit
-        // to avoid cutting mid-sentence.
-        let word_count = text.split_whitespace().count();
-        let llm_text = if word_count > max_words {
-            log::warn!(
-                "Text has {} words, truncating to ~{} for LLM processing",
-                word_count,
-                max_words
-            );
-            let rough_cut: String = text
-                .split_whitespace()
-                .take(max_words)
-                .collect::<Vec<_>>()
-                .join(" ");
-            // Find the last sentence-ending punctuation to avoid mid-sentence cuts.
-            if let Some(pos) = rough_cut.rfind(['.', '!', '?']) {
-                rough_cut[..=pos].to_string()
-            } else {
-                rough_cut
-            }
-        } else {
-            text.clone()
-        };
-
-        // Inject domain words into the system prompt.
-        let dict_guard =
-            crate::util::lock_named(&self.dictionary, "Dictionary", CoreError::LlmError)?;
-        let domain_words: Vec<String> = dict_guard
-            .rules()
-            .iter()
-            .filter(|r| r.pattern == r.replacement && r.enabled)
-            .map(|r| r.pattern.clone())
-            .collect();
-        drop(dict_guard);
-
-        let mut system_prompt = base_prompt;
-        if !domain_words.is_empty() {
-            system_prompt.push_str(&format!(
-                "\n\nDomain-specific vocabulary (use these exact spellings when the \
-                 transcription contains similar-sounding words): {}",
-                domain_words.join(", ")
+        if text.split_whitespace().count() > max_words {
+            return Err(CoreError::LlmError(
+                "Polishing skipped: input exceeds the configured word limit".into(),
             ));
         }
-
-        let llm_request = LlmRequest {
-            text: llm_text,
-            system_prompt,
-            context: Some(ctx.clone()),
-        };
-
-        // Retry only transient failures (timeout, connection) with backoff.
-        // Non-transient errors (bad API key, model not found) fail immediately.
-        let max_retries = 2;
-        let mut last_error = None;
-        for attempt in 0..=max_retries {
-            match llm.process(&llm_request) {
-                Ok(processed_text) => {
-                    *text = processed_text;
-                    last_error = None;
-                    break;
-                }
-                Err(e) => {
-                    let msg = e.to_string();
-                    let is_transient = msg.contains("timed out")
-                        || msg.contains("connect")
-                        || msg.contains("Connection")
-                        || msg.contains("stream");
-
-                    if is_transient && attempt < max_retries {
-                        let delay = std::time::Duration::from_millis(500 * (1 << attempt));
-                        log::warn!(
-                            "LLM attempt {} failed (transient), retrying in {}ms: {e}",
-                            attempt + 1,
-                            delay.as_millis()
-                        );
-                        last_error = Some(e);
-                        std::thread::sleep(delay);
-                    } else {
-                        // Non-transient error or final attempt — don't retry
-                        last_error = Some(e);
-                        break;
-                    }
-                }
-            }
+        let words: Vec<String> = self
+            .dictionary
+            .lock()
+            .unwrap()
+            .rules()
+            .iter()
+            .filter(|r| r.enabled && r.pattern == r.replacement)
+            .map(|r| r.pattern.clone())
+            .collect();
+        if !words.is_empty() {
+            system_prompt.push_str(&format!("\n\nDomain vocabulary: {}", words.join(", ")));
         }
-        if let Some(e) = last_error {
-            log::warn!("LLM processing failed, using raw transcription: {e}");
-            return Ok(Some(e.to_string()));
-        }
-
-        Ok(None)
+        Ok(Some((
+            provider,
+            LlmRequest {
+                text: text.into(),
+                system_prompt,
+                context: Some(ctx.clone()),
+            },
+        )))
     }
-
-    /// Auto-save a transcription result to storage.
-    ///
-    /// Returns `Ok(Some(id))` on a successful save, `Ok(None)` if the
-    /// transcription was deliberately skipped (e.g. empty text and not a
-    /// meeting), and `Err(...)` if persistence actually failed. Callers
-    /// are expected to surface the error so the UI can react instead of
-    /// silently producing no history entry.
+    fn processing_session(
+        &self,
+        id: &str,
+    ) -> Result<Arc<crate::processing::ProcessingSession>, CoreError> {
+        self.processing
+            .lock()
+            .unwrap()
+            .get(id)
+            .cloned()
+            .ok_or_else(|| CoreError::TranscriptionFailed("Processing session not found".into()))
+    }
+    fn queue_polishing(
+        &self,
+        id: &str,
+        index: u32,
+        source: ChunkSource,
+        text: &str,
+        mode: &str,
+        context: &AppContext,
+    ) -> Result<(), CoreError> {
+        let session = self.processing_session(id)?;
+        let (work, error) = match self.llm_request(text, mode, context) {
+            Ok(work) => (work, None),
+            Err(error) => (None, Some(error.to_string())),
+        };
+        session.enqueue(index, source, text.into(), work, error)
+    }
     fn auto_save_transcription(
         &self,
         result: &TranscriptionResult,
@@ -1925,6 +1909,7 @@ impl Engine {
         mode: &str,
         audio_source: &str,
         context: &AppContext,
+        summary: &crate::processing::ProcessingSummary,
     ) -> Result<Option<String>, CoreError> {
         let is_meeting = source == "meeting";
         let trimmed_empty = result.text.trim().is_empty();
@@ -1982,35 +1967,7 @@ impl Engine {
             CoreError::TranscriptionFailed(format!("Storage lock poisoned: {e}"))
         })?;
 
-        storage.save(&transcription).map_err(|e| {
-            log::error!(
-                "Failed to auto-save transcription {}: {e}",
-                transcription.id
-            );
-            CoreError::TranscriptionFailed(format!("Failed to save transcription: {e}"))
-        })?;
-
-        log::info!(
-            "Saved {} transcription '{}' ({:.1}s, {} segments, {} chars)",
-            source,
-            transcription.id,
-            result.duration_secs,
-            result.segments.len(),
-            transcription.text.len()
-        );
-
-        if !result.segments.is_empty() {
-            if let Err(e) = storage.save_segments(&transcription.id, &result.segments, None) {
-                // Segment-save failure is non-fatal: the transcript row
-                // is already in the DB and renderable as flat text. Log
-                // it loudly but don't unwind the whole save.
-                log::error!(
-                    "Failed to save {} segments for {}: {e}",
-                    result.segments.len(),
-                    transcription.id
-                );
-            }
-        }
+        storage.save_complete(&transcription, &result.segments, summary)?;
 
         Ok(Some(transcription.id))
     }
@@ -2068,5 +2025,163 @@ impl Engine {
         *llm_guard = provider;
 
         Ok(())
+    }
+}
+
+impl Drop for Engine {
+    fn drop(&mut self) {
+        if let Ok(sessions) = self.processing.lock() {
+            for session in sessions.values() {
+                session.cancel();
+            }
+        }
+        self.download_cancel.store(true, Ordering::Relaxed);
+    }
+}
+
+#[cfg(test)]
+mod processing_integration_tests {
+    use super::*;
+    use std::sync::atomic::AtomicUsize;
+    struct Speech(Arc<AtomicUsize>);
+    impl SttProvider for Speech {
+        fn name(&self) -> &str {
+            "test"
+        }
+        fn is_loaded(&self) -> bool {
+            true
+        }
+        fn transcribe(&self, _: &[f32], _: u32) -> Result<TranscriptionResult, CoreError> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(TranscriptionResult {
+                text: "recognized words".into(),
+                duration_secs: 2.,
+                provider_name: "test".into(),
+                llm_error: None,
+                segments: vec![TimestampedSegment {
+                    text: "recognized words".into(),
+                    start_secs: 0.25,
+                    end_secs: 1.75,
+                    speaker: None,
+                }],
+            })
+        }
+    }
+    struct Polish;
+    impl LlmProvider for Polish {
+        fn name(&self) -> &str {
+            "test"
+        }
+        fn is_available(&self) -> bool {
+            true
+        }
+        fn process(&self, _: &LlmRequest) -> Result<String, CoreError> {
+            Ok("A rewritten sentence.".into())
+        }
+    }
+    fn setup() -> (Engine, tempfile::TempDir, Arc<AtomicUsize>) {
+        let directory = tempfile::tempdir().unwrap();
+        let engine = Engine::new(EngineConfig {
+            models_dir: directory.path().join("models").display().to_string(),
+            config_dir: directory.path().display().to_string(),
+            active_stt_model: None,
+            active_llm_provider: None,
+            active_mode: "clean".into(),
+        })
+        .unwrap();
+        let calls = Arc::new(AtomicUsize::new(0));
+        *engine.stt.lock().unwrap() = Some(Box::new(Speech(calls.clone())));
+        *engine.llm.lock().unwrap() = Some(Arc::new(Polish));
+        (engine, directory, calls)
+    }
+    #[test]
+    fn completed_text_and_recognized_timestamps_survive_storage_and_duplicate_input() {
+        let (engine, _directory, calls) = setup();
+        engine.start_session("s".into()).unwrap();
+        let chunk = engine
+            .process_chunk("s".into(), vec![0.1; 32000], 16000, 0, "clean".into(), None)
+            .unwrap();
+        assert_eq!(chunk.text, "recognized words");
+        assert!(engine
+            .process_chunk("s".into(), vec![0.1; 32000], 16000, 0, "clean".into(), None)
+            .is_err());
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        let result = engine
+            .finish_session(
+                "s".into(),
+                "clean".into(),
+                None,
+                Some("push_to_talk".into()),
+            )
+            .unwrap();
+        assert_eq!(result.text, "A rewritten sentence.");
+        assert_eq!(result.segments[0].text, "recognized words");
+        assert_eq!(
+            (result.segments[0].start_secs, result.segments[0].end_secs),
+            (0.25, 1.75)
+        );
+        let rows = engine
+            .list_transcriptions(TranscriptionQuery {
+                search_text: None,
+                source_filter: None,
+                limit: 10,
+                offset: 0,
+            })
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].text, result.text);
+        assert_eq!(
+            engine
+                .get_transcription_processing(rows[0].id.clone())
+                .unwrap()
+                .recognized_text,
+            "recognized words"
+        );
+        assert!(engine
+            .process_chunk("s".into(), vec![0.1], 16000, 1, "clean".into(), None)
+            .is_err());
+    }
+    #[test]
+    fn full_input_is_preserved_when_processing_limit_is_exceeded() {
+        let (engine, _directory, _) = setup();
+        engine.config.lock().unwrap().general.llm_max_words = 1;
+        engine.start_session("s".into()).unwrap();
+        engine
+            .process_chunk("s".into(), vec![0.1; 32000], 16000, 0, "clean".into(), None)
+            .unwrap();
+        let result = engine
+            .finish_session("s".into(), "clean".into(), None, None)
+            .unwrap();
+        assert_eq!(result.text, "recognized words");
+        assert!(result.llm_error.unwrap().contains("word limit"));
+    }
+    #[test]
+    fn synchronous_adapter_preserves_quiet_speech_and_rejects_invalid_audio() {
+        let (engine, _directory, calls) = setup();
+        let result = engine
+            .transcribe(vec![0.001; 32000], 16000, "dictation".into(), None)
+            .unwrap();
+        assert_eq!(result.text, "recognized words");
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert!(engine
+            .transcribe(vec![0.0; 16000], 16000, "dictation".into(), None)
+            .is_err());
+        assert!(engine
+            .transcribe(vec![f32::NAN; 16000], 16000, "dictation".into(), None)
+            .is_err());
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+    #[test]
+    fn empty_chunks_still_reserve_their_identity() {
+        let (engine, _directory, calls) = setup();
+        engine.start_session("s".into()).unwrap();
+        engine
+            .process_chunk("s".into(), vec![], 16000, 0, "dictation".into(), None)
+            .unwrap();
+        assert!(engine
+            .process_chunk("s".into(), vec![0.1], 16000, 0, "dictation".into(), None)
+            .is_err());
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        engine.cancel_session("s".into());
     }
 }

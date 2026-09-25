@@ -8,6 +8,7 @@ pub mod llm;
 pub mod local_agreement;
 pub mod models;
 pub mod modes;
+pub mod processing;
 pub mod session;
 pub mod speech;
 pub mod storage;

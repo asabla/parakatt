@@ -7,10 +7,10 @@ struct HistoryDetailData {
     let processingStatus: String?
     let hasSpeakerLabels: Bool
     let speakerHues: [String: Double]
-    init(segments: [TimestampedSegment] = []) {
+    init(segments: [TimestampedSegment] = [], processing: ProcessingSummary? = nil) {
         self.segments = segments
-        self.recognizedText = nil
-        self.processingStatus = nil
+        self.recognizedText = processing?.recognizedText
+        self.processingStatus = processing?.status
         let speakers = Set(segments.compactMap(\.speaker))
         self.hasSpeakerLabels = !speakers.isEmpty
         self.speakerHues = Dictionary(uniqueKeysWithValues: speakers.map { ($0, Self.hue(for: $0)) })

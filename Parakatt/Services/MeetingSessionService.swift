@@ -11,12 +11,23 @@ import ParakattCore
 class MeetingSessionService {
     // MARK: - Callbacks
 
+    private let transcriptionQueue = DispatchQueue(label: "Parakatt.meeting.transcription", qos: .userInitiated)
     /// Called when a new chunk is transcribed (new text, accumulated text, segments).
+    var onProcessedText: ((String) -> Void)?
+    private var processingTimer: Timer?
+    private var processingEvents: TranscriptEventStore?
+    private let cancellationLock = NSLock()
+    private var cancellationRequested = false
+    private var cancelled: Bool {
+        get { cancellationLock.lock(); defer { cancellationLock.unlock() }; return cancellationRequested }
+        set { cancellationLock.lock(); cancellationRequested = newValue; cancellationLock.unlock() }
+    }
     var onChunkTranscribed: ((String, String, [TimestampedSegment]) -> Void)?
     /// Called when the session finishes with the final result.
     var onSessionFinished: ((TranscriptionResult) -> Void)?
     /// Called if an error occurs during the session.
     var onError: ((String) -> Void)?
+    var onSessionFailed: ((String) -> Void)?
     /// Called after each chunk dispatch with per-source signal levels. Lets
     /// the UI detect "only own voice captured" conditions while a meeting is
     /// still running (micRms > silence, systemRms at/near zero).
@@ -137,6 +148,13 @@ class MeetingSessionService {
 
         // Start session in the Rust engine.
         try bridge.startSession(sessionId: sessionId)
+        processingEvents = TranscriptEventStore(sessionID: sessionId)
+        processingTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            guard let self, !self.cancelled else { return }
+            if self.processingEvents?.apply(self.bridge.pollTranscriptionEvents(sessionId: self.sessionId)) == true {
+                self.onProcessedText?(self.processingEvents?.text ?? "")
+            }
+        }
 
         // Set up mic capture callback.
         micCapture.onAudioSamples = { [weak self] samples in
@@ -162,6 +180,8 @@ class MeetingSessionService {
         do {
             try micCapture.startCapture()
         } catch {
+            processingTimer?.invalidate()
+            processingEvents?.close()
             bridge.cancelSession(sessionId: sessionId)
             throw error
         }
@@ -169,6 +189,8 @@ class MeetingSessionService {
             try systemCapture.startCapture(processID: processID)
         } catch {
             micCapture.stopCapture()
+            processingTimer?.invalidate()
+            processingEvents?.close()
             bridge.cancelSession(sessionId: sessionId)
             throw error
         }
@@ -260,7 +282,7 @@ class MeetingSessionService {
         // Process any remaining audio and finish the session on a background thread.
         // Both must happen sequentially on the same thread to avoid the final chunk
         // racing with session teardown.
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        transcriptionQueue.async { [weak self] in
             guard let self else { return }
 
             // Process the final chunk synchronously.
@@ -276,6 +298,7 @@ class MeetingSessionService {
                 let msg = "All \(dispatched) chunks failed to process — meeting transcript will be empty. Check logs."
                 NSLog("[Parakatt] %@", msg)
                 DispatchQueue.main.async {
+                    guard !self.cancelled else { return }
                     self.onError?(msg)
                 }
             } else if failed > 0 {
@@ -291,13 +314,20 @@ class MeetingSessionService {
                     source: "meeting"
                 )
                 DispatchQueue.main.async {
+                    guard !self.cancelled else { return }
+                    self.processingTimer?.invalidate()
+                    self.processingEvents?.close()
                     self.onSessionFinished?(result)
                 }
                 NSLog("[Parakatt] Meeting session FINISHED (%.0fs, %d chunks, %d failed)",
                       result.durationSecs, self.chunkIndex, failed)
             } catch {
                 DispatchQueue.main.async {
-                    self.onError?("Failed to finish session: \(error.localizedDescription)")
+                    guard !self.cancelled else { return }
+                    self.processingTimer?.invalidate()
+                    self.processingEvents?.close()
+                    self.bridge.cancelSession(sessionId: self.sessionId)
+                    self.onSessionFailed?("Failed to finish session: \(error.localizedDescription)")
                 }
                 NSLog("[Parakatt] Meeting finish FAILED: %@", error.localizedDescription)
             }
@@ -306,9 +336,21 @@ class MeetingSessionService {
 
     /// Process any remaining audio in the buffer as a final chunk, synchronously.
     private func processRemainingChunkSync() {
+        guard !cancelled else { return }
         flushPendingSamples()
-
-        let samplesPerChunk = Int(chunkDurationSecs * Double(sampleRate))
+        if dualStreamEnabled {
+            bufferLock.lock()
+            let mic = micChunkBuffer
+            let system = systemChunkBuffer
+            micChunkBuffer.removeAll()
+            systemChunkBuffer.removeAll()
+            bufferLock.unlock()
+            guard max(mic.count, system.count) >= 1600 else { return }
+            let index = chunkIndex
+            chunkIndex += 1
+            processSourceSlice(mic, system, index: index)
+            return
+        }
 
         bufferLock.lock()
         guard mixBuffer.count >= Int(Double(sampleRate) * 0.1) else {
@@ -317,7 +359,7 @@ class MeetingSessionService {
                   Double(mixBuffer.count) / Double(sampleRate))
             return
         }
-        let chunkSamples = Array(mixBuffer.prefix(samplesPerChunk))
+        let chunkSamples = mixBuffer
         mixBuffer.removeAll()
         bufferLock.unlock()
 
@@ -344,7 +386,7 @@ class MeetingSessionService {
                 guard let self else { return }
                 self.chunksDispatched += 1
                 self.accumulatedText = acc
-                self.onChunkTranscribed?(result.text, acc, result.segments)
+                if !self.cancelled { self.onChunkTranscribed?(result.text, acc, result.segments) }
             }
             NSLog("[Parakatt] Final chunk %d processed: %d samples", currentIndex, chunkSamples.count)
         } catch {
@@ -360,6 +402,11 @@ class MeetingSessionService {
 
     /// Cancel the session without saving.
     func cancel() {
+        cancelled = true
+        processingTimer?.invalidate()
+        processingEvents?.close()
+        // stop() already cleared isActive, but accepted LLM jobs can still run.
+        bridge.cancelSession(sessionId: sessionId)
         guard isActive else { return }
         isActive = false
 
@@ -369,7 +416,6 @@ class MeetingSessionService {
         healthWatchdog = nil
         micCapture.stopCapture()
         systemCapture.stopCapture()
-        bridge.cancelSession(sessionId: sessionId)
 
         NSLog("[Parakatt] Meeting session CANCELLED")
     }
@@ -382,8 +428,8 @@ class MeetingSessionService {
     /// Since chunks are 30s and mic/system audio are both 16kHz mono, the
     /// interleaving is naturally aligned.
 
-    private var micPendingSamples: [Float] = []
-    private var systemPendingSamples: [Float] = []
+    private var micPendingSamples = FloatQueue()
+    private var systemPendingSamples = FloatQueue()
     private let micLock = NSLock()
     private let systemLock = NSLock()
 
@@ -407,6 +453,7 @@ class MeetingSessionService {
     /// Absolute timestamp of the last delivered sample from each source.
     /// Protected by the respective per-source lock (written under lock,
     /// read inside mixPendingSamples which holds both).
+    private var lastMeterUpdate: CFAbsoluteTime = 0
     private var lastMicReceivedAt: CFAbsoluteTime = 0
     private var lastSystemReceivedAt: CFAbsoluteTime = 0
 
@@ -446,8 +493,9 @@ class MeetingSessionService {
         // that their voice is being picked up even before the first chunk
         // transcribes at t=28s.
         let level = peak
-        DispatchQueue.main.async { [weak self] in
-            self?.onMicLevel?(level)
+        if now - lastMeterUpdate >= 0.05 {
+            lastMeterUpdate = now
+            DispatchQueue.main.async { [weak self] in self?.onMicLevel?(level) }
         }
 
         mixPendingSamples()
@@ -656,8 +704,8 @@ class MeetingSessionService {
         chunkIndex += 1
 
         // Process chunk on a background thread.
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            guard let self, self.isActive || currentIndex == self.chunkIndex - 1 else { return }
+        transcriptionQueue.async { [weak self] in
+            guard let self, !self.cancelled else { return }
 
             do {
                 // Chunk N (N > 0) carries the previous chunk's last
@@ -683,7 +731,7 @@ class MeetingSessionService {
                 DispatchQueue.main.async {
                     self.chunksDispatched += 1
                     self.accumulatedText = acc
-                    self.onChunkTranscribed?(result.text, acc, result.segments)
+                    if !self.cancelled { self.onChunkTranscribed?(result.text, acc, result.segments) }
                 }
             } catch {
                 NSLog("[Parakatt] Chunk %d failed: %@", currentIndex, error.localizedDescription)
@@ -694,6 +742,7 @@ class MeetingSessionService {
                     // previous behavior was to swallow these into
                     // NSLog, which is exactly the silent-failure mode
                     // that hid issue #23.
+                    guard !self.cancelled else { return }
                     self.onError?("Chunk \(currentIndex) failed: \(error.localizedDescription)")
                 }
             }
@@ -731,9 +780,13 @@ class MeetingSessionService {
         let currentIndex = chunkIndex
         chunkIndex += 1
 
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            guard let self, self.isActive || currentIndex == self.chunkIndex - 1 else { return }
+        transcriptionQueue.async { [weak self] in
+            self?.processSourceSlice(micChunk, systemChunk, index: currentIndex)
+        }
+    }
 
+    private func processSourceSlice(_ micChunk: [Float], _ systemChunk: [Float], index currentIndex: UInt32) {
+        guard !cancelled else { return }
             let chunkOverlap = currentIndex > 0 ? self.overlapDurationSecs : 0.0
             var failedSources: [String] = []
             var allSegments: [TimestampedSegment] = []
@@ -791,13 +844,13 @@ class MeetingSessionService {
                 self.chunksDispatched += 1
                 if !failedSources.isEmpty { self.chunksFailed += 1 }
                 self.accumulatedText = acc
-                self.onChunkTranscribed?(combinedText, acc, allSegments)
+                if !self.cancelled { self.onChunkTranscribed?(combinedText, acc, allSegments) }
                 if !failedSources.isEmpty {
                     let sources = failedSources.joined(separator: " and ")
+                    guard !self.cancelled else { return }
                     self.onError?("Slice \(currentIndex): \(sources) dropped")
                 }
             }
-        }
     }
 
     /// Flush any remaining pending samples from one source that the other

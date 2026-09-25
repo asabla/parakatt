@@ -63,6 +63,9 @@ class CoreBridge {
     func setSpeechSettings(_ settings: SpeechSettings) throws { try engine.setSpeechSettings(settings: settings) }
     func speechRuntimeStatus() -> SpeechRuntimeStatus { engine.speechRuntimeStatus() }
 
+    func getTranscriptionProcessing(id: String) throws -> ProcessingSummary { try engine.getTranscriptionProcessing(id: id) }
+    func pollTranscriptionEvents(sessionId: String) -> [TranscriptionEvent] { engine.pollTranscriptionEvents(sessionId: sessionId) }
+
     /// List available models with download status.
     func listModels() -> [ModelInfo] {
         engine.listModels()

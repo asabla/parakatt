@@ -4,6 +4,9 @@ use parakatt_core::*;
 use std::path::PathBuf;
 
 fn models_dir() -> PathBuf {
+    if let Some(path) = std::env::var_os("PARAKATT_MODELS") {
+        return path.into();
+    }
     dirs::data_dir()
         .expect("Could not find data directory")
         .join("Parakatt/models")

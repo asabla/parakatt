@@ -23,6 +23,18 @@ pub trait LlmProvider: Send + Sync {
     /// Process text according to the system prompt and context.
     fn process(&self, request: &LlmRequest) -> Result<String, CoreError>;
 
+    fn process_cancellable(
+        &self,
+        request: &LlmRequest,
+        cancellation: &tokio_util::sync::CancellationToken,
+        _observer: &(dyn Fn(&str) + Send + Sync),
+    ) -> Result<String, CoreError> {
+        if cancellation.is_cancelled() {
+            return Err(CoreError::LlmError("Request cancelled".into()));
+        }
+        self.process(request)
+    }
+
     /// Provider name for display and logging.
     fn name(&self) -> &str;
 

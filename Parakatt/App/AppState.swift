@@ -237,19 +237,26 @@ class AppState: ObservableObject {
 
     // MARK: - Engine bridge
 
+    private let transcriptionQueue = DispatchQueue(label: "Parakatt.transcription", qos: .userInitiated)
     @Published var historyRevision: UInt64 = 0
+    @Published var modelInventoryRevision: UInt64 = 0
+    private var modelQueryGeneration = UUID()
     private var bridge: CoreBridge?
     private var engineReady = false
 
     /// Cache-aware streaming live preview (Nemotron). Owned by the
     /// app, started/stopped per recording. Receives committed +
     /// tentative slices via its onUpdate callback.
+    private var shortProcessing: SessionCancellation?
+    private var processingEvents: TranscriptEventStore?
+    private var processingPollTimer: Timer?
+    private var previewFailedForRecording = false
+    private var speechGeneration = UUID()
     private var livePreview: LivePreviewService?
     /// True while the streaming preview is active for the current
     /// recording. Used by appendAudioSamples to decide whether to
     /// also feed the buffered v3 path.
     private var livePreviewActive = false
-    private var previewFailedForRecording = false
 
     // MARK: - Lifecycle
 
@@ -394,6 +401,8 @@ class AppState: ObservableObject {
 
     /// Clean up all running sessions and audio capture on app termination.
     func shutdown() {
+        shortProcessing?.cancel()
+        livePreview?.cancel()
         stopRecording()
         if let sessionId = pttSessionId {
             bridge?.cancelSession(sessionId: sessionId)
@@ -419,6 +428,13 @@ class AppState: ObservableObject {
             return
         }
 
+        shortProcessing?.cancel()
+        shortProcessing = nil
+        if let sessionID = pttSessionId { bridge?.cancelSession(sessionId: sessionID) }
+        closeProcessing()
+        speechGeneration = UUID()
+        previewFailedForRecording = false
+        isProcessing = false
         // Set immediately after guard to prevent race with rapid start/stop.
         isRecording = true
 
@@ -442,7 +458,6 @@ class AppState: ObservableObject {
             currentAudioLevel = 0
             liveTranscription = nil
             errorMessage = nil
-            previewFailedForRecording = false
             livePreviewCommitted = ""
             livePreviewTentative = ""
 
@@ -558,6 +573,7 @@ class AppState: ObservableObject {
         if let sessionId = pttSessionId {
             // Path B: incremental session was active — only process the tail.
             isProcessing = true
+            let generation = speechGeneration
             // Keep liveTranscription visible while processing the tail.
             NSLog("[Parakatt] Recording stopped (incremental session, processing tail)")
 
@@ -570,7 +586,7 @@ class AppState: ObservableObject {
             let mode = activeMode
             let currentIndex = pttChunkIndex
 
-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            transcriptionQueue.async { [weak self] in
                 guard let self, let bridge = self.bridge else {
                     DispatchQueue.main.async { self?.isProcessing = false }
                     return
@@ -613,10 +629,13 @@ class AppState: ObservableObject {
                         source: "push_to_talk"
                     )
                     DispatchQueue.main.async {
+                        guard self.speechGeneration == generation else { return }
+                        self.closeProcessing()
                         self.isProcessing = false
                         self.liveTranscription = nil
                         self.pttAccumulatedText = nil
                         self.lastTranscription = result.text
+                        self.historyRevision &+= 1
                         self.pttSessionId = nil
                         self.errorMessage = nil
 
@@ -634,6 +653,8 @@ class AppState: ObservableObject {
                 } catch {
                     bridge.cancelSession(sessionId: sessionId)
                     DispatchQueue.main.async {
+                        guard self.speechGeneration == generation else { return }
+                        self.closeProcessing()
                         self.isProcessing = false
                         self.liveTranscription = nil
                         self.pttAccumulatedText = nil
@@ -843,6 +864,7 @@ class AppState: ObservableObject {
             if let dm = try? bridge?.getDebugMode() { debugMode = dm }
             if let sl = try? bridge?.getSpeakerLabelsEnabled() { speakerLabelsEnabled = sl }
             loadLlmApiKeyFromKeychain()
+            reloadSpeechModels()
             NSLog("[Parakatt] Loaded profile: %@", name)
         } catch {
             errorMessage = "Failed to load profile: \(error.localizedDescription)"
@@ -1022,6 +1044,7 @@ class AppState: ObservableObject {
 
         let session = MeetingSessionService(bridge: bridge)
 
+        session.onProcessedText = { [weak self] text in self?.meetingTranscription = text }
         session.onChunkTranscribed = { [weak self] newText, accumulated, segments in
             guard let self else { return }
             self.meetingLatestChunk = newText
@@ -1059,6 +1082,7 @@ class AppState: ObservableObject {
             self?.meetingElapsedTimer?.invalidate()
             self?.meetingElapsedTimer = nil
             self?.meetingTranscription = result.text
+            if let self { self.historyRevision &+= 1 }
             self?.meetingLatestChunk = nil
             self?.meetingLatestChunkStartSecs = nil
             self?.meetingAudioStatus = .unknown
@@ -1070,6 +1094,10 @@ class AppState: ObservableObject {
         }
 
         session.onError = { [weak self] message in
+            self?.meetingAudioStatus = .error(message)
+            self?.errorMessage = message
+        }
+        session.onSessionFailed = { [weak self] message in
             self?.isMeetingActive = false
             self?.meetingElapsedTimer?.invalidate()
             self?.meetingElapsedTimer = nil
@@ -1253,6 +1281,38 @@ class AppState: ObservableObject {
         }
     }
 
+    func queryHistory(search: String?, source: String?, completion: @escaping ([StoredTranscription]) -> Void) {
+        guard let bridge else { completion([]); return }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let query = TranscriptionQuery(searchText: search, sourceFilter: source, limit: 500, offset: 0)
+            let rows = (try? bridge.listTranscriptions(query: query)) ?? []
+            DispatchQueue.main.async { completion(rows) }
+        }
+    }
+
+    func queryDetail(id: String, completion: @escaping (HistoryDetailData) -> Void) {
+        guard let bridge else { completion(HistoryDetailData()); return }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let rows = (try? bridge.getTranscriptionSegments(id: id)) ?? []
+            let processing = try? bridge.getTranscriptionProcessing(id: id)
+            let detail = HistoryDetailData(segments: rows, processing: processing)
+            DispatchQueue.main.async { completion(detail) }
+        }
+    }
+
+    func queryModels(completion: @escaping ([ParakattCore.ModelInfo]) -> Void) {
+        guard let bridge else { completion([]); return }
+        let generation = UUID()
+        modelQueryGeneration = generation
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let rows = bridge.listModels()
+            DispatchQueue.main.async {
+                guard self?.modelQueryGeneration == generation else { return }
+                completion(rows)
+            }
+        }
+    }
+
     func previewEnabled() -> Bool { bridge?.streamingPreviewEnabled() ?? true }
     func setPreviewEnabled(_ enabled: Bool) {
         do {
@@ -1378,40 +1438,6 @@ class AppState: ObservableObject {
 
     private var downloadPollTimer: Timer?
 
-    @Published var modelInventoryRevision: UInt64 = 0
-    private var modelQueryGeneration = UUID()
-
-    func queryHistory(search: String?, source: String?, completion: @escaping ([StoredTranscription]) -> Void) {
-        guard let bridge else { completion([]); return }
-        DispatchQueue.global(qos: .userInitiated).async {
-            let query = TranscriptionQuery(searchText: search, sourceFilter: source, limit: 500, offset: 0)
-            let rows = (try? bridge.listTranscriptions(query: query)) ?? []
-            DispatchQueue.main.async { completion(rows) }
-        }
-    }
-
-    func queryDetail(id: String, completion: @escaping (HistoryDetailData) -> Void) {
-        guard let bridge else { completion(HistoryDetailData()); return }
-        DispatchQueue.global(qos: .userInitiated).async {
-            let rows = (try? bridge.getTranscriptionSegments(id: id)) ?? []
-            let detail = HistoryDetailData(segments: rows)
-            DispatchQueue.main.async { completion(detail) }
-        }
-    }
-
-    func queryModels(completion: @escaping ([ParakattCore.ModelInfo]) -> Void) {
-        guard let bridge else { completion([]); return }
-        let generation = UUID()
-        modelQueryGeneration = generation
-        DispatchQueue.global(qos: .utility).async { [weak self] in
-            let rows = bridge.listModels()
-            DispatchQueue.main.async {
-                guard self?.modelQueryGeneration == generation else { return }
-                completion(rows)
-            }
-        }
-    }
-
     func listModels() -> [ParakattCore.ModelInfo] {
         bridge?.listModels() ?? []
     }
@@ -1472,9 +1498,13 @@ class AppState: ObservableObject {
             stopDownloadPolling()
             isDownloading = false
             modelInventoryRevision &+= 1
+            NSLog("[Parakatt] Download completed: %@", progress.modelId)
             if progress.modelId == "parakeet-tdt-0.6b-v3" {
                 needsModelDownload = false
                 loadModel(progress.modelId)
+            } else if bridge.getSpeechSettings().previewModel == progress.modelId {
+                // An explicit saved selection can load after its verified installation.
+                reloadSpeechModels()
             }
 
         case .failed(let message):
@@ -1497,6 +1527,24 @@ class AppState: ObservableObject {
         }
     }
 
+    private func watchProcessing(sessionID: String) {
+        processingPollTimer?.invalidate()
+        processingEvents = TranscriptEventStore(sessionID: sessionID)
+        processingPollTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            guard let self, let bridge = self.bridge else { return }
+            let events = bridge.pollTranscriptionEvents(sessionId: sessionID)
+            if self.processingEvents?.apply(events) == true {
+                self.pttAccumulatedText = self.processingEvents?.text
+                self.liveTranscription = self.processingEvents?.text
+            }
+        }
+    }
+    private func closeProcessing() {
+        processingPollTimer?.invalidate()
+        processingPollTimer = nil
+        processingEvents?.close()
+    }
+
     // MARK: - Processing
 
     /// Maximum duration (seconds) for single-shot transcription. Longer recordings are chunked.
@@ -1508,12 +1556,15 @@ class AppState: ObservableObject {
     /// Single-shot transcription for short recordings (used when no incremental session was opened).
     private func processAudio(_ samples: [Float]) {
         isProcessing = true
+        let generation = speechGeneration
+        let job = SessionCancellation()
+        shortProcessing = job
 
         let maxAmp = samples.map { abs($0) }.max() ?? 0
         NSLog("[Parakatt] Processing %d samples (%.1fs), maxAmp=%.4f, mode=%@, llm=%@",
               samples.count, Double(samples.count) / 16000.0, maxAmp, activeMode, llmProvider.isEmpty ? "none" : llmProvider)
 
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        transcriptionQueue.async { [weak self] in
             let signpostID = OSSignpostID(log: signpostLog)
             os_signpost(.begin, log: signpostLog, name: "Transcribe", signpostID: signpostID, "samples: %d", samples.count)
             defer { os_signpost(.end, log: signpostLog, name: "Transcribe", signpostID: signpostID) }
@@ -1535,16 +1586,25 @@ class AppState: ObservableObject {
             }
 
             do {
-                let result = try bridge.transcribe(
-                    audioSamples: samples,
-                    sampleRate: 16000,
-                    mode: effectiveMode,
-                    context: context
-                )
+                let sessionID = UUID().uuidString
+                guard try job.start({ try bridge.startSession(sessionId: sessionID) }, onCancel: { bridge.cancelSession(sessionId: sessionID) }) else { return }
+                defer { job.finish(); bridge.cancelSession(sessionId: sessionID) }
+                let recognized = try bridge.processChunk(sessionId: sessionID, audioSamples: samples,
+                    sampleRate: 16000, chunkIndex: 0, mode: effectiveMode, context: context)
+                DispatchQueue.main.async {
+                    guard self.speechGeneration == generation else { return }
+                    self.liveTranscription = recognized.text
+                    self.lastTranscription = recognized.text
+                }
+                let result = try bridge.finishSession(sessionId: sessionID, mode: effectiveMode,
+                    context: context, source: "push_to_talk")
 
                 DispatchQueue.main.async {
+                    guard self.speechGeneration == generation else { return }
+                    self.closeProcessing()
                     self.isProcessing = false
                     self.lastTranscription = result.text
+                    self.historyRevision &+= 1
                     self.errorMessage = nil
 
                     if !result.text.isEmpty {
@@ -1562,6 +1622,8 @@ class AppState: ObservableObject {
                 }
             } catch {
                 DispatchQueue.main.async {
+                    guard self.speechGeneration == generation else { return }
+                    self.closeProcessing()
                     self.isProcessing = false
                     self.errorMessage = "Transcription failed: \(error.localizedDescription)"
                     NSLog("[Parakatt] Transcription FAILED: %@", error.localizedDescription)
@@ -1581,6 +1643,7 @@ class AppState: ObservableObject {
 
         do {
             try bridge.startSession(sessionId: sessionId)
+            watchProcessing(sessionID: sessionId)
         } catch {
             NSLog("[Parakatt] Failed to start PTT session: %@ — will use single-shot on stop",
                   error.localizedDescription)
@@ -1683,7 +1746,7 @@ class AppState: ObservableObject {
         let context = contextService?.currentContext()
         let mode = activeMode
 
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        transcriptionQueue.async { [weak self] in
             guard let self, let bridge = self.bridge else { return }
 
             self.pttChunkLock.lock()
@@ -1705,7 +1768,7 @@ class AppState: ObservableObject {
                     NSLog("[Parakatt] PTT chunk %d LLM degraded (raw text used): %@", currentIndex, llmErr)
                 }
                 DispatchQueue.main.async {
-                    if self.isRecording || self.isProcessing {
+                    if self.pttSessionId == sessionId && (self.isRecording || self.isProcessing) {
                         let newAccumulated = acc.isEmpty ? nil : acc
                         self.pttAccumulatedText = newAccumulated
                         // Immediately update live display to prevent flash/disappearance
@@ -1983,11 +2046,11 @@ class AppState: ObservableObject {
         let meterNow = CFAbsoluteTimeGetCurrent()
         if meterNow - lastMeterUpdate >= 0.05 {
             lastMeterUpdate = meterNow
-        DispatchQueue.main.async {
-            self.currentAudioLevel = smoothed
-            self.silenceDetected = self.silentCallbackCount >= self.silenceCallbackThreshold
-            if clipping { self.audioClippingDetected = true }
-        }
+            DispatchQueue.main.async {
+                self.currentAudioLevel = smoothed
+                self.silenceDetected = self.silentCallbackCount >= self.silenceCallbackThreshold
+                if clipping { self.audioClippingDetected = true }
+            }
         }
 
         sampleCount += 1
