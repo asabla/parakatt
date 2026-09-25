@@ -34,7 +34,10 @@
     "macos_14_macho_targets": "passed",
     "workflow_yaml_parse": "passed",
     "python_compile": "passed",
-    "shell_syntax": "passed"
+    "shell_syntax": "passed",
+    "default_make": "passed after local tool and Xcode directory fixes",
+    "make_release": "passed",
+    "release_product_discovery": "passed"
   },
   "providers": {
     "mock_http": "passed",

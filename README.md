@@ -42,7 +42,7 @@ Use the Rust version in `rust-toolchain.toml`. You also need [XcodeGen](https://
 # Install build tools
 ./scripts/install-xcodegen.sh  # XcodeGen 2.46.0
 export PATH="/tmp/parakatt-xcodegen/.build/release:$PATH"
-cargo install cargo-swift --version 0.11.1 --locked
+cargo install cargo-swift --version 0.11.1 --locked --root target/tools
 
 # Build everything
 make all
@@ -50,6 +50,8 @@ make all
 # Run the app
 make run
 ```
+
+Make prefers tools in `target/tools/bin` and uses `target/xcode` for Xcode build output. This keeps generated bindings separate from older global Xcode artifacts. Set `PARAKATT_DERIVED_DATA` to use a different build directory.
 
 ## Permissions
 

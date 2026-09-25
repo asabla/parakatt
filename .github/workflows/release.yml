@@ -50,7 +50,7 @@ jobs:
           cargo fmt --check
           cargo clippy --locked --all-targets --all-features -- -D warnings
           cargo test --locked
-          xcodebuild test -project Parakatt.xcodeproj -scheme Parakatt -destination 'platform=macOS' CODE_SIGN_IDENTITY="-" CODE_SIGNING_REQUIRED=NO
+          xcodebuild test -project Parakatt.xcodeproj -scheme Parakatt -derivedDataPath target/xcode -destination 'platform=macOS' CODE_SIGN_IDENTITY="-" CODE_SIGNING_REQUIRED=NO
         env:
           PARAKATT_DATA_ROOT: ${{ github.workspace }}/target/release-test-data
 

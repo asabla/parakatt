@@ -86,6 +86,7 @@ jobs:
           xcodebuild test \
             -project Parakatt.xcodeproj \
             -scheme Parakatt \
+            -derivedDataPath target/xcode \
             -destination 'platform=macOS' \
             -only-testing:ParakattTests \
             CODE_SIGN_IDENTITY="-" \
