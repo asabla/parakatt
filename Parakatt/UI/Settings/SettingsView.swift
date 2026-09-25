@@ -223,6 +223,7 @@ struct ModelsSettingsView: View {
                     .background(.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
                 }
 
+                SpeechPreferencesView(appState: appState, models: models, recording: appState.recording)
 
                 ForEach(models, id: \.id) { model in
                     ModelRowView(model: model)
@@ -238,6 +239,65 @@ struct ModelsSettingsView: View {
 
     private func refreshModels() {
         appState.queryModels { models = $0 }
+    }
+}
+
+private struct SpeechPreferencesView: View {
+    let appState: AppState
+    let models: [ParakattCore.ModelInfo]
+    @ObservedObject var recording: RecordingCoordinator
+    @State private var settings: SpeechSettings?
+    @State private var previewEnabled = true
+    @State private var runtimeStatus: SpeechRuntimeStatus?
+    @State private var statusQueryActive = false
+
+    private func refreshStatus() {
+        guard !statusQueryActive else { return }
+        statusQueryActive = true
+        appState.querySpeechStatus { runtimeStatus = $0; statusQueryActive = false }
+    }
+
+    var body: some View {
+        GroupBox("Speech settings") {
+            VStack(alignment: .leading, spacing: 12) {
+                if let status = runtimeStatus {
+                    Text("Execution backend: \(status.actualBackend == .webGpu ? "WebGPU encoder + CPU decoder" : "CPU")")
+                    switch status.readiness {
+                    case .unavailable: Text("Preview model: unavailable")
+                    case .loading: Text("Preview model: loading")
+                    case .ready: Text("Preview model: ready")
+                    case .failed(let message): Text("Preview model failed: \(message)").foregroundStyle(.red)
+                    }
+                    if let message = status.message { Text(message).font(.caption).foregroundStyle(.secondary) }
+                }
+                Toggle("Streaming preview", isOn: $previewEnabled)
+                    .onChange(of: previewEnabled) { _, enabled in appState.setPreviewEnabled(enabled) }
+                if let current = settings {
+                    Picker("Preview model", selection: Binding(get: { current.previewModel ?? "" }, set: { settings?.previewModel = $0.isEmpty ? nil : $0 })) {
+                        Text("Keep current selection").tag("")
+                        ForEach(models.filter { $0.providerType == "nemotron-streaming" }, id: \.id) { model in
+                            Text(model.displayName).tag(model.id)
+                        }
+                    }
+                    Picker("Language", selection: Binding(get: { current.language }, set: { settings?.language = $0 })) {
+                        Text("Automatic").tag(SpeechLanguage.automatic)
+                        Text("English").tag(SpeechLanguage.english)
+                        Text("Swedish").tag(SpeechLanguage.swedish)
+                    }
+                    Picker("Execution", selection: Binding(get: { current.backend }, set: { settings?.backend = $0 })) {
+                        Text("Automatic").tag(SpeechBackend.automatic)
+                        Text("CPU").tag(SpeechBackend.cpu)
+                        Text("WebGPU").tag(SpeechBackend.webGpu)
+                    }
+                    Stepper("CPU threads: \(current.cpuThreads == 0 ? "Automatic" : String(current.cpuThreads))", value: Binding(get: { current.cpuThreads }, set: { settings?.cpuThreads = $0 }), in: 0...64)
+                    Text("Automatic uses validated combinations. WebGPU uses CPU if validation or runtime support is missing. Download a preview model below before selecting it.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Button("Apply speech settings") { if let settings { appState.saveSpeechSettings(settings) } }
+                        .disabled(recording.isRecording || recording.isProcessing || appState.isMeetingActive)
+                }
+            }.padding(8)
+        }.onAppear { settings = appState.speechSettings(); previewEnabled = appState.previewEnabled(); refreshStatus() }
+        .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in refreshStatus() }
     }
 }
 

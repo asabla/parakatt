@@ -1,6 +1,8 @@
 .PHONY: all rust swift-package swift-package-force xcode build release package test clean run launcher
 
 export MACOSX_DEPLOYMENT_TARGET := 14.0
+export PARAKATT_SPEECH_FEATURES ?= webgpu
+# Use the selected Xcode SDK, including when Command Line Tools has a newer SDK.
 export SDKROOT ?= $(shell xcodebuild -version -sdk macosx Path 2>/dev/null)
 
 VERSION := 0.1.0
@@ -14,7 +16,7 @@ all: rust swift-package xcode build
 
 # Build the Rust core library
 rust:
-	cargo build --locked --release -p parakatt-core
+	cargo build --locked --release -p parakatt-core --features "$(PARAKATT_SPEECH_FEATURES)"
 
 # Run Rust tests
 test:
@@ -40,7 +42,7 @@ release:
 	xcodebuild -project Parakatt.xcodeproj -scheme Parakatt -configuration Release ARCHS=arm64 build
 
 # Get the Release build products directory
-RELEASE_BUILD_DIR = $(shell xcodebuild -project Parakatt.xcodeproj -scheme Parakatt -configuration Release -showBuildSettings 2>/dev/null | grep ' BUILT_PRODUCTS_DIR' | awk '{print $$NF}')
+RELEASE_BUILD_DIR = $(shell python3 scripts/build-products.py Release)
 
 # Build the stable launcher binary once and store it in bin/.
 # This binary should be committed or stored as a release artifact.
@@ -70,7 +72,8 @@ package: verify-launcher release
 	fi
 	@echo "Swapping in stable launcher binary..."
 	cp "$(LAUNCHER_BIN)" "$(RELEASE_BUILD_DIR)/$(APP_NAME).app/Contents/MacOS/$(APP_NAME)"
-	python3 scripts/verify-launcher.py "$(RELEASE_BUILD_DIR)/$(APP_NAME).app/Contents/MacOS/$(APP_NAME)"
+	python3 scripts/verify-app.py "$(RELEASE_BUILD_DIR)/$(APP_NAME).app"
+	python3 scripts/smoke-app.py "$(RELEASE_BUILD_DIR)/$(APP_NAME).app"
 	@mkdir -p dist
 	ditto -c -k --keepParent "$(RELEASE_BUILD_DIR)/$(APP_NAME).app" "dist/$(ZIP_NAME)"
 	@echo "Created dist/$(ZIP_NAME)"
@@ -102,19 +105,11 @@ run-detached:
 
 # Download the Parakeet TDT 0.6B v3 multilingual ONNX model (~2.55GB)
 download-model:
-	@mkdir -p "$(HOME)/Library/Application Support/Parakatt/models/parakeet-tdt-0.6b-v3"
-	@echo "Downloading Parakeet TDT 0.6B v3 ONNX model..."
-	@cd "$(HOME)/Library/Application Support/Parakatt/models/parakeet-tdt-0.6b-v3" && \
-		curl -L -O "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main/vocab.txt" && \
-		curl -L -O "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main/decoder_joint-model.onnx" && \
-		curl -L -O "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main/encoder-model.onnx" && \
-		curl -L -O "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main/encoder-model.onnx.data"
-	@echo "Model downloaded to ~/Library/Application Support/Parakatt/models/parakeet-tdt-0.6b-v3/"
+	cargo run --locked --release --example install_model -- "$(HOME)/Library/Application Support/Parakatt/models" parakeet-tdt-0.6b-v3
 
 # Run the Parakeet integration test (requires model)
 test-integration:
-	cargo build --locked --example test_parakeet -p parakatt-core
-	./target/debug/examples/test_parakeet
+	cargo test --locked --release --test integration_test test_parakeet_transcription -- --ignored --exact
 
 # Clean all build artifacts
 clean:
@@ -129,4 +124,13 @@ verify-launcher:
 	python3 scripts/verify-launcher.py
 
 benchmark:
+	cargo build --locked --release --example model_bench
 	python3 scripts/benchmark.py $(ARGS)
+
+# Candidate package only. Production selection still requires a validation matrix entry.
+swift-package-webgpu:
+	PARAKATT_SPEECH_FEATURES=webgpu python3 scripts/swift-package.py
+
+benchmark-streaming:
+	cargo build --locked --release --example streaming_bench
+	python3 scripts/benchmark.py --streaming --model-id nemotron-3.5-asr-streaming-0.6b --binary "$(CURDIR)/target/release/examples/streaming_bench" $(ARGS)

@@ -272,7 +272,14 @@ impl Engine {
                 let manifest = models::model_file_set(model_id)
                     .ok_or_else(|| CoreError::ModelNotFound(model_id.into()))?;
                 models::verify_model(&model_path, manifest)?;
-                Box::new(ParakeetProvider::load(&model_path, model_id)?)
+                let settings = self.get_speech_settings();
+                Box::new(ParakeetProvider::load_with_backend(
+                    &model_path,
+                    model_id,
+                    crate::speech::validated_backend(&settings),
+                    settings.cpu_threads,
+                    true,
+                )?)
             }
         } else {
             return Err(CoreError::ModelNotFound(format!(

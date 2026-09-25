@@ -4,11 +4,27 @@ use std::{io::BufRead, path::Path, time::Instant};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let directory = std::env::args().nth(1).ok_or("missing model directory")?;
+    let backend_name = std::env::args().nth(2).unwrap_or_else(|| "cpu".into());
+    let backend = match backend_name.as_str() {
+        "cpu" => parakatt_core::speech::SpeechBackend::Cpu,
+        "webgpu" => parakatt_core::speech::SpeechBackend::WebGpu,
+        _ => return Err("invalid backend".into()),
+    };
+    let threads: u32 = std::env::args()
+        .nth(3)
+        .unwrap_or_else(|| "0".into())
+        .parse()?;
     let started = Instant::now();
-    let provider = ParakeetProvider::load(Path::new(&directory), "parakeet-tdt-0.6b-v3")?;
+    let provider = ParakeetProvider::load_with_backend(
+        Path::new(&directory),
+        "parakeet-tdt-0.6b-v3",
+        backend,
+        threads,
+        false,
+    )?;
     println!(
         "{}",
-        serde_json::json!({"load_secs": started.elapsed().as_secs_f64(), "backend": "cpu"})
+        serde_json::json!({"load_secs": started.elapsed().as_secs_f64(), "backend": format!("{:?}", provider.actual_backend()), "cpu_threads": threads})
     );
     for line in std::io::stdin().lock().lines() {
         let path = line?;
@@ -28,7 +44,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let result = provider.transcribe(&samples, spec.sample_rate)?;
         println!(
             "{}",
-            serde_json::json!({"path": path, "text": result.text, "inference_secs": start.elapsed().as_secs_f64(), "audio_secs": samples.len() as f64 / 16000.0})
+            serde_json::json!({"backend": format!("{:?}", provider.actual_backend()), "path": path, "text": result.text, "inference_secs": start.elapsed().as_secs_f64(), "audio_secs": samples.len() as f64 / 16000.0})
         );
     }
     Ok(())
