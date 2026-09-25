@@ -1105,6 +1105,42 @@ private struct NewModeSheet: View {
     }
 }
 
+private struct GenerationPreferencesView: View {
+    let appState: AppState
+    @State private var generation: GenerationSettings?
+    @State private var controls: [String] = []
+    @State private var selectedControl = ""
+    var body: some View {
+        GroupBox("Processing limits") {
+            VStack(alignment: .leading, spacing: 10) {
+                if let current = generation {
+                    Stepper("Maximum output tokens: \(current.outputLimit)", value: Binding(get: { current.outputLimit }, set: { generation?.outputLimit = $0 }), in: 256...32768, step: 256)
+                    if appState.llmProvider == "ollama" {
+                        TextField("Keep model loaded (for example, 5m)", text: Binding(get: { current.keepAlive }, set: { generation?.keepAlive = $0 }))
+                        Picker("Thinking", selection: $selectedControl) {
+                            Text("Model default").tag("")
+                            ForEach(controls, id: \.self) { value in Text(value.replacingOccurrences(of: "\"", with: "")).tag(value) }
+                        }
+                        Button("Read model capabilities") { appState.thinkingControls { controls = $0 } }
+                    }
+                    if let error = appState.settings.credentialError { Text(error).foregroundStyle(.red) }
+                    Button("Apply processing limits") {
+                        guard var generation else { return }
+                        generation.think = selectedControl == "true" ? true : selectedControl == "false" ? false : nil
+                        generation.thinkingLevel = selectedControl.hasPrefix("\"") ? selectedControl.trimmingCharacters(in: CharacterSet(charactersIn: "\"")) : nil
+                        appState.saveGenerationSettings(generation)
+                    }
+                }
+            }.padding(8)
+        }.onAppear {
+            generation = appState.generationSettings()
+            if let level = generation?.thinkingLevel, let data = try? JSONEncoder().encode(level) { selectedControl = String(data: data, encoding: .utf8) ?? "" }
+            else if let think = generation?.think { selectedControl = think ? "true" : "false" }
+            if !selectedControl.isEmpty { controls = [selectedControl] }
+        }
+    }
+}
+
 // MARK: - LLM Settings
 
 struct LlmSettingsView: View {
@@ -1126,6 +1162,7 @@ struct LlmSettingsView: View {
         ProviderOption(id: "ollama", label: "Ollama", description: "Local inference server", icon: "desktopcomputer", color: .blue),
         ProviderOption(id: "lmstudio", label: "LM Studio", description: "Local model runtime", icon: "cpu.fill", color: .purple),
         ProviderOption(id: "openai", label: "OpenAI", description: "Remote API — requires key", icon: "globe", color: .green),
+        ProviderOption(id: "anthropic", label: "Anthropic", description: "Remote API — requires key", icon: "globe", color: .orange),
     ]
 
     var body: some View {
@@ -1146,10 +1183,8 @@ struct LlmSettingsView: View {
                                 provider: provider,
                                 isSelected: appState.llmProvider == provider.id
                             ) {
-                                appState.llmProvider = provider.id
-                                setDefaults(for: provider.id)
+                                appState.selectLlmProvider(provider.id)
                                 availableModels = []
-                                appState.llmModel = ""
                                 statusMessage = ""
                             }
                         }
@@ -1170,7 +1205,7 @@ struct LlmSettingsView: View {
                         }
 
                         VStack(alignment: .leading, spacing: 10) {
-                            if appState.llmProvider == "openai" {
+                            if ["openai", "anthropic"].contains(appState.llmProvider) {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text("API Key")
                                         .font(.caption)
@@ -1251,6 +1286,8 @@ struct LlmSettingsView: View {
                         .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
                     }
 
+                    GenerationPreferencesView(appState: appState)
+
                     // MARK: How it works
                     HStack(alignment: .top, spacing: 8) {
                         Image(systemName: "info.circle.fill")
@@ -1278,6 +1315,8 @@ struct LlmSettingsView: View {
             appState.llmBaseUrl = "http://localhost:1234"
         case "openai":
             appState.llmBaseUrl = "https://api.openai.com"
+        case "anthropic":
+            appState.llmBaseUrl = "https://api.anthropic.com"
         default:
             break
         }
@@ -1295,16 +1334,13 @@ struct LlmSettingsView: View {
                 availableModels = models
                 if models.isEmpty {
                     statusMessage = "No models found — is the server running?"
-                } else if models.count == 1 {
-                    appState.llmModel = models[0]
                 }
             }
         }
     }
 
     private func applyConfig() {
-        appState.configureLlm()
-        statusMessage = "OK — \(appState.llmModel)"
+        statusMessage = appState.configureLlm() ? "OK — \(appState.llmModel)" : (appState.errorMessage ?? "Configuration failed")
     }
 
     private func testConnection() {

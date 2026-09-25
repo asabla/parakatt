@@ -802,21 +802,68 @@ class AppState: ObservableObject {
     }
 
     func loadLlmApiKeyFromKeychain() {
+        guard let bridge else { return }
+        if let legacy = KeychainService.get("llm-api-key"), KeychainService.get("llm-api-key-openai") == nil {
+            if KeychainService.set(legacy, forKey: "llm-api-key-openai") { KeychainService.delete("llm-api-key") }
+        }
+        settings.credentialAccountResolver = { [weak bridge] provider in bridge?.credentialAccount(provider) ?? "llm-api-key-\(provider)" }
+        for credential in bridge.legacyCredentials() {
+            let account = credential.account
+            do {
+                let migrated = try CredentialMigration.migrate(value: credential.apiKey, account: account) {
+                    try bridge.acknowledgeCredentialMigration(credential)
+                }
+                if !migrated { errorMessage = "Could not migrate the API key to Keychain. Existing configuration was retained." }
+            } catch { errorMessage = "Could not complete credential migration. Existing configuration was retained." }
+        }
+        let saved = bridge.getLlmSettings()
+        settings.llmProvider = saved.provider
+        settings.llmBaseUrl = saved.baseUrl
+        settings.llmModel = saved.model
         settings.loadLlmApiKeyFromKeychain()
+        if !saved.provider.isEmpty && !saved.model.isEmpty { configureLlm() }
     }
 
-    func configureLlm() {
+    func selectLlmProvider(_ provider: String) {
+        guard let saved = bridge?.getProviderSettings(provider) else { return }
+        try? bridge?.configureLlm(provider: "", baseUrl: "", model: "", apiKey: nil)
+        llmProvider = provider
+        llmBaseUrl = saved.baseUrl
+        llmModel = saved.model
+        if provider.isEmpty { configureLlm() }
+    }
+    func generationSettings() -> GenerationSettings? { bridge?.getGenerationSettings() }
+    func saveGenerationSettings(_ settings: GenerationSettings) {
+        do { try bridge?.setGenerationSettings(settings); configureLlm() }
+        catch { errorMessage = error.localizedDescription }
+    }
+    func thinkingControls(completion: @escaping ([String]) -> Void) {
+        guard let bridge, llmProvider == "ollama", !llmModel.isEmpty else { completion([]); return }
+        let base = llmBaseUrl, model = llmModel
+        DispatchQueue.global(qos: .userInitiated).async {
+            let controls = (try? bridge.ollamaThinkingControls(baseUrl: base, model: model)) ?? []
+            DispatchQueue.main.async { completion(controls) }
+        }
+    }
+
+    @discardableResult
+    func configureLlm() -> Bool {
+        guard let bridge else { return false }
+        if let message = settings.credentialError { errorMessage = message; return false }
         do {
             let key = llmApiKey.isEmpty ? nil : llmApiKey
-            try bridge?.configureLlm(
+            try bridge.configureLlm(
                 provider: llmProvider,
                 baseUrl: llmBaseUrl,
                 model: llmModel,
                 apiKey: key
             )
             NSLog("[Parakatt] LLM configured: provider=%@, model=%@", llmProvider, llmModel)
+            return true
         } catch {
+            errorMessage = error.localizedDescription
             NSLog("[Parakatt] LLM config failed: %@", error.localizedDescription)
+            return false
         }
     }
 

@@ -1,3 +1,4 @@
+use std::io::Write;
 /// Configuration management.
 ///
 /// Settings are stored in TOML format in the app's config directory.
@@ -123,6 +124,8 @@ impl Default for SttConfig {
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct LlmConfig {
+    #[serde(default)]
+    pub generation: crate::llm::GenerationSettings,
     /// Which LLM provider to use: "ollama", "lmstudio", "openai", "anthropic"
     pub active_provider: Option<String>,
     #[serde(default)]
@@ -170,12 +173,16 @@ impl Default for LmStudioConfig {
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct OpenAiConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential_account: Option<String>,
     pub api_key: Option<String>,
     pub model: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct AnthropicConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential_account: Option<String>,
     pub api_key: Option<String>,
     pub model: Option<String>,
 }
@@ -235,8 +242,7 @@ impl Config {
             .map_err(|e| CoreError::ConfigError(format!("Failed to serialize config: {e}")))?;
 
         let path = config_path(config_dir);
-        std::fs::write(&path, content)
-            .map_err(|e| CoreError::IoError(format!("Failed to write config: {e}")))?;
+        atomic_write(&path, content.as_bytes())?;
 
         Ok(())
     }
@@ -245,19 +251,48 @@ impl Config {
 
     /// Save the current config as a named profile.
     pub fn save_profile(&self, config_dir: &Path, name: &str) -> Result<(), CoreError> {
+        if self.llm.openai.api_key.is_some() || self.llm.anthropic.api_key.is_some() {
+            return Err(CoreError::ConfigError(
+                "Complete credential migration before saving a profile".into(),
+            ));
+        }
         let profiles_dir = config_dir.join("profiles");
         std::fs::create_dir_all(&profiles_dir)
             .map_err(|e| CoreError::IoError(format!("Failed to create profiles dir: {e}")))?;
 
-        let content = toml::to_string_pretty(self)
+        let mut profile = self.clone();
+        profile.llm.openai.api_key = None;
+        profile.llm.anthropic.api_key = None;
+        let content = toml::to_string_pretty(&profile)
             .map_err(|e| CoreError::ConfigError(format!("Failed to serialize profile: {e}")))?;
 
         let path = profiles_dir.join(format!("{name}.toml"));
-        std::fs::write(&path, content)
-            .map_err(|e| CoreError::IoError(format!("Failed to write profile: {e}")))?;
+        atomic_write(&path, content.as_bytes())?;
 
         log::info!("Saved profile: {name}");
         Ok(())
+    }
+
+    /// Used only after the corresponding Keychain storage succeeds. Other
+    /// providers' unmigrated credentials must remain in the source file.
+    pub(crate) fn write_migrated_profile(
+        &self,
+        config_dir: &Path,
+        name: &str,
+    ) -> Result<(), CoreError> {
+        if name.is_empty()
+            || name.contains('/')
+            || name.contains('\\')
+            || name == "."
+            || name == ".."
+        {
+            return Err(CoreError::ConfigError("Invalid profile name".into()));
+        }
+        let directory = config_dir.join("profiles");
+        std::fs::create_dir_all(&directory).map_err(|e| CoreError::IoError(e.to_string()))?;
+        let text =
+            toml::to_string_pretty(self).map_err(|e| CoreError::ConfigError(e.to_string()))?;
+        atomic_write(&directory.join(format!("{name}.toml")), text.as_bytes())
     }
 
     /// Load a named profile, replacing the current config.
@@ -320,6 +355,27 @@ fn config_path(config_dir: &Path) -> PathBuf {
     config_dir.join("config.toml")
 }
 
+fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), CoreError> {
+    let temporary = path.with_extension(format!("{}.tmp", uuid::Uuid::new_v4()));
+    let result = (|| -> std::io::Result<()> {
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options.open(&temporary)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        std::fs::rename(&temporary, path)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    result.map_err(|e| CoreError::IoError(format!("Failed to replace configuration: {e}")))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -340,5 +396,30 @@ mod tests {
     fn test_load_missing_file() {
         let config = Config::load(Path::new("/tmp/parakatt-test-nonexistent")).unwrap();
         assert_eq!(config.general.active_mode, "dictation");
+    }
+    #[test]
+    fn legacy_settings_keep_explicit_selections_and_credentials_until_acknowledged() {
+        let mut config = Config::default();
+        config.general.streaming_preview_enabled = false;
+        config.llm.openai.model = Some("configured-model-id".into());
+        config.llm.openai.api_key = Some("mock-legacy-key".into());
+        let encoded = toml::to_string(&config).unwrap();
+        let decoded: Config = toml::from_str(&encoded).unwrap();
+        assert!(!decoded.general.streaming_preview_enabled);
+        assert_eq!(
+            decoded.llm.openai.model.as_deref(),
+            Some("configured-model-id")
+        );
+        assert_eq!(
+            decoded.llm.openai.api_key.as_deref(),
+            Some("mock-legacy-key")
+        );
+        let dir = tempfile::tempdir().unwrap();
+        assert!(decoded.save_profile(dir.path(), "example").is_err());
+        let credential = crate::credentials::pending(&decoded, dir.path()).remove(0);
+        let migrated = crate::credentials::migrate(&decoded, &credential).unwrap();
+        migrated.save_profile(dir.path(), "example").unwrap();
+        let profile = std::fs::read_to_string(dir.path().join("profiles/example.toml")).unwrap();
+        assert!(!profile.contains("mock-legacy-key"));
     }
 }

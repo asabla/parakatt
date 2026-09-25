@@ -2,6 +2,7 @@
 ///
 /// LLM providers are used for post-processing transcribed text:
 /// grammar correction, formatting, context-aware rewriting, etc.
+pub mod http;
 pub mod ollama;
 pub mod openai;
 
@@ -40,4 +41,36 @@ pub trait LlmProvider: Send + Sync {
 
     /// Whether the provider is currently reachable.
     fn is_available(&self) -> bool;
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct LlmSettings {
+    pub provider: String,
+    pub base_url: String,
+    pub model: String,
+}
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct LegacyCredential {
+    pub profile: Option<String>,
+    pub account: String,
+    pub provider: String,
+    pub api_key: String,
+}
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, uniffi::Record)]
+#[serde(default)]
+pub struct GenerationSettings {
+    pub output_limit: u32,
+    pub keep_alive: String,
+    pub think: Option<bool>,
+    pub thinking_level: Option<String>,
+}
+impl Default for GenerationSettings {
+    fn default() -> Self {
+        Self {
+            output_limit: 4096,
+            keep_alive: "5m".into(),
+            think: None,
+            thinking_level: None,
+        }
+    }
 }

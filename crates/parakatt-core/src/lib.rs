@@ -1,5 +1,6 @@
 pub mod audio;
 pub mod config;
+mod credentials;
 pub mod dictionary;
 pub mod download;
 pub mod engine;
