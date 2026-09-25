@@ -22,21 +22,30 @@ final class SettingsCoordinator: ObservableObject {
 
     // MARK: - LLM connection
 
-    @Published var llmProvider: String = ""
+    @Published var llmProvider: String = "" {
+        didSet { if oldValue != llmProvider { loadLlmApiKeyFromKeychain() } }
+    }
+    var credentialAccountResolver: ((String) -> String)?
+    private var credentialAccount: String { credentialAccountResolver?(llmProvider) ?? "llm-api-key-\(llmProvider)" }
+    private var loadingCredential = false
+    @Published var credentialError: String?
     @Published var llmBaseUrl: String = "http://localhost:11434"
     @Published var llmModel: String = "llama3.2"
     @Published var llmApiKey: String = "" {
         didSet {
             // Persist API key to Keychain instead of config file.
-            KeychainService.set(llmApiKey, forKey: "llm-api-key")
+            if !loadingCredential && ["openai", "anthropic"].contains(llmProvider) {
+                credentialError = KeychainService.set(llmApiKey, forKey: credentialAccount) ? nil : "Could not store the API key in Keychain."
+            }
         }
     }
 
     /// Pull the API key out of Keychain (called at startup so the
     /// in-memory copy matches what's persisted).
     func loadLlmApiKeyFromKeychain() {
-        if let key = KeychainService.get("llm-api-key") {
-            llmApiKey = key
-        }
+        loadingCredential = true
+        credentialError = nil
+        llmApiKey = KeychainService.get(credentialAccount) ?? ""
+        loadingCredential = false
     }
 }

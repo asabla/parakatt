@@ -1045,60 +1045,121 @@ impl Engine {
         model: String,
         api_key: Option<String>,
     ) -> Result<(), CoreError> {
-        let llm: Option<Arc<dyn LlmProvider>> = match provider.as_str() {
-            "ollama" => Some(Arc::new(crate::llm::ollama::OllamaProvider::new(
-                &base_url, &model,
-            )?)),
-            "lmstudio" => Some(Arc::new(
-                crate::llm::openai::OpenAiCompatibleProvider::lmstudio(&base_url, &model)?,
-            )),
-            "openai" => {
-                let key = api_key
-                    .clone()
-                    .ok_or_else(|| CoreError::ConfigError("OpenAI requires an API key".into()))?;
-                Some(Arc::new(
-                    crate::llm::openai::OpenAiCompatibleProvider::openai(&key, &model)?,
-                ))
-            }
-            "" | "none" => None,
-            other => {
-                return Err(CoreError::ConfigError(format!(
-                    "Unknown LLM provider: {other}"
-                )));
-            }
-        };
-
-        // Update runtime state
-        let mut llm_guard = crate::util::lock_named(&self.llm, "LLM", CoreError::ConfigError)?;
-        *llm_guard = llm;
-
-        // Persist to config
-        let mut config_guard =
-            crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
-        config_guard.llm.active_provider = if provider.is_empty() || provider == "none" {
-            None
-        } else {
-            Some(provider.clone())
-        };
+        let mut config = self.config.lock().unwrap();
+        let generation = config.llm.generation.clone();
+        let http = Self::build_llm(&provider, &base_url, &model, api_key, &generation)?;
+        config.llm.active_provider =
+            (!provider.is_empty() && provider != "none").then_some(provider.clone());
         match provider.as_str() {
             "ollama" => {
-                config_guard.llm.ollama.base_url = base_url;
-                config_guard.llm.ollama.model = model;
+                config.llm.ollama.base_url = base_url;
+                config.llm.ollama.model = model;
             }
             "lmstudio" => {
-                config_guard.llm.lmstudio.base_url = base_url;
-                config_guard.llm.lmstudio.model = Some(model);
+                config.llm.lmstudio.base_url = base_url;
+                config.llm.lmstudio.model = Some(model);
             }
-            "openai" => {
-                config_guard.llm.openai.api_key = api_key;
-                config_guard.llm.openai.model = Some(model);
-            }
+            "openai" => config.llm.openai.model = Some(model),
+            "anthropic" => config.llm.anthropic.model = Some(model),
             _ => {}
         }
-        if let Err(e) = config_guard.save(&self.config_dir) {
-            log::warn!("Failed to persist LLM configuration to config: {e}");
-        }
+        // API keys remain in memory. Legacy TOML keys are removed only after
+        // Swift confirms successful provider-specific Keychain migration.
+        config.save(&self.config_dir)?;
+        drop(config);
+        *self.llm.lock().unwrap() = http;
+        Ok(())
+    }
 
+    pub fn get_llm_settings(&self) -> crate::llm::LlmSettings {
+        let provider = self
+            .config
+            .lock()
+            .unwrap()
+            .llm
+            .active_provider
+            .clone()
+            .unwrap_or_default();
+        self.get_provider_settings(provider)
+    }
+    pub fn get_provider_settings(&self, provider: String) -> crate::llm::LlmSettings {
+        let config = self.config.lock().unwrap();
+        let (base_url, model) = match provider.as_str() {
+            "ollama" => (
+                config.llm.ollama.base_url.clone(),
+                config.llm.ollama.model.clone(),
+            ),
+            "lmstudio" => (
+                config.llm.lmstudio.base_url.clone(),
+                config.llm.lmstudio.model.clone().unwrap_or_default(),
+            ),
+            "openai" => (
+                "https://api.openai.com".into(),
+                config.llm.openai.model.clone().unwrap_or_default(),
+            ),
+            "anthropic" => (
+                "https://api.anthropic.com".into(),
+                config.llm.anthropic.model.clone().unwrap_or_default(),
+            ),
+            _ => (String::new(), String::new()),
+        };
+        crate::llm::LlmSettings {
+            provider,
+            base_url,
+            model,
+        }
+    }
+    pub fn get_generation_settings(&self) -> crate::llm::GenerationSettings {
+        self.config.lock().unwrap().llm.generation.clone()
+    }
+    pub fn set_generation_settings(
+        &self,
+        settings: crate::llm::GenerationSettings,
+    ) -> Result<(), CoreError> {
+        if settings.output_limit == 0
+            || settings.output_limit > 32768
+            || settings.keep_alive.len() > 20
+            || settings
+                .thinking_level
+                .as_ref()
+                .is_some_and(|v| v.len() > 40)
+            || (settings.think.is_some() && settings.thinking_level.is_some())
+        {
+            return Err(CoreError::ConfigError("Invalid generation limits".into()));
+        }
+        let mut config = self.config.lock().unwrap();
+        config.llm.generation = settings;
+        config.save(&self.config_dir)
+    }
+    pub fn legacy_credentials(&self) -> Vec<crate::llm::LegacyCredential> {
+        crate::credentials::pending(&self.config.lock().unwrap(), &self.config_dir)
+    }
+    pub fn credential_account(&self, provider: String) -> String {
+        let config = self.config.lock().unwrap();
+        let reference = match provider.as_str() {
+            "openai" => config.llm.openai.credential_account.clone(),
+            "anthropic" => config.llm.anthropic.credential_account.clone(),
+            _ => None,
+        };
+        reference.unwrap_or_else(|| format!("llm-api-key-{provider}"))
+    }
+    pub fn acknowledge_credential_migration(
+        &self,
+        credential: crate::llm::LegacyCredential,
+    ) -> Result<(), CoreError> {
+        let mut config = self.config.lock().unwrap();
+        if let Some(profile) = &credential.profile {
+            if !Config::list_profiles(&self.config_dir).contains(profile) {
+                return Err(CoreError::ConfigError("Unknown profile".into()));
+            }
+            let original = Config::load_profile(&self.config_dir, profile)?;
+            let updated = crate::credentials::migrate(&original, &credential)?;
+            updated.write_migrated_profile(&self.config_dir, profile)?;
+        } else {
+            let updated = crate::credentials::migrate(&config, &credential)?;
+            updated.save(&self.config_dir)?;
+            *config = updated;
+        }
         Ok(())
     }
 
@@ -1124,6 +1185,8 @@ impl Engine {
                 })?;
 
                 let json: serde_json::Value = resp
+                    .error_for_status()
+                    .map_err(|e| CoreError::LlmError(e.to_string()))?
                     .json()
                     .map_err(|e| CoreError::LlmError(format!("Invalid response: {e}")))?;
 
@@ -1138,34 +1201,89 @@ impl Engine {
 
                 Ok(models)
             }
-            "lmstudio" | "openai" => {
-                let models_url = format!("{url}/v1/models");
-                let mut req = client.get(&models_url);
-                if let Some(key) = &api_key {
-                    req = req.header("Authorization", format!("Bearer {key}"));
+            "lmstudio" | "openai" | "anthropic" => {
+                let models_url = if url.ends_with("/v1") {
+                    format!("{url}/models")
+                } else {
+                    format!("{url}/v1/models")
+                };
+                let mut models = Vec::new();
+                let mut cursor: Option<String> = None;
+                for _ in 0..10 {
+                    let mut req = client.get(&models_url);
+                    if provider == "anthropic" {
+                        req = req.query(&[("limit", "1000")]);
+                        if let Some(cursor) = &cursor {
+                            req = req.query(&[("after_id", cursor)]);
+                        }
+                    }
+                    if let Some(key) = &api_key {
+                        req = if provider == "anthropic" {
+                            req.header("x-api-key", key)
+                                .header("anthropic-version", "2023-06-01")
+                        } else {
+                            req.bearer_auth(key)
+                        };
+                    }
+                    let data: serde_json::Value = req
+                        .send()
+                        .and_then(|r| r.error_for_status())
+                        .and_then(|r| r.json())
+                        .map_err(|e| CoreError::LlmError(e.to_string()))?;
+                    let entries = data["data"]
+                        .as_array()
+                        .ok_or_else(|| CoreError::LlmError("Invalid model list".into()))?;
+                    models.extend(
+                        entries
+                            .iter()
+                            .filter_map(|m| m["id"].as_str().map(str::to_string)),
+                    );
+                    if provider != "anthropic" || data["has_more"].as_bool() != Some(true) {
+                        return Ok(models);
+                    }
+                    let next = data["last_id"]
+                        .as_str()
+                        .ok_or_else(|| CoreError::LlmError("Missing model-list cursor".into()))?
+                        .to_string();
+                    if cursor.as_ref() == Some(&next) {
+                        return Err(CoreError::LlmError("Repeated model-list cursor".into()));
+                    }
+                    cursor = Some(next);
                 }
-
-                let resp = req.send().map_err(|e| {
-                    CoreError::LlmError(format!("Cannot reach {provider} at {url}: {e}"))
-                })?;
-
-                let json: serde_json::Value = resp
-                    .json()
-                    .map_err(|e| CoreError::LlmError(format!("Invalid response: {e}")))?;
-
-                let models = json["data"]
-                    .as_array()
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|m| m["id"].as_str().map(|s| s.to_string()))
-                            .collect()
-                    })
-                    .unwrap_or_default();
-
-                Ok(models)
+                Err(CoreError::LlmError(
+                    "Model-list pagination exceeded its limit".into(),
+                ))
             }
             _ => Err(CoreError::LlmError(format!("Unknown provider: {provider}"))),
         }
+    }
+
+    pub fn ollama_thinking_controls(
+        &self,
+        base_url: String,
+        model: String,
+    ) -> Result<Vec<String>, CoreError> {
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .build()
+            .map_err(|e| CoreError::LlmError(e.to_string()))?;
+        let data: serde_json::Value = client
+            .post(format!("{}/api/show", base_url.trim_end_matches('/')))
+            .json(&serde_json::json!({"model":model}))
+            .send()
+            .and_then(|r| r.error_for_status())
+            .and_then(|r| r.json())
+            .map_err(|e| CoreError::LlmError(e.to_string()))?;
+        Ok(data["thinking"]["values"]
+            .as_array()
+            .map(|values| {
+                values
+                    .iter()
+                    .filter(|v| v.is_boolean() || v.is_string())
+                    .map(|v| v.to_string())
+                    .collect()
+            })
+            .unwrap_or_default())
     }
 
     /// Test the currently configured LLM connection. Returns the provider name
@@ -1173,8 +1291,9 @@ impl Engine {
     pub fn test_llm_connection(&self) -> Result<String, CoreError> {
         let llm_guard = crate::util::lock_named(&self.llm, "LLM", CoreError::LlmError)?;
         let llm = llm_guard
-            .as_ref()
+            .clone()
             .ok_or_else(|| CoreError::LlmError("No LLM provider configured".into()))?;
+        drop(llm_guard);
 
         if llm.is_available() {
             Ok(format!("{} is reachable", llm.name()))
@@ -1973,57 +2092,71 @@ impl Engine {
     }
 
     /// Set up the LLM provider based on current config.
+    fn build_llm(
+        provider: &str,
+        base: &str,
+        model: &str,
+        key: Option<String>,
+        generation: &crate::llm::GenerationSettings,
+    ) -> Result<Option<Arc<dyn LlmProvider>>, CoreError> {
+        use crate::llm::http::{HttpProvider, Wire};
+        if provider.is_empty() || provider == "none" {
+            return Ok(None);
+        }
+        if model.trim().is_empty() {
+            return Err(CoreError::ConfigError(
+                "Select an LLM model before enabling the provider".into(),
+            ));
+        }
+        let remote = provider == "openai" || provider == "anthropic";
+        if remote && key.as_ref().is_none_or(|k| k.is_empty()) {
+            return Err(CoreError::ConfigError("API key required".into()));
+        }
+        let base = base.trim_end_matches('/');
+        let (base, wire) = match provider {
+            "ollama" => (base.into(), Wire::Ollama),
+            "lmstudio" => (
+                if base.ends_with("/v1") {
+                    base.into()
+                } else {
+                    format!("{base}/v1")
+                },
+                Wire::Chat,
+            ),
+            "openai" => ("https://api.openai.com/v1".into(), Wire::Responses),
+            "anthropic" => ("https://api.anthropic.com/v1".into(), Wire::Anthropic),
+            _ => return Err(CoreError::ConfigError("Unknown LLM provider".into())),
+        };
+        let mut http = HttpProvider::new(&base, model, key, wire);
+        http.output_limit = generation.output_limit;
+        http.keep_alive = generation.keep_alive.clone();
+        http.think = generation.think;
+        http.thinking_level = generation.thinking_level.clone();
+        Ok(Some(Arc::new(http)))
+    }
     fn setup_llm_provider(&self) -> Result<(), CoreError> {
-        let config_guard = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
-
-        let provider: Option<Arc<dyn LlmProvider>> =
-            match config_guard.llm.active_provider.as_deref() {
-                Some("ollama") => Some(Arc::new(crate::llm::ollama::OllamaProvider::new(
-                    &config_guard.llm.ollama.base_url,
-                    &config_guard.llm.ollama.model,
-                )?)),
-                Some("lmstudio") => {
-                    let model = config_guard
-                        .llm
-                        .lmstudio
-                        .model
-                        .as_deref()
-                        .unwrap_or("default");
-                    Some(Arc::new(
-                        crate::llm::openai::OpenAiCompatibleProvider::lmstudio(
-                            &config_guard.llm.lmstudio.base_url,
-                            model,
-                        )?,
-                    ))
-                }
-                Some("openai") => {
-                    if let Some(key) = &config_guard.llm.openai.api_key {
-                        let model = config_guard
-                            .llm
-                            .openai
-                            .model
-                            .as_deref()
-                            .unwrap_or("gpt-4o-mini");
-                        Some(Arc::new(
-                            crate::llm::openai::OpenAiCompatibleProvider::openai(key, model)?,
-                        ))
-                    } else {
-                        log::warn!("OpenAI provider selected but no API key configured");
-                        None
-                    }
-                }
-                Some(other) => {
-                    log::warn!("Unknown LLM provider: {other}");
-                    None
-                }
-                None => None,
-            };
-
-        drop(config_guard);
-
-        let mut llm_guard = crate::util::lock_named(&self.llm, "LLM", CoreError::ConfigError)?;
-        *llm_guard = provider;
-
+        let settings = self.get_llm_settings();
+        let config = self.config.lock().unwrap();
+        let key = match settings.provider.as_str() {
+            "openai" => config.llm.openai.api_key.clone(),
+            "anthropic" => config.llm.anthropic.api_key.clone(),
+            _ => None,
+        };
+        if (settings.provider == "openai" || settings.provider == "anthropic") && key.is_none() {
+            return Ok(());
+        }
+        if settings.model.is_empty() {
+            return Ok(());
+        }
+        let provider = Self::build_llm(
+            &settings.provider,
+            &settings.base_url,
+            &settings.model,
+            key,
+            &config.llm.generation,
+        )?;
+        drop(config);
+        *self.llm.lock().unwrap() = provider;
         Ok(())
     }
 }

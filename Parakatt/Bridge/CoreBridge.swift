@@ -63,6 +63,14 @@ class CoreBridge {
     func setSpeechSettings(_ settings: SpeechSettings) throws { try engine.setSpeechSettings(settings: settings) }
     func speechRuntimeStatus() -> SpeechRuntimeStatus { engine.speechRuntimeStatus() }
 
+    func getProviderSettings(_ provider: String) -> LlmSettings { engine.getProviderSettings(provider: provider) }
+    func ollamaThinkingControls(baseUrl: String, model: String) throws -> [String] { try engine.ollamaThinkingControls(baseUrl: baseUrl, model: model) }
+    func getLlmSettings() -> LlmSettings { engine.getLlmSettings() }
+    func getGenerationSettings() -> GenerationSettings { engine.getGenerationSettings() }
+    func setGenerationSettings(_ settings: GenerationSettings) throws { try engine.setGenerationSettings(settings: settings) }
+    func legacyCredentials() -> [LegacyCredential] { engine.legacyCredentials() }
+    func acknowledgeCredentialMigration(_ credential: LegacyCredential) throws { try engine.acknowledgeCredentialMigration(credential: credential) }
+    func credentialAccount(_ provider: String) -> String { engine.credentialAccount(provider: provider) }
     func getTranscriptionProcessing(id: String) throws -> ProcessingSummary { try engine.getTranscriptionProcessing(id: id) }
     func pollTranscriptionEvents(sessionId: String) -> [TranscriptionEvent] { engine.pollTranscriptionEvents(sessionId: sessionId) }
 
