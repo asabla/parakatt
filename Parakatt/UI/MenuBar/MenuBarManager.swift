@@ -439,7 +439,7 @@ class MenuBarManager: NSObject {
 
         let view = TranscriptionHistoryView().environmentObject(appState)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 650, height: 500),
+            contentRect: NSRect(x: 0, y: 0, width: 1040, height: 700),
             styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false

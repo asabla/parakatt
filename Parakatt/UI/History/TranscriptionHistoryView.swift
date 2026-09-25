@@ -11,6 +11,8 @@ struct TranscriptionHistoryView: View {
     @State private var segmentCache: [String: HistoryDetailData] = [:]
     @State private var selectedDetail = HistoryDetailData()
     @State private var searchText = ""
+    @State private var sidebarVisible = true
+    @FocusState private var searchFocused: Bool
     @State private var sourceFilter: String? = nil
     @State private var transcriptions: [StoredTranscription] = []
     @State private var selectedId: String?
@@ -48,18 +50,80 @@ struct TranscriptionHistoryView: View {
         }
     }
 
+    init(selectedId: String? = nil) {
+        _selectedId = State(initialValue: selectedId)
+    }
+
     var body: some View {
-        NavigationSplitView {
-            sidebarContent
-                .navigationSplitViewColumnWidth(min: 280, ideal: 320, max: 420)
-        } detail: {
-            detailContent
+        // Keep controls in the content layout. An implicit navigation toolbar can
+        // extend over the detail header when this view is hosted in an NSWindow.
+        VStack(spacing: 0) {
+            searchBar
+            Divider()
+            HSplitView {
+                if sidebarVisible {
+                    sidebarContent
+                        .frame(minWidth: 260, idealWidth: 300, maxWidth: 380)
+                }
+                detailContent
+                    .frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
-        .frame(minWidth: 700, minHeight: 480)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .frame(minWidth: 760, minHeight: 480)
         .onAppear { refresh() }
         .onReceive(appState.$historyRevision.dropFirst()) { _ in refresh(invalidateCache: true) }
         .onChange(of: selectedId) { loadSegments() }
         .onDisappear { searchTask?.cancel(); queryGeneration = UUID() }
+    }
+
+    private var searchBar: some View {
+        HStack(spacing: 12) {
+            Button {
+                sidebarVisible.toggle()
+            } label: {
+                Image(systemName: "sidebar.left")
+            }
+            .buttonStyle(.plain)
+            .help(sidebarVisible ? "Hide sidebar" : "Show sidebar")
+            .accessibilityLabel("Toggle sidebar")
+            .keyboardShortcut("s", modifiers: [.command, .control])
+
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField("Search transcriptions", text: $searchText)
+                    .textFieldStyle(.plain)
+                    .focused($searchFocused)
+                    .onSubmit { refresh() }
+                if !searchText.isEmpty {
+                    Button {
+                        searchText = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Clear search")
+                    .accessibilityLabel("Clear search")
+                }
+            }
+            .padding(8)
+            .frame(maxWidth: 360)
+            .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .onChange(of: searchText) {
+            if !searchText.isEmpty { sidebarVisible = true }
+            refresh(debounce: true)
+        }
+        .background {
+            Button("Find") { searchFocused = true }
+                .keyboardShortcut("f", modifiers: .command)
+                .hidden()
+        }
     }
 
     // MARK: - Sidebar
@@ -141,6 +205,8 @@ struct TranscriptionHistoryView: View {
                         }
                     }
                     .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                     if !transcriptions.isEmpty {
                         Button {
@@ -183,7 +249,7 @@ struct TranscriptionHistoryView: View {
                         TranscriptionRow(item: item)
                     }
                     .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
-                    .listRowSeparator(.visible)
+                    .listRowSeparator(.hidden)
                     .contentShape(Rectangle())
                     .onTapGesture {
                         if selectedIds.contains(item.id) {
@@ -193,13 +259,13 @@ struct TranscriptionHistoryView: View {
                         }
                     }
                 }
-                .listStyle(.inset(alternatesRowBackgrounds: true))
+                .listStyle(.inset)
             } else {
                 // Normal single-select list
                 List(transcriptions, id: \.id, selection: $selectedId) { item in
                     TranscriptionRow(item: item)
                         .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
-                        .listRowSeparator(.visible)
+                        .listRowSeparator(.hidden)
                         .contextMenu {
                             Button {
                                 copyText(item.text)
@@ -216,12 +282,9 @@ struct TranscriptionHistoryView: View {
                             }
                         }
                 }
-                .listStyle(.inset(alternatesRowBackgrounds: true))
+                .listStyle(.inset)
             }
         }
-        .searchable(text: $searchText, prompt: "Search transcriptions")
-        .onChange(of: searchText) { refresh(debounce: true) }
-        .onSubmit(of: .search) { refresh() }
         .alert("Delete \(selectedIds.count) transcription\(selectedIds.count == 1 ? "" : "s")?",
                isPresented: $showDeleteConfirmation) {
             Button("Cancel", role: .cancel) { }
@@ -410,7 +473,7 @@ private struct TranscriptionRow: View {
             if !item.text.isEmpty {
                 Text(item.text)
                     .font(.subheadline)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(.secondary)
                     .lineLimit(2)
                     .truncationMode(.tail)
             }
