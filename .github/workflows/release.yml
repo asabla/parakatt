@@ -28,7 +28,8 @@ jobs:
 
       - name: Install build tools
         run: |
-          brew install xcodegen create-dmg
+          brew install create-dmg
+          ./scripts/install-xcodegen.sh
           cargo install cargo-swift --version 0.11.0 --locked
 
       - name: Build Rust core
@@ -49,12 +50,8 @@ jobs:
           BUILD_DIR=$(xcodebuild -project Parakatt.xcodeproj -scheme Parakatt -configuration Release -showBuildSettings 2>/dev/null | grep ' BUILT_PRODUCTS_DIR' | awk '{print $NF}')
           echo "dir=$BUILD_DIR" >> "$GITHUB_OUTPUT"
 
-      - name: Build stable launcher
-        run: |
-          # Build the stable launcher from source on CI so it matches the
-          # runner's toolchain. The launcher binary is tiny (Launcher/main.swift)
-          # and its CDHash must be consistent across releases.
-          make launcher
+      - name: Verify stable launcher
+        run: python3 scripts/verify-launcher.py
 
       - name: Swap in stable launcher
         run: |
@@ -65,16 +62,7 @@ jobs:
           cp bin/parakatt-launcher "${{ steps.build-path.outputs.dir }}/Parakatt.app/Contents/MacOS/Parakatt"
 
       - name: Verify stable launcher CDHash
-        run: |
-          EXPECTED_CDHASH=$(codesign -dvvv bin/parakatt-launcher 2>&1 | grep '^CDHash=' | cut -d= -f2)
-          ACTUAL_CDHASH=$(codesign -dvvv "${{ steps.build-path.outputs.dir }}/Parakatt.app/Contents/MacOS/Parakatt" 2>&1 | grep '^CDHash=' | cut -d= -f2)
-          echo "Expected CDHash: $EXPECTED_CDHASH"
-          echo "Actual CDHash:   $ACTUAL_CDHASH"
-          if [ "$EXPECTED_CDHASH" != "$ACTUAL_CDHASH" ]; then
-            echo "::error::CDHash mismatch! TCC permissions will reset for users."
-            exit 1
-          fi
-          echo "CDHash matches — TCC permissions will persist across updates."
+        run: python3 scripts/verify-launcher.py "${{ steps.build-path.outputs.dir }}/Parakatt.app/Contents/MacOS/Parakatt"
 
       # TODO: Add Developer ID signing and notarization when an Apple Developer
       # Program membership is available. This would replace the self-signed

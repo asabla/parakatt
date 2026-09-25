@@ -17,7 +17,14 @@ fn config_dir() -> PathBuf {
 
 fn has_parakeet_model() -> bool {
     let dir = models_dir().join("parakeet-tdt-0.6b-v3");
-    dir.exists() && dir.join("tokenizer.json").exists()
+    [
+        "vocab.txt",
+        "encoder-model.onnx",
+        "encoder-model.onnx.data",
+        "decoder_joint-model.onnx",
+    ]
+    .iter()
+    .all(|name| dir.join(name).is_file())
 }
 
 #[test]
@@ -79,10 +86,10 @@ fn test_dictionary_integration() {
 #[test]
 #[ignore = "requires downloaded parakeet model"]
 fn test_parakeet_transcription() {
-    if !has_parakeet_model() {
-        eprintln!("Skipping: parakeet model not downloaded");
-        return;
-    }
+    assert!(
+        has_parakeet_model(),
+        "Required Parakeet model files are missing"
+    );
 
     let config = EngineConfig {
         models_dir: models_dir().to_string_lossy().to_string(),

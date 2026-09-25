@@ -28,10 +28,10 @@ jobs:
         run: cargo fmt --check
 
       - name: Run clippy
-        run: cargo clippy -p parakatt-core --all-targets --all-features -- -D warnings
+        run: cargo clippy --locked -p parakatt-core --all-targets --all-features -- -D warnings
 
       - name: Run tests
-        run: cargo test -p parakatt-core
+        run: cargo test --locked -p parakatt-core
 
   swift:
     name: Swift Build & Tests
@@ -52,7 +52,7 @@ jobs:
 
       - name: Install build tools
         run: |
-          brew install xcodegen
+          ./scripts/install-xcodegen.sh
           cargo install cargo-swift --version 0.11.0 --locked
 
       - name: Build Rust core
