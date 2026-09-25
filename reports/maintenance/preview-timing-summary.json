@@ -1,0 +1,60 @@
+{
+  "latency_acceptance": false,
+  "measurements": {
+    "en_us": {
+      "first_preview_compute_secs": {
+        "count": 1000,
+        "median": 0.26875458350000003,
+        "p95": 0.418765375
+      },
+      "first_preview_audio_secs": {
+        "count": 1000,
+        "median": 1.68,
+        "p95": 2.24
+      },
+      "stable_preview_compute_secs": {
+        "count": 1000,
+        "median": 0.363418687,
+        "p95": 0.542330959
+      },
+      "stable_preview_audio_secs": {
+        "count": 1000,
+        "median": 2.24,
+        "p95": 2.8
+      },
+      "session_create_secs": {
+        "count": 1000,
+        "median": 4.1625e-05,
+        "p95": 5.275e-05
+      }
+    },
+    "sv_se": {
+      "first_preview_compute_secs": {
+        "count": 1000,
+        "median": 0.273572521,
+        "p95": 0.454065417
+      },
+      "first_preview_audio_secs": {
+        "count": 1000,
+        "median": 1.68,
+        "p95": 2.8
+      },
+      "stable_preview_compute_secs": {
+        "count": 1000,
+        "median": 0.4368808335,
+        "p95": 0.617471333
+      },
+      "stable_preview_audio_secs": {
+        "count": 1000,
+        "median": 2.52,
+        "p95": 3.36
+      },
+      "session_create_secs": {
+        "count": 1000,
+        "median": 4.2292e-05,
+        "p95": 5.2542e-05
+      }
+    }
+  },
+  "limitations": "Worker compute time and audio position, not live capture-to-display latency. Some runs overlapped other local checks."
+}
