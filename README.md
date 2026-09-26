@@ -75,17 +75,21 @@ Automatic execution uses WebGPU only for combinations in `crates/parakatt-core/b
 
 Configure optional LLM processing in **Settings > LLM**. Ollama and LM Studio run locally. OpenAI and Anthropic require a model and a provider-specific Keychain credential. They remain disabled until configured. Recognized text appears first; completed processing replaces each accepted chunk. Failures and queue limits preserve recognized text. History keeps the recognized timeline separate from processed text.
 
+Use **Test selected model** in LLM settings to check the connection, authentication, selected model, and a complete synthetic streaming response. The test does not send a recording. **Use preceding speech as context** is optional and off by default. When enabled, it supplies up to 120 words from the two preceding recognized chunks of the same source and session. The original text remains available.
+
 For reproducible benchmarks, fixture attribution, and release checks, see [the validation commands](reports/maintenance/README.md).
 
 ## Recording recovery and corrections
 
-History marks a recording as incomplete if speech recognition fails. An incomplete recording is not pasted into another app. Use **Review recovery** in History to save the available recognized text or retry retained audio. The text is saved after each submitted speech chunk. Audio that is still in the capture buffer or waiting for the model is not yet in the recovery record.
+History marks a recording as incomplete if speech recognition fails. An incomplete recording is not pasted into another app. Use **Review recovery** in History to save the available recognized text or retry retained audio. The text is saved after each submitted speech chunk. With temporary audio retention enabled, audio checkpoints start at capture, including while the speech model loads. Recovery can restore audio through the last completed checkpoint. A process exit can lose pending writes (up to two seconds of mono audio).
 
-Temporary audio retention is off by default. Enable it in Settings only if you want audio recovery. Successful recordings remove their recovery records immediately. Temporary audio expires after 24 hours when the app next accesses recovery data, with a total retention limit of 512 MiB. Turning the setting off clears retained audio. Backups include recognized recovery text, but exclude temporary audio.
+Temporary audio retention is off by default. Enable it in Settings only if you want audio recovery. Successful recordings remove their recovery records immediately. Temporary audio expires after 24 hours when the app next accesses recovery data, with a total retention limit of 512 MiB. Turning the setting off clears retained audio. Backups include recognized recovery text, but exclude temporary audio. If capture writes or speech processing cannot keep up with their bounded queues, recording stops and remains marked incomplete.
 
 In the history detail menu, use **Retry failed processing** to process failed LLM sections again. **Edit processed text** changes the display and export text. The original recognized text and timestamps remain available. **Undo last text change** restores the previous display text. Copy uses the selected transcript view.
 
-The recording overlay shows the actual input device, model readiness, and missing or silent input. Normal logs contain character counts, not transcript text.
+History loads 100 recordings per page. Use **Load more recordings** to browse older entries. Query failures show a retry action. Use **Cmd+Shift+F** to search within a transcript and **Cmd+G** / **Cmd+Shift+G** to move between matches. **Cmd+F** searches recording history.
+
+The recording overlay shows the actual input device, model readiness, and missing or silent input. Scrolling pauses automatic following; **Follow live** returns to the latest text. Stop instructions follow the configured hold or toggle shortcut. Normal logs contain character counts, not transcript text.
 
 ## Unsigned Builds
 
