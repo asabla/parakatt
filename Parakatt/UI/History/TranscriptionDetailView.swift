@@ -16,6 +16,28 @@ struct TranscriptionDetailView: View {
     let onTitleChanged: (String) -> Void
     let onDelete: () -> Void
 
+    @State private var findText = ""
+    @State private var matches: [TranscriptMatch] = []
+    @State private var activeMatch = 0
+    @FocusState private var findFocused: Bool
+    private var searchSections: [String] {
+        if showRecognized && !segments.isEmpty { return segments.map(\.text) }
+        return (showRecognized ? (recognizedText ?? item.text) : item.text).components(separatedBy: "\n\n")
+    }
+    private func updateMatches() { matches = TranscriptSearch.matches(in: searchSections, query: findText); activeMatch = 0 }
+    private func matchedText(_ text: String, section: Int) -> Text {
+        guard !findText.isEmpty else { return Text(text) }
+        let value = NSMutableAttributedString(string: text)
+        for (index, match) in matches.enumerated() where match.section == section && NSMaxRange(match.range) <= value.length {
+            value.addAttribute(.backgroundColor, value: index == activeMatch ? NSColor.systemOrange.withAlphaComponent(0.55) : NSColor.systemYellow.withAlphaComponent(0.25), range: match.range)
+        }
+        return Text(AttributedString(value))
+    }
+    private func moveMatch(_ direction: Int) {
+        guard !matches.isEmpty else { return }
+        activeMatch = (activeMatch + direction + matches.count) % matches.count
+    }
+
     @State private var editingText = false
     @State private var correctedText = ""
     @State private var operationBusy = false
@@ -273,20 +295,37 @@ struct TranscriptionDetailView: View {
     // MARK: - Text body
 
     private var textSection: some View {
-        ScrollView {
-            if !showRecognized || segments.isEmpty {
-                // Flat text for transcriptions without timestamp data.
-                Text(showRecognized ? (recognizedText ?? item.text) : item.text)
-                    .font(.system(.body, design: .default))
-                    .lineSpacing(4)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: 760, alignment: .leading)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(20)
-            } else {
-                // Timeline view with timestamps.
-                timelineView
+        ScrollViewReader { proxy in
+            VStack(spacing: 0) {
+                HStack {
+                    TextField("Find in transcript", text: $findText).textFieldStyle(.roundedBorder).focused($findFocused)
+                        .onSubmit { moveMatch(1) }
+                    Text(matches.isEmpty ? "0 matches" : "\(activeMatch + 1) / \(matches.count)\(matches.count == 2000 ? "+" : "")").font(.caption)
+                    Button { moveMatch(-1) } label: { Image(systemName: "chevron.up") }.help("Previous match").disabled(matches.isEmpty)
+                    Button { moveMatch(1) } label: { Image(systemName: "chevron.down") }.help("Next match").disabled(matches.isEmpty)
+                    Button("Next match") { moveMatch(1) }.keyboardShortcut("g", modifiers: .command).hidden().frame(width: 0)
+                    Button("Previous match") { moveMatch(-1) }.keyboardShortcut("g", modifiers: [.command, .shift]).hidden().frame(width: 0)
+                }.padding(.horizontal, 20).padding(.vertical, 8)
+                ScrollView {
+                    if !showRecognized || segments.isEmpty {
+                        LazyVStack(alignment: .leading, spacing: 20) {
+                            ForEach(Array(searchSections.enumerated()), id: \.offset) { entry in
+                                matchedText(entry.element, section: entry.offset)
+                                    .font(.body).lineSpacing(4).textSelection(.enabled)
+                                    .frame(maxWidth: .infinity, alignment: .leading).id(entry.offset)
+                            }
+                        }.frame(maxWidth: 760, alignment: .leading).frame(maxWidth: .infinity, alignment: .leading).padding(20)
+                    } else { timelineView }
+                }
             }
+            .onChange(of: findText) { updateMatches(); if let match = matches.first { proxy.scrollTo(match.section, anchor: .center) } }
+            .onChange(of: activeMatch) { if matches.indices.contains(activeMatch) { proxy.scrollTo(matches[activeMatch].section, anchor: .center) } }
+            .onChange(of: showRecognized) { updateMatches() }
+            .onChange(of: item.text) { updateMatches() }
+            .onChange(of: recognizedText) { updateMatches() }
+            .onChange(of: segments.count) { updateMatches() }
+            .onChange(of: item.id) { findText = ""; updateMatches() }
+            .background(Button("Find in transcript") { findFocused = true }.keyboardShortcut("f", modifiers: [.command, .shift]).hidden())
         }
     }
 
@@ -325,13 +364,13 @@ struct TranscriptionDetailView: View {
                     }
 
                     // Segment text
-                    Text(segment.text)
+                    matchedText(segment.text, section: index)
                         .font(.system(.body, design: .default))
                         .lineSpacing(4)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.bottom, 12)
-                }
+                }.id(index)
             }
         }
         .padding(20)
