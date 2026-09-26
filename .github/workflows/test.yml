@@ -6,6 +6,9 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
 env:
   DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
   MACOSX_DEPLOYMENT_TARGET: "14.0"
@@ -68,6 +71,7 @@ jobs:
 
       - name: Install build tools
         run: |
+          brew install create-dmg
           ./scripts/install-xcodegen.sh
           cargo install cargo-swift --version 0.11.1 --locked
 
@@ -93,3 +97,17 @@ jobs:
             CODE_SIGNING_REQUIRED=NO
         env:
           NSUnbufferedIO: "YES"
+
+      - name: Build and verify release package
+        run: |
+          make package
+          ls dist/*.zip dist/*.dmg
+
+      - name: Save release candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: parakatt-release-candidate-arm64
+          path: |
+            dist/*.zip
+            dist/*.dmg
+          if-no-files-found: error

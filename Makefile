@@ -92,7 +92,7 @@ package: verify-launcher release
 			--hide-extension "$(APP_NAME).app" \
 			--app-drop-link 425 190 \
 			"dist/$(DMG_NAME)" \
-			"$(RELEASE_BUILD_DIR)/$(APP_NAME).app"; \
+			"$(RELEASE_BUILD_DIR)/$(APP_NAME).app" || exit $$?; \
 		echo "Created dist/$(DMG_NAME)"; \
 	else \
 		echo "Skipping DMG (install create-dmg: brew install create-dmg)"; \
