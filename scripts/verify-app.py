@@ -23,6 +23,7 @@ for path in app.rglob("*"):
         if parts > (14, 0): failures.append(f"{path.name} requires macOS {version}")
     links = subprocess.check_output(["otool", "-L", str(path)], text=True).splitlines()[1:]
     for link in links:
+        if not link[:1].isspace(): continue  # Universal binaries repeat an architecture header.
         name = link.strip().split(" (", 1)[0]
         if name.startswith("/") and not name.startswith(("/System/Library/", "/usr/lib/")):
             failures.append(f"Non-system absolute library dependency: {name}")
@@ -31,3 +32,11 @@ for path in app.rglob("*"):
 if not binaries: failures.append("No app binaries found")
 if failures: raise SystemExit("\n".join(failures))
 print(f"Verified {len(binaries)} Mach-O binaries and macOS 14 deployment targets")
+
+helpers = app / "Contents/Helpers/MediaTools"
+for name in ("yt-dlp", "deno", "ffmpeg", "ffprobe"):
+    helper = helpers / name
+    if not helper.is_file(): raise SystemExit(f"Missing bundled media tool: {name}")
+    subprocess.run(["codesign", "--verify", str(helper)], check=True)
+if not (app / "Contents/Resources/MediaTools/licenses").is_dir(): raise SystemExit("Missing media license notices")
+print("Verified self-contained media tool layout")

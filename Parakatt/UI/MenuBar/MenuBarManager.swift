@@ -57,6 +57,7 @@ class MenuBarManager: NSObject {
     private var currentIconState: IconState = .idle
     private var settingsWindow: NSWindow?
     private var historyWindow: NSWindow?
+    private var importWindow: NSWindow?
     private var liveMeetingWindow: NSWindow?
 
     private enum IconState: Equatable {
@@ -139,6 +140,11 @@ class MenuBarManager: NSObject {
         }
 
         menu.addItem(.separator())
+
+        for title in ["Import Video…", "Import Link…"] {
+            let item = NSMenuItem(title: title, action: #selector(openImports), keyEquivalent: "")
+            item.target = self; menu.addItem(item)
+        }
 
         let historyItem = NSMenuItem(title: "Transcription History...", action: #selector(openHistory), keyEquivalent: "h")
         historyItem.target = self
@@ -428,6 +434,16 @@ class MenuBarManager: NSObject {
             NSPasteboard.general.setString(text, forType: .string)
             NSLog("[Parakatt] Copied transcription to clipboard")
         }
+    }
+
+    @objc private func openImports() {
+        guard let service = appState.mediaImports else { return }
+        if let importWindow { importWindow.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true); return }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 520), styleMask: [.titled, .closable, .resizable, .miniaturizable], backing: .buffered, defer: false)
+        window.title = "Video Imports"; window.isReleasedWhenClosed = false
+        window.contentView = NSHostingView(rootView: MediaImportView(service: service))
+        window.center(); window.makeKeyAndOrderFront(nil); importWindow = window
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     @objc private func openHistory() {

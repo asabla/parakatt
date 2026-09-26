@@ -17,6 +17,7 @@ func runMaintenanceSmokeIfRequested() -> Bool {
         if environment["PARAKATT_SMOKE_MODEL_ROOT"] != nil { try core.loadModel("parakeet-tdt-0.6b-v3") }
         let status = core.speechRuntimeStatus()
         report = ["started": true, "model_loaded": core.isModelLoaded(), "actual_backend": status.actualBackend == .webGpu ? "webgpu" : "cpu", "os": ProcessInfo.processInfo.operatingSystemVersionString]
+        if let source = environment["PARAKATT_SMOKE_MEDIA"] { report["media"] = try mediaImportSmoke(core: core, source: URL(fileURLWithPath: source)) }
     } catch { report["error"] = error.localizedDescription }
     report["microphone_authorization"] = MicrophoneAuthorization.description(AVCaptureDevice.authorizationStatus(for: .audio))
     if let data = try? JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]) {

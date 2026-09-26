@@ -58,6 +58,7 @@ impl Storage {
         let storage = Self { conn };
         storage.migrate()?;
         storage.migrate_recovery()?;
+        storage.migrate_imports()?;
         Ok(storage)
     }
 

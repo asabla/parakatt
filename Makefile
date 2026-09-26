@@ -1,4 +1,4 @@
-.PHONY: all rust swift-package swift-package-force xcode build release package test clean run launcher prepare-run run-detached
+.PHONY: all rust swift-package swift-package-force media-tools xcode build release package test clean run launcher prepare-run run-detached
 
 # Keep the generated FFI package separate from older global Xcode artifacts.
 export PARAKATT_DERIVED_DATA ?= $(CURDIR)/target/xcode
@@ -34,16 +34,19 @@ swift-package-force: rust
 	python3 scripts/swift-package.py --force
 
 # Generate the Xcode project from project.yml
-xcode:
+media-tools:
+	python3 scripts/prepare-media-tools.py
+
+xcode: media-tools
 	@test "$$(xcodegen --version)" = "Version: 2.46.0" || (echo "Install XcodeGen 2.46.0 with scripts/install-xcodegen.sh"; exit 1)
 	xcodegen generate
 
 # Build the macOS app via xcodebuild (Debug)
-build:
+build: media-tools
 	xcodebuild -project Parakatt.xcodeproj -scheme Parakatt -derivedDataPath "$(PARAKATT_DERIVED_DATA)" -configuration Debug ARCHS=arm64 build
 
 # Build the macOS app in Release configuration
-release:
+release: media-tools
 	xcodebuild -project Parakatt.xcodeproj -scheme Parakatt -derivedDataPath "$(PARAKATT_DERIVED_DATA)" -configuration Release ARCHS=arm64 build
 
 # Get the Release build products directory
@@ -79,6 +82,7 @@ package: verify-launcher release
 	python3 scripts/verify-app.py "$(RELEASE_BUILD_DIR)/$(APP_NAME).app"
 	python3 scripts/smoke-app.py "$(RELEASE_BUILD_DIR)/$(APP_NAME).app"
 	@mkdir -p dist
+	ditto -c -k --keepParent target/media-tools/sources "dist/$(APP_NAME)-$(VERSION)-media-sources.zip"
 	ditto -c -k --keepParent "$(RELEASE_BUILD_DIR)/$(APP_NAME).app" "dist/$(ZIP_NAME)"
 	@echo "Created dist/$(ZIP_NAME)"
 	@if command -v create-dmg >/dev/null 2>&1; then \

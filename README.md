@@ -135,3 +135,36 @@ This is standard for open-source macOS apps distributed outside the App Store.
 ## License
 
 [MIT](LICENSE)
+
+## Video imports
+
+Use **Import Video…** or **Import Link…** in the menu or History. The import window also accepts dropped MP4, MOV, MKV, and WebM files. Select an audio track when the video has more than one. Imports use Dictation by default; Clean uses the configured LLM provider.
+
+Direct HTTP/HTTPS links must return a video file. Public, finite YouTube videos are supported, including Shorts. Other website pages, playlists, live streams, authenticated videos, and DRM are not supported. YouTube downloads select the best available video and audio. Website changes can require a Parakatt update.
+
+Parakatt bundles its media tools: users do not need Homebrew, Python, Deno, or FFmpeg installed. The existing speech model setup in Settings is still required. Once the model is available, local imports and retained-video playback work offline.
+
+Imports run one at a time and yield between audio chunks to live recording. Pause keeps committed speech and timestamps; Resume validates the source and continues at the next checkpoint. Closing the app marks unfinished work as interrupted. Interrupted downloads start again; completed downloads are reused. Keep the same model and processing settings when resuming. A file changed during transcription requires a new import.
+
+Local files stay in place. Use **Locate File…** if a source moves. Downloaded videos remain in Parakatt's application data until you remove them. **Remove Downloaded Media** preserves the transcript. Deleting an import removes its transcript and app-owned media but never deletes an external source file. Database backups preserve transcripts and import metadata, not media files; locate missing source media after restoring.
+
+In History, use **Load Video** to prepare playback. A compatible review copy up to 1080p is created if necessary; the best-quality original is retained. The review copy also selects the imported audio track. In the recognized timeline, click a sentence to seek to it. Playback supports speed selection and optional transcript following. The transcript remains available when its video is missing.
+
+Export SRT or WebVTT subtitles from History. Subtitles use recognized sentence timing, not LLM-rewritten text. The export dialog identifies incomplete transcripts. Automatic identification of individual speakers is not included.
+
+### Building bundled media tools
+
+`make media-tools` requires Python 3.12 or later on the build machine and prepares the checksum-pinned tools listed in `config/media-tools.json`. The build downloads standalone yt-dlp (including EJS) and Deno, and builds FFmpeg with dav1d for AV1 decoding. Build-only Meson and Ninja versions are pinned in the preparation script. FFmpeg disables GPL, nonfree, and host-library auto-detection; review copies use VideoToolbox H.264 and AAC.
+
+`make xcode`, `make build`, and `make release` prepare these tools automatically. Xcode copies the executables into the app's Helpers directory and notices into Resources. Runtime calls use absolute bundled paths, ignore user downloader configuration, and disable tool self-updates and remote component installation. Update the tool lock and release Parakatt to update these dependencies.
+
+Release packages include a separate `*-media-sources.zip` with corresponding source archives, build options, and preparation instructions. The stable launcher is unchanged. Developer ID signing and notarization remain separate from this feature.
+
+Run the packaged media check with:
+
+```bash
+python3 scripts/smoke-media.py /path/to/Parakatt.app /path/to/video.mp4 \
+  --models "$HOME/Library/Application Support/Parakatt/models"
+```
+
+The check uses isolated application data and a system-only PATH. It runs the bundled tools, decodes media in bounded chunks, transcribes it, saves History, and creates subtitle output. It reports counts, not transcript text.

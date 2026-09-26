@@ -46,8 +46,10 @@ const OVERLAP_WORD_COUNT: usize = 8;
 pub const SESSION_MAX_IDLE_SECS: u64 = 6 * 60 * 60;
 
 /// Internal state for a running transcription session.
+#[derive(serde::Serialize, serde::Deserialize)]
 struct SessionState {
     /// Full accumulated transcript text.
+    #[serde(skip)]
     accumulated_text: String,
     /// Trailing words from the previous chunk, used as a fallback when
     /// segment-level dedup is unavailable (no STT segments).
@@ -70,11 +72,13 @@ struct SessionState {
     /// and `total_duration_secs` does not double-advance.
     known_slice_offsets: HashMap<u32, f64>,
     /// All segments accumulated across chunks, with absolute timestamps.
+    #[serde(skip)]
     accumulated_segments: Vec<TimestampedSegment>,
     /// Sentence count for paragraph breaking.
     sentence_count: usize,
     /// Wall-clock time of the last `add_chunk` call (or `start` for an
     /// empty session). Used by `cleanup_stale_sessions()`.
+    #[serde(skip, default = "std::time::Instant::now")]
     last_active: std::time::Instant,
 }
 
@@ -85,6 +89,21 @@ pub struct SessionManager {
 }
 
 impl SessionManager {
+    /// Bounded assembly state; committed text and segments are stored separately.
+    pub(crate) fn import_checkpoint(&self, id: &str) -> Result<String, CoreError> {
+        let state = self
+            .sessions
+            .get(id)
+            .ok_or_else(|| CoreError::IoError("Import session missing".into()))?;
+        serde_json::to_string(state).map_err(|e| CoreError::IoError(e.to_string()))
+    }
+
+    pub(crate) fn restore_import(&mut self, id: &str, checkpoint: &str) -> Result<(), CoreError> {
+        let state = serde_json::from_str(checkpoint)
+            .map_err(|e| CoreError::IoError(format!("Invalid import checkpoint: {e}")))?;
+        self.sessions.insert(id.to_string(), state);
+        Ok(())
+    }
     pub fn new() -> Self {
         Self::default()
     }

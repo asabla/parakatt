@@ -1,0 +1,125 @@
+{
+  "schema": 1,
+  "deployment_target": "14.0",
+  "yt-dlp": {
+    "version": "2026.08.19",
+    "url": "https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/yt-dlp_macos",
+    "sha256": "0f192b7ec147ab6288885d6351d9ab67367640029b4377576ef46dd79cf7b202"
+  },
+  "deno": {
+    "version": "2.9.7",
+    "url": "https://github.com/denoland/deno/releases/download/v2.9.7/deno-aarch64-apple-darwin.zip",
+    "sha256": "5cd46d6268f6f78f5d88bdc7159d20bd44cdaa4b3303474839f87ec6fe7ae25c"
+  },
+  "ffmpeg": {
+    "version": "8.0.1",
+    "url": "https://ffmpeg.org/releases/ffmpeg-8.0.1.tar.xz",
+    "sha256": "05ee0b03119b45c0bdb4df654b96802e909e0a752f72e4fe3794f487229e5a41"
+  },
+  "dav1d": {
+    "version": "1.5.1",
+    "url": "https://downloads.videolan.org/pub/videolan/dav1d/1.5.1/dav1d-1.5.1.tar.xz",
+    "sha256": "401813f1f89fa8fd4295805aa5284d9aed9bc7fc1fdbe554af4292f64cbabe21"
+  },
+  "yt-dlp-notices": {
+    "version": "2026.08.19",
+    "url": "https://codeload.github.com/yt-dlp/yt-dlp/tar.gz/refs/tags/2026.08.19",
+    "sha256": "a0779c45179a846986a852bce31bddbe9259b594574f75c0ec146d0567058f7e"
+  },
+  "deno-notices": {
+    "version": "v2.9.7",
+    "url": "https://codeload.github.com/denoland/deno/tar.gz/refs/tags/v2.9.7",
+    "sha256": "28c9677ccee96f9ba0910067d3249fcee90a795063af8a14372769c17a6e1bb2"
+  },
+  "native-notice-rusty-v8": {
+    "version": "v150.4.0",
+    "url": "https://raw.githubusercontent.com/denoland/rusty_v8/v150.4.0/LICENSE",
+    "filename": "native-notice-rusty-v8.txt",
+    "encoding": "text",
+    "sha256": "1c6356fb751d45f0c53093ebf8a7f5e580e802f51999178e19d60f3ec39e147d"
+  },
+  "native-notice-typescript": {
+    "version": "v6.0.3",
+    "url": "https://raw.githubusercontent.com/microsoft/TypeScript/v6.0.3/LICENSE.txt",
+    "filename": "native-notice-typescript.txt",
+    "encoding": "text",
+    "sha256": "a7d00bfd54525bc694b6e32f64c7ebcf5e6b7ae3657be5cc12767bce74654a47"
+  },
+  "native-notice-v8": {
+    "version": "ac1e23989121713ca642f6650b34deff7b686896",
+    "url": "https://raw.githubusercontent.com/denoland/v8/ac1e23989121713ca642f6650b34deff7b686896/LICENSE",
+    "filename": "native-notice-v8.txt",
+    "encoding": "text",
+    "sha256": "6ab33af8774a0f396ee3aeeb761e3229057682d6f9fa7f572e390c2cb3a6e509"
+  },
+  "native-notice-third_party-icu": {
+    "version": "ee5f27adc28bd3f15b2c293f726d14d2e336cbd5",
+    "url": "https://chromium.googlesource.com/chromium/deps/icu/+/ee5f27adc28bd3f15b2c293f726d14d2e336cbd5/LICENSE?format=TEXT",
+    "filename": "native-notice-third_party-icu.txt",
+    "encoding": "base64",
+    "sha256": "c5a4698576c4195d3b5869d409cb3d4be7fca00201a5f15ecb5b03aae07b2e2e"
+  },
+  "native-notice-third_party-abseil-cpp": {
+    "version": "d16e32215c3ab90ba57c2e904a5344d85c7353e4",
+    "url": "https://chromium.googlesource.com/chromium/src/third_party/abseil-cpp/+/d16e32215c3ab90ba57c2e904a5344d85c7353e4/LICENSE?format=TEXT",
+    "filename": "native-notice-third_party-abseil-cpp.txt",
+    "encoding": "base64",
+    "sha256": "cb63961fac969b523344c5c40ec27ef60d7e8c7b34d2ef63548eb19f35a261e4"
+  },
+  "native-notice-third_party-fp16-src": {
+    "version": "3d2de1816307bac63c16a297e8c4dc501b4076df",
+    "url": "https://raw.githubusercontent.com/Maratyszcza/FP16/3d2de1816307bac63c16a297e8c4dc501b4076df/LICENSE",
+    "filename": "native-notice-third_party-fp16-src.txt",
+    "encoding": "text",
+    "sha256": "17e4f539024be2749ee729d1e2f01d24cef12ece8c9bf18e91a4349be29c80bf"
+  },
+  "native-notice-third_party-libc++-src": {
+    "version": "5abc7f839700f0f17338434e1c1c6a8c87c00c11",
+    "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libcxx/+/5abc7f839700f0f17338434e1c1c6a8c87c00c11/LICENSE.TXT?format=TEXT",
+    "filename": "native-notice-third_party-libc++-src.txt",
+    "encoding": "base64",
+    "sha256": "2df883eed85d488ef641ac22f3ce8afb495508b6f87c38847af95ddbf94aea70"
+  },
+  "native-notice-third_party-libc++abi-src": {
+    "version": "8f11bb1d4438d0239d0dfc1bd9456a9f31629dda",
+    "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libcxxabi/+/8f11bb1d4438d0239d0dfc1bd9456a9f31629dda/LICENSE.TXT?format=TEXT",
+    "filename": "native-notice-third_party-libc++abi-src.txt",
+    "encoding": "base64",
+    "sha256": "8d3456e92a31955fdaea9c32634e2e2d5abf87e32e862ca28f40b979e68ea612"
+  },
+  "native-notice-third_party-libunwind-src": {
+    "version": "d6c7a21e978f0adaa43accaad53bc64f0b64f6ec",
+    "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libunwind/+/d6c7a21e978f0adaa43accaad53bc64f0b64f6ec/LICENSE.TXT?format=TEXT",
+    "filename": "native-notice-third_party-libunwind-src.txt",
+    "encoding": "base64",
+    "sha256": "74a62b8fafbbab7567095cdca5e84a9044e31a68a16bb52080f1525643308e2d"
+  },
+  "native-notice-third_party-fast_float-src": {
+    "version": "05087a303dad9c98768b33c829d398223a649bc6",
+    "url": "https://chromium.googlesource.com/external/github.com/fastfloat/fast_float/+/05087a303dad9c98768b33c829d398223a649bc6/LICENSE-MIT?format=TEXT",
+    "filename": "native-notice-third_party-fast_float-src.txt",
+    "encoding": "base64",
+    "sha256": "e284774d6f1f4d9bb73db1652e956a2c9311f6b4fcaf23e3a5735a55174cccb3"
+  },
+  "native-notice-third_party-llvm-libc-src": {
+    "version": "9309c117ebae84dd2f9df1ef99de4782162527d5",
+    "url": "https://chromium.googlesource.com/external/github.com/llvm/llvm-project/libc/+/9309c117ebae84dd2f9df1ef99de4782162527d5/LICENSE.TXT?format=TEXT",
+    "filename": "native-notice-third_party-llvm-libc-src.txt",
+    "encoding": "base64",
+    "sha256": "0cced642a3b6d411a42ad6e8ebd7942b4768a530c6e063fa41455a3600a82887"
+  },
+  "native-notice-third_party-simdutf": {
+    "version": "f7356eed293f8208c40b3c1b344a50bd70971983",
+    "url": "https://chromium.googlesource.com/chromium/src/third_party/simdutf/+/f7356eed293f8208c40b3c1b344a50bd70971983/LICENSE?format=TEXT",
+    "filename": "native-notice-third_party-simdutf.txt",
+    "encoding": "base64",
+    "sha256": "978d0d3cf8b2907e241ef30912ed5b277b4c37aa7d51f35d96485293621723d4"
+  },
+  "native-notice-third_party-highway-src": {
+    "version": "2607d3b5b0113992fe84d3848859eae13b3b52c1",
+    "url": "https://chromium.googlesource.com/external/github.com/google/highway/+/2607d3b5b0113992fe84d3848859eae13b3b52c1/LICENSE?format=TEXT",
+    "filename": "native-notice-third_party-highway-src.txt",
+    "encoding": "base64",
+    "sha256": "df4a26d95470525c7d4bd0740051d584aec59d9d51fc0e6b091b1f1c7827e5d6"
+  }
+}
