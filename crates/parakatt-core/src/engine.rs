@@ -1,3 +1,5 @@
+mod history;
+
 /// Core engine that orchestrates the full pipeline:
 /// audio → preprocessing → STT → dictionary → LLM → result.
 use std::path::PathBuf;
@@ -1409,6 +1411,10 @@ impl Engine {
                 "Too many active processing sessions".into(),
             ));
         }
+        self.storage
+            .lock()
+            .unwrap()
+            .begin_draft(&session_id, "meeting", "dictation")?;
         self.sessions.lock().unwrap().start(&session_id)?;
         self.completed_events
             .lock()
@@ -1444,7 +1450,7 @@ impl Engine {
     /// at the start of `audio_samples` are a re-encoding of audio the
     /// previous chunk already covered. When > 0 the session uses
     /// time-based segment gating (NeMo middle-token merging style)
-    /// instead of text matching. Pass 0 if the caller doesn't know.
+    /// instead of text matching. Pass 0 for non-overlapping audio.
     pub fn process_chunk(
         &self,
         session_id: String,
@@ -1561,13 +1567,46 @@ impl Engine {
             20.0 * (peak.max(1e-9) as f64).log10()
         );
 
-        // Run STT on this chunk (full buffer, no VAD trim).
-        let stt_guard = crate::util::lock_named(&self.stt, "STT", CoreError::TranscriptionFailed)?;
-        let stt = stt_guard
-            .as_ref()
-            .ok_or_else(|| CoreError::TranscriptionFailed("No STT model loaded".into()))?;
-        let stt_result = stt.transcribe(&audio_samples, sample_rate)?;
-        drop(stt_guard);
+        let retain_audio = self.get_recovery_audio();
+        self.storage.lock().unwrap().journal_chunk(
+            &session_id,
+            chunk_index,
+            ChunkSource::Mixed,
+            &audio_samples,
+            sample_rate,
+            chunk_overlap_secs,
+            retain_audio,
+        )?;
+        // Keep the original samples in the recovery journal until the recording is saved.
+        let stt_result = {
+            let stt_guard = self.stt.lock().unwrap();
+            stt_guard
+                .as_ref()
+                .ok_or_else(|| CoreError::TranscriptionFailed("No STT model loaded".into()))
+                .and_then(|stt| stt.transcribe(&audio_samples, sample_rate))
+        };
+        let stt_result = match stt_result {
+            Ok(result) => result,
+            Err(error) => {
+                self.sessions.lock().unwrap().add_chunk_with_source(
+                    &session_id,
+                    ChunkSource::Mixed,
+                    chunk_index,
+                    "",
+                    chunk_duration_secs,
+                    chunk_overlap_secs,
+                    Vec::new(),
+                )?;
+                processing.enqueue(
+                    chunk_index,
+                    ChunkSource::Mixed,
+                    String::new(),
+                    None,
+                    Some("Speech recognition failed. Recovery is available in history.".into()),
+                )?;
+                return Err(error);
+            }
+        };
 
         let ctx = context.unwrap_or_default();
         let chunk_text = stt_result.text;
@@ -1588,11 +1627,33 @@ impl Engine {
         )?;
         chunk_result.llm_error = llm_error.clone();
         drop(mgr);
+        let recognized_text = chunk_result.text.clone();
         chunk_result.text = self.dictionary.lock().unwrap().apply(
             &crate::filler::remove_fillers(&chunk_result.text),
             &ctx,
             &mode,
         );
+        self.storage.lock().unwrap().recognize_draft_chunk(
+            &session_id,
+            chunk_index,
+            ChunkSource::Mixed,
+            &recognized_text,
+        )?;
+        self.storage.lock().unwrap().save_draft_segments(
+            &session_id,
+            chunk_index,
+            ChunkSource::Mixed,
+            &chunk_result
+                .segments
+                .iter()
+                .cloned()
+                .map(|mut segment| {
+                    segment.start_secs += chunk_result.chunk_offset_secs;
+                    segment.end_secs += chunk_result.chunk_offset_secs;
+                    segment
+                })
+                .collect::<Vec<_>>(),
+        )?;
         self.queue_polishing(
             &session_id,
             chunk_index,
@@ -1601,6 +1662,7 @@ impl Engine {
             &mode,
             &ctx,
         )?;
+        processing.set_recognized_text(chunk_index, ChunkSource::Mixed, &recognized_text);
         log::info!(
             "session '{}' chunk {} out: {} chars, {} segments{}",
             session_id,
@@ -1695,13 +1757,46 @@ impl Engine {
             return Ok(result);
         }
 
-        // Run STT on this chunk.
-        let stt_guard = crate::util::lock_named(&self.stt, "STT", CoreError::TranscriptionFailed)?;
-        let stt = stt_guard
-            .as_ref()
-            .ok_or_else(|| CoreError::TranscriptionFailed("No STT model loaded".into()))?;
-        let stt_result = stt.transcribe(&audio_samples, sample_rate)?;
-        drop(stt_guard);
+        let retain_audio = self.get_recovery_audio();
+        self.storage.lock().unwrap().journal_chunk(
+            &session_id,
+            slice_index,
+            source,
+            &audio_samples,
+            sample_rate,
+            chunk_overlap_secs,
+            retain_audio,
+        )?;
+        // Keep the original samples in the recovery journal until the recording is saved.
+        let stt_result = {
+            let stt_guard = self.stt.lock().unwrap();
+            stt_guard
+                .as_ref()
+                .ok_or_else(|| CoreError::TranscriptionFailed("No STT model loaded".into()))
+                .and_then(|stt| stt.transcribe(&audio_samples, sample_rate))
+        };
+        let stt_result = match stt_result {
+            Ok(result) => result,
+            Err(error) => {
+                self.sessions.lock().unwrap().add_chunk_with_source(
+                    &session_id,
+                    source,
+                    slice_index,
+                    "",
+                    chunk_duration_secs,
+                    chunk_overlap_secs,
+                    Vec::new(),
+                )?;
+                processing.enqueue(
+                    slice_index,
+                    source,
+                    String::new(),
+                    None,
+                    Some("Speech recognition failed. Recovery is available in history.".into()),
+                )?;
+                return Err(error);
+            }
+        };
 
         let ctx = context.unwrap_or_default();
         let chunk_text = stt_result.text;
@@ -1721,11 +1816,33 @@ impl Engine {
         )?;
         chunk_result.llm_error = llm_error;
         drop(mgr);
+        let recognized_text = chunk_result.text.clone();
         chunk_result.text = self.dictionary.lock().unwrap().apply(
             &crate::filler::remove_fillers(&chunk_result.text),
             &ctx,
             &mode,
         );
+        self.storage.lock().unwrap().recognize_draft_chunk(
+            &session_id,
+            slice_index,
+            source,
+            &recognized_text,
+        )?;
+        self.storage.lock().unwrap().save_draft_segments(
+            &session_id,
+            slice_index,
+            source,
+            &chunk_result
+                .segments
+                .iter()
+                .cloned()
+                .map(|mut segment| {
+                    segment.start_secs += chunk_result.chunk_offset_secs;
+                    segment.end_secs += chunk_result.chunk_offset_secs;
+                    segment
+                })
+                .collect::<Vec<_>>(),
+        )?;
         self.queue_polishing(
             &session_id,
             slice_index,
@@ -1734,6 +1851,7 @@ impl Engine {
             &mode,
             &ctx,
         )?;
+        processing.set_recognized_text(slice_index, source, &recognized_text);
         Ok(chunk_result)
     }
 
@@ -1758,7 +1876,7 @@ impl Engine {
         drop(mgr);
 
         let processing = self.processing.lock().unwrap().get(&session_id).cloned();
-        let (text, summary, llm_error) = if let Some(session) = processing {
+        let (text, mut summary, llm_error) = if let Some(session) = processing {
             let (polished, summary, error) = session.finish()?;
             (
                 if polished.is_empty() { text } else { polished },
@@ -1775,6 +1893,14 @@ impl Engine {
                 None,
             )
         };
+        let failed_chunks = self
+            .storage
+            .lock()
+            .unwrap()
+            .draft_failure_count(&session_id)?;
+        if failed_chunks > 0 {
+            summary.status = "incomplete".into();
+        }
         let result = TranscriptionResult {
             text,
             duration_secs,
@@ -1804,7 +1930,20 @@ impl Engine {
         // Swift layer can surface an error to the user instead of
         // returning a successful-looking TranscriptionResult that was
         // never actually saved.
-        self.auto_save_transcription(&result, src, &mode, input, &ctx, &summary)?;
+        let saved =
+            self.auto_save_transcription(&session_id, &result, src, &mode, input, &ctx, &summary)?;
+        if let Some(id) = saved {
+            let mut sections = session.sections();
+            for section in &mut sections {
+                if section.recognized_text.is_empty() && section.error.is_some() {
+                    section.status = "speech_failed".into();
+                }
+            }
+            self.storage.lock().unwrap().save_sections(&id, &sections)?;
+        }
+        if failed_chunks == 0 {
+            self.storage.lock().unwrap().discard_draft(&session_id)?;
+        }
         let mut processing = self.processing.lock().unwrap();
         let mut completed = self.completed_events.lock().unwrap();
         if completed.len() >= 16 {
@@ -1813,6 +1952,9 @@ impl Engine {
         completed.push_back((session_id.clone(), session.events()));
         processing.remove(&session_id);
 
+        if failed_chunks > 0 {
+            return Err(CoreError::TranscriptionFailed(format!("Recording is incomplete: {failed_chunks} speech sections failed. Open history to recover available speech.")));
+        }
         Ok(result)
     }
 
@@ -2021,8 +2163,10 @@ impl Engine {
         };
         session.enqueue(index, source, text.into(), work, error)
     }
+    #[allow(clippy::too_many_arguments)]
     fn auto_save_transcription(
         &self,
+        session_id: &str,
         result: &TranscriptionResult,
         source: &str,
         mode: &str,
@@ -2039,7 +2183,7 @@ impl Engine {
         // (silent capture, VAD over-rejection, all chunks failing) and we
         // want a row in the DB anyway so the user can see *something*
         // happened and we have a breadcrumb to debug from.
-        if trimmed_empty && !is_meeting {
+        if trimmed_empty && !is_meeting && summary.status != "incomplete" {
             log::debug!("Skipping auto-save: empty push-to-talk result");
             return Ok(None);
         }
@@ -2062,13 +2206,18 @@ impl Engine {
         let app_context_json = serde_json::to_string(context).ok();
 
         let text = if trimmed_empty {
-            "[no speech detected]".to_string()
+            if summary.status == "incomplete" {
+                "[incomplete recording]"
+            } else {
+                "[no speech detected]"
+            }
+            .to_string()
         } else {
             result.text.clone()
         };
 
         let transcription = StoredTranscription {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: session_id.to_string(),
             created_at: now,
             duration_secs: result.duration_secs,
             source: source.to_string(),
@@ -2226,6 +2375,186 @@ mod processing_integration_tests {
         *engine.stt.lock().unwrap() = Some(Box::new(Speech(calls.clone())));
         *engine.llm.lock().unwrap() = Some(Arc::new(Polish));
         (engine, directory, calls)
+    }
+    fn failed_history(engine: &Engine) {
+        let db = engine.storage.lock().unwrap();
+        db.save(&StoredTranscription {
+            id: "retry".into(),
+            created_at: "2026-09-26T00:00:00Z".into(),
+            duration_secs: 20.0,
+            source: "meeting".into(),
+            mode: "clean".into(),
+            audio_source: None,
+            app_context: None,
+            title: None,
+            text: "Original words".into(),
+        })
+        .unwrap();
+        db.save_processing(
+            "retry",
+            &crate::processing::ProcessingSummary {
+                recognized_text: "Original words".into(),
+                status: "degraded".into(),
+            },
+        )
+        .unwrap();
+        db.save_sections(
+            "retry",
+            &(0..12)
+                .map(|chunk_id| crate::recovery::HistorySection {
+                    chunk_id,
+                    source: ChunkSource::Mixed,
+                    recognized_text: "Original words".into(),
+                    text: "Original words".into(),
+                    status: "failed".into(),
+                    error: Some("Unavailable".into()),
+                })
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn retry_history_processes_more_than_queue_capacity_and_keeps_original_and_undo() {
+        let (engine, _dir, _) = setup();
+        failed_history(&engine);
+        engine.retry_history_processing("retry".into()).unwrap();
+        let db = engine.storage.lock().unwrap();
+        assert_eq!(
+            db.get("retry")
+                .unwrap()
+                .text
+                .matches("A rewritten sentence.")
+                .count(),
+            12
+        );
+        assert_eq!(
+            db.get_processing("retry").unwrap().recognized_text,
+            "Original words"
+        );
+        assert_eq!(db.get_processing("retry").unwrap().status, "completed");
+        assert!(db
+            .history_sections("retry")
+            .unwrap()
+            .iter()
+            .all(|s| s.status == "completed"));
+        db.undo_transcription_edit("retry").unwrap();
+        assert_eq!(db.get("retry").unwrap().text, "Original words");
+    }
+
+    #[test]
+    fn cancelled_history_retry_cannot_replace_saved_text() {
+        struct Slow(std::sync::mpsc::SyncSender<()>);
+        impl LlmProvider for Slow {
+            fn name(&self) -> &str {
+                "slow test"
+            }
+            fn is_available(&self) -> bool {
+                true
+            }
+            fn process(&self, _: &LlmRequest) -> Result<String, CoreError> {
+                unreachable!()
+            }
+            fn process_cancellable(
+                &self,
+                _: &LlmRequest,
+                token: &tokio_util::sync::CancellationToken,
+                _: &(dyn Fn(&str) + Send + Sync),
+            ) -> Result<String, CoreError> {
+                self.0.send(()).unwrap();
+                while !token.is_cancelled() {
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                }
+                Ok("Late output must not be saved".into())
+            }
+        }
+        let (engine, _dir, _) = setup();
+        failed_history(&engine);
+        let (started, receiver) = std::sync::mpsc::sync_channel(1);
+        *engine.llm.lock().unwrap() = Some(Arc::new(Slow(started)));
+        std::thread::scope(|scope| {
+            let job = scope.spawn(|| engine.retry_history_processing("retry".into()));
+            receiver
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .unwrap();
+            engine.cancel_history_processing("retry".into());
+            assert!(job.join().unwrap().is_err());
+        });
+        assert_eq!(
+            engine.storage.lock().unwrap().get("retry").unwrap().text,
+            "Original words"
+        );
+        assert!(!engine
+            .processing
+            .lock()
+            .unwrap()
+            .contains_key("history:retry"));
+    }
+
+    #[test]
+    fn failed_speech_is_incomplete_and_can_be_recovered_without_duplicate_history() {
+        let (engine, _dir, _calls) = setup();
+        engine.set_recovery_audio(true).unwrap();
+        engine
+            .start_recording("recover".into(), "push_to_talk".into(), "dictation".into())
+            .unwrap();
+        *engine.stt.lock().unwrap() = None;
+        assert!(engine
+            .process_chunk(
+                "recover".into(),
+                vec![0.1; 32000],
+                16000,
+                0,
+                "dictation".into(),
+                None
+            )
+            .is_err());
+        assert!(engine
+            .finish_session(
+                "recover".into(),
+                "dictation".into(),
+                None,
+                Some("push_to_talk".into())
+            )
+            .is_err());
+        engine.cancel_session("recover".into());
+        assert_eq!(
+            engine
+                .get_transcription_processing("recover".into())
+                .unwrap()
+                .status,
+            "incomplete"
+        );
+        assert_eq!(engine.list_recording_drafts().unwrap()[0].failed_chunks, 1);
+        *engine.stt.lock().unwrap() = Some(Box::new(Speech(Arc::new(AtomicUsize::new(0)))));
+        engine.recover_recording("recover".into(), true).unwrap();
+        assert!(engine.list_recording_drafts().unwrap().is_empty());
+        assert_eq!(
+            engine
+                .get_transcription_processing("recover".into())
+                .unwrap()
+                .status,
+            "completed"
+        );
+        assert_eq!(
+            engine.storage.lock().unwrap().get("recover").unwrap().text,
+            "recognized words"
+        );
+        assert_eq!(
+            engine
+                .storage
+                .lock()
+                .unwrap()
+                .list(&TranscriptionQuery {
+                    search_text: None,
+                    source_filter: None,
+                    limit: 10,
+                    offset: 0
+                })
+                .unwrap()
+                .len(),
+            1
+        );
     }
     #[test]
     fn completed_text_and_recognized_timestamps_survive_storage_and_duplicate_input() {

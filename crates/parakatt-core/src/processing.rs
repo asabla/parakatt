@@ -201,19 +201,63 @@ impl ProcessingSession {
             self.wake.notify_all();
         }
     }
-    pub fn events(&self) -> Vec<TranscriptionEvent> {
-        self.state.lock().unwrap().events.drain(..).collect()
+    pub fn set_recognized_text(&self, index: u32, source: ChunkSource, raw: &str) {
+        if let Some(chunk) = self
+            .state
+            .lock()
+            .unwrap()
+            .chunks
+            .get_mut(&key(index, source))
+        {
+            chunk.raw = raw.into();
+        }
     }
-    pub fn text(&self) -> String {
+    pub fn wait_idle(&self) -> Result<(), CoreError> {
+        let mut state = self.state.lock().unwrap();
+        while (state.active || !state.pending.is_empty()) && !self.cancellation.is_cancelled() {
+            state = self.wake.wait(state).unwrap();
+        }
+        if self.cancellation.is_cancelled() {
+            return Err(CoreError::LlmError("Processing cancelled".into()));
+        }
+        Ok(())
+    }
+    pub fn sections(&self) -> Vec<crate::recovery::HistorySection> {
         self.state
             .lock()
             .unwrap()
             .chunks
-            .values()
-            .map(|c| c.text.as_str())
-            .filter(|s| !s.is_empty())
-            .collect::<Vec<_>>()
-            .join("\n\n")
+            .iter()
+            .map(|(key, c)| crate::recovery::HistorySection {
+                chunk_id: key.0,
+                source: c.source,
+                recognized_text: c.raw.clone(),
+                text: c.text.clone(),
+                status: if c.error.is_some() {
+                    "failed"
+                } else {
+                    "completed"
+                }
+                .into(),
+                error: c.error.clone(),
+            })
+            .collect()
+    }
+    pub fn events(&self) -> Vec<TranscriptionEvent> {
+        self.state.lock().unwrap().events.drain(..).collect()
+    }
+    fn assemble(state: &State, raw: bool) -> String {
+        crate::text_assembly::assemble_transcript_parts(
+            state
+                .chunks
+                .values()
+                .map(|c| if raw { c.raw.clone() } else { c.text.clone() })
+                .collect(),
+            state.chunks.values().map(|c| c.source).collect(),
+        )
+    }
+    pub fn text(&self) -> String {
+        Self::assemble(&self.state.lock().unwrap(), false)
     }
     pub fn finish(&self) -> Result<(String, ProcessingSummary, Option<String>), CoreError> {
         let mut state = self.state.lock().unwrap();
@@ -225,20 +269,8 @@ impl ProcessingSession {
         if self.cancellation.is_cancelled() {
             return Err(CoreError::TranscriptionFailed("Session cancelled".into()));
         }
-        let text = state
-            .chunks
-            .values()
-            .map(|c| c.text.as_str())
-            .filter(|s| !s.is_empty())
-            .collect::<Vec<_>>()
-            .join("\n\n");
-        let raw = state
-            .chunks
-            .values()
-            .map(|c| c.raw.as_str())
-            .filter(|s| !s.is_empty())
-            .collect::<Vec<_>>()
-            .join("\n\n");
+        let text = Self::assemble(&state, false);
+        let raw = Self::assemble(&state, true);
         let errors = state
             .chunks
             .values()
@@ -289,7 +321,7 @@ mod tests {
             .enqueue(0, ChunkSource::Mic, "duplicate".into(), None, None)
             .is_err());
         let (text, summary, _) = s.finish().unwrap();
-        assert_eq!(text, "first\n\nsecond");
+        assert_eq!(text, "first second");
         assert_eq!(text, summary.recognized_text);
         assert!(s
             .enqueue(2, ChunkSource::Mic, "late".into(), None, None)

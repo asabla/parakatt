@@ -142,7 +142,14 @@ impl SessionManager {
         // Default path: no overlap information from caller, fall back
         // to text-based segment dedup against the previous chunk's
         // trailing segments.
-        self.add_chunk_with_overlap(session_id, raw_text, chunk_duration_secs, 0.0, segments)
+        self.add_chunk_internal(
+            session_id,
+            raw_text,
+            chunk_duration_secs,
+            0.0,
+            segments,
+            false,
+        )
     }
 
     /// Same as `add_chunk`, but the caller tells us the overlap region
@@ -154,8 +161,8 @@ impl SessionManager {
     /// the NeMo "middle-token merging" pattern adapted to our chunk
     /// shape — exact, no string-matching heuristics.
     ///
-    /// When `chunk_overlap_secs == 0` (or the STT returned no
-    /// segments) we fall back to the text-based dedup path.
+    /// Zero overlap preserves repeated speech. Text matching is used only
+    /// by the legacy adapter or when overlapping audio has no timestamps.
     pub fn add_chunk_with_overlap(
         &mut self,
         session_id: &str,
@@ -164,12 +171,40 @@ impl SessionManager {
         chunk_overlap_secs: f64,
         segments: Vec<TimestampedSegment>,
     ) -> Result<ChunkResult, CoreError> {
+        self.add_chunk_internal(
+            session_id,
+            raw_text,
+            chunk_duration_secs,
+            chunk_overlap_secs,
+            segments,
+            true,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn add_chunk_internal(
+        &mut self,
+        session_id: &str,
+        raw_text: &str,
+        chunk_duration_secs: f64,
+        chunk_overlap_secs: f64,
+        segments: Vec<TimestampedSegment>,
+        known_overlap: bool,
+    ) -> Result<ChunkResult, CoreError> {
         let state = self.sessions.get_mut(session_id).ok_or_else(|| {
             CoreError::TranscriptionFailed(format!("Session not found: {session_id}"))
         })?;
 
         let chunk_index = state.chunk_count;
-        let chunk_offset_secs = state.total_duration_secs;
+        let overlap = if chunk_index == 0 {
+            0.0
+        } else {
+            chunk_overlap_secs
+                .min(chunk_duration_secs)
+                .min(state.total_duration_secs)
+                .max(0.0)
+        };
+        let chunk_offset_secs = state.total_duration_secs - overlap;
         state.last_active = std::time::Instant::now();
 
         // Three paths:
@@ -216,7 +251,7 @@ impl SessionManager {
             // Path 2: text-based segment-level dedup.
             let normalized: Vec<String> =
                 segments.iter().map(|s| normalize_text(&s.text)).collect();
-            let segments_to_skip = if chunk_index > 0 {
+            let segments_to_skip = if chunk_index > 0 && !known_overlap {
                 longest_matching_overlap(&state.prev_trailing_segments, &normalized)
             } else {
                 0
@@ -245,7 +280,7 @@ impl SessionManager {
                 .collect();
         } else {
             // Fallback path: no segment information from STT.
-            new_text = if chunk_index == 0 {
+            new_text = if chunk_index == 0 || (known_overlap && overlap == 0.0) {
                 raw_text.to_string()
             } else {
                 deduplicate_overlap(&state.prev_trailing_words, raw_text)
@@ -305,12 +340,12 @@ impl SessionManager {
         }
 
         state.chunk_count += 1;
-        state.total_duration_secs += chunk_duration_secs;
+        state.total_duration_secs += chunk_duration_secs - overlap;
 
         Ok(ChunkResult {
             text: new_text,
             chunk_index,
-            segments,
+            segments: surviving_segments,
             chunk_offset_secs,
             llm_error: None,
         })
@@ -379,9 +414,17 @@ impl SessionManager {
         let chunk_offset_secs = if let Some(&offset) = state.known_slice_offsets.get(&slice_index) {
             offset
         } else {
-            let offset = state.total_duration_secs;
+            let overlap = if slice_index == 0 {
+                0.0
+            } else {
+                chunk_overlap_secs
+                    .min(chunk_duration_secs)
+                    .min(state.total_duration_secs)
+                    .max(0.0)
+            };
+            let offset = state.total_duration_secs - overlap;
             state.known_slice_offsets.insert(slice_index, offset);
-            state.total_duration_secs += chunk_duration_secs;
+            state.total_duration_secs += chunk_duration_secs - overlap;
             offset
         };
 
@@ -413,7 +456,7 @@ impl SessionManager {
         } else if !segments.is_empty() {
             let normalized: Vec<String> =
                 segments.iter().map(|s| normalize_text(&s.text)).collect();
-            let segments_to_skip = if slice_index > 0 {
+            let segments_to_skip = if slice_index > 0 && chunk_overlap_secs > 0.0 {
                 longest_matching_overlap(&trailing, &normalized)
             } else {
                 0
@@ -997,6 +1040,39 @@ mod tests {
     }
 
     #[test]
+    fn explicit_zero_overlap_preserves_intentional_repetition_in_both_languages() {
+        for phrase in ["Yes, yes.", "Ja, ja."] {
+            for source in [ChunkSource::Mixed, ChunkSource::Mic, ChunkSource::System] {
+                let mut mgr = SessionManager::new();
+                mgr.start("repeated").unwrap();
+                for index in 0..2 {
+                    let result = mgr
+                        .add_chunk_with_source(
+                            "repeated",
+                            source,
+                            index,
+                            phrase,
+                            2.0,
+                            0.0,
+                            vec![TimestampedSegment {
+                                text: phrase.into(),
+                                start_secs: 0.0,
+                                end_secs: 1.0,
+                                speaker: None,
+                            }],
+                        )
+                        .unwrap();
+                    assert_eq!(result.text, phrase);
+                }
+                let (_, duration, segments) = mgr.finish("repeated").unwrap();
+                assert_eq!(duration, 4.0);
+                assert_eq!(segments.len(), 2);
+                assert_eq!(segments[1].start_secs, 2.0);
+            }
+        }
+    }
+
+    #[test]
     fn test_time_based_overlap_gating() {
         // The "middle-token merging" path. Caller passes a 2 s
         // overlap, segments that start before 2.0 s into the chunk
@@ -1053,8 +1129,10 @@ mod tests {
         );
         assert!(acc.contains("fresh content"));
 
-        let (_text, _dur, segs) = mgr.finish("time").unwrap();
+        let (_text, duration, segs) = mgr.finish("time").unwrap();
         assert_eq!(segs.len(), 2);
+        assert_eq!(duration, 7.0);
+        assert_eq!(segs[1].start_secs, 4.5);
     }
 
     #[test]

@@ -25,6 +25,8 @@ pub struct Config {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GeneralConfig {
+    #[serde(default)]
+    pub recovery_audio: bool,
     #[serde(default = "default_mode")]
     pub active_mode: String,
     #[serde(default = "default_true")]
@@ -87,6 +89,7 @@ fn default_llm_max_words() -> u32 {
 impl Default for GeneralConfig {
     fn default() -> Self {
         Self {
+            recovery_audio: false,
             active_mode: default_mode(),
             auto_paste: true,
             show_overlay: true,
