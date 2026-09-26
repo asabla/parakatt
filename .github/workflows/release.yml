@@ -18,7 +18,7 @@ jobs:
     runs-on: macos-15
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.1
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@1.94.1
@@ -28,7 +28,7 @@ jobs:
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: crates/parakatt-core
+          workspaces: ". -> target"
 
       - name: Install build tools
         run: |
@@ -106,7 +106,7 @@ jobs:
             "${{ steps.build-path.outputs.dir }}/Parakatt.app"
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3.0.3
         with:
           generate_release_notes: true
           files: |
