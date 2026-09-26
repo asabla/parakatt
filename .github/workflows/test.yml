@@ -78,6 +78,9 @@ jobs:
       - name: Build Rust core
         run: make rust
 
+      - name: Test media dependency downloads
+        run: python3 scripts/test_media_tool_downloads.py
+
       - name: Generate Swift package
         run: make swift-package
 
