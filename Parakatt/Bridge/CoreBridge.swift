@@ -18,6 +18,10 @@ class CoreBridge {
         self.engine = try Engine(engineConfig: config)
     }
 
+    func endCapture(id: String) { engine.endCapture(id: id) }
+    func beginCapture(id: String, source: String, mode: String) throws { try engine.beginCapture(id: id, source: source, mode: mode) }
+    func appendCaptureAudio(id: String, source: ChunkSource, samples: [Float]) throws { try engine.appendCaptureAudio(id: id, source: source, samples: samples) }
+    func markCaptureGap(id: String, audioLost: Bool) throws { try engine.markCaptureGap(id: id, audioLost: audioLost) }
     func getRecoveryAudio() -> Bool { engine.getRecoveryAudio() }
     func setRecoveryAudio(_ value: Bool) throws { try engine.setRecoveryAudio(enabled: value) }
     func recordingDrafts() throws -> [RecordingDraft] { try engine.listRecordingDrafts() }

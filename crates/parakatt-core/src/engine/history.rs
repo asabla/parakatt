@@ -15,6 +15,38 @@ impl Drop for HistoryProcessingGuard<'_> {
 
 #[uniffi::export]
 impl Engine {
+    pub fn begin_capture(&self, id: String, source: String, mode: String) -> Result<(), CoreError> {
+        let mut capturing = self.capturing.lock().unwrap();
+        if capturing.contains(&id) {
+            return Err(CoreError::AudioError("Capture is already active".into()));
+        }
+        self.storage
+            .lock()
+            .unwrap()
+            .begin_capture(&id, &source, &mode)?;
+        capturing.insert(id);
+        Ok(())
+    }
+    pub fn end_capture(&self, id: String) {
+        self.capturing.lock().unwrap().remove(&id);
+    }
+    pub fn append_capture_audio(
+        &self,
+        id: String,
+        source: ChunkSource,
+        samples: Vec<f32>,
+    ) -> Result<(), CoreError> {
+        if self.get_recovery_audio() {
+            self.storage
+                .lock()
+                .unwrap()
+                .append_capture(&id, source, &samples)?;
+        }
+        Ok(())
+    }
+    pub fn mark_capture_gap(&self, id: String, audio_lost: bool) -> Result<(), CoreError> {
+        self.storage.lock().unwrap().capture_gap(&id, audio_lost)
+    }
     pub fn get_recovery_audio(&self) -> bool {
         self.config.lock().unwrap().general.recovery_audio
     }
@@ -28,6 +60,7 @@ impl Engine {
         Ok(())
     }
     pub fn list_recording_drafts(&self) -> Result<Vec<crate::recovery::RecordingDraft>, CoreError> {
+        let capturing = self.capturing.lock().unwrap();
         let active = self.processing.lock().unwrap();
         Ok(self
             .storage
@@ -35,11 +68,15 @@ impl Engine {
             .unwrap()
             .recording_drafts()?
             .into_iter()
-            .filter(|d| d.chunk_count > 0 && !active.contains_key(&d.id))
+            .filter(|d| {
+                d.chunk_count > 0 && !active.contains_key(&d.id) && !capturing.contains(&d.id)
+            })
             .collect())
     }
     pub fn discard_recording_draft(&self, id: String) -> Result<(), CoreError> {
-        if self.processing.lock().unwrap().contains_key(&id) {
+        if self.capturing.lock().unwrap().contains(&id)
+            || self.processing.lock().unwrap().contains_key(&id)
+        {
             return Err(CoreError::TranscriptionFailed("Recording is active".into()));
         }
         self.storage.lock().unwrap().discard_draft(&id)
@@ -188,7 +225,9 @@ impl Engine {
         Ok(())
     }
     pub fn recover_recording(&self, id: String, transcribe_audio: bool) -> Result<(), CoreError> {
-        if self.processing.lock().unwrap().contains_key(&id) {
+        if self.capturing.lock().unwrap().contains(&id)
+            || self.processing.lock().unwrap().contains_key(&id)
+        {
             return Err(CoreError::TranscriptionFailed("Recording is active".into()));
         }
         let draft = self
@@ -209,28 +248,73 @@ impl Engine {
                     .into(),
             ));
         }
+        // Commit the previous recognized text before replay changes chunk boundaries.
+        // A failed replay or a process exit must not remove the only text copy.
+        self.storage
+            .lock()
+            .unwrap()
+            .preserve_recovered_text(&draft)?;
         let keys = self.storage.lock().unwrap().draft_keys(&id)?;
+        let captures = self.storage.lock().unwrap().capture_sources(&id)?;
         self.start_session(id.clone())?;
         let recovered = (|| {
-            for (index, source) in keys {
-                let chunk = self
-                    .storage
-                    .lock()
-                    .unwrap()
-                    .recovery_chunk(&id, index, source)?;
-                let samples = chunk
-                    .samples
-                    .ok_or_else(|| CoreError::AudioError("Recovery audio has expired".into()))?;
-                self.process_source_chunk(
-                    id.clone(),
-                    chunk.source,
-                    chunk.index,
-                    samples,
-                    chunk.sample_rate,
-                    chunk.overlap,
-                    draft.mode.clone(),
-                    None,
-                )?;
+            if !captures.is_empty() {
+                self.storage.lock().unwrap().reset_for_capture_replay(&id)?;
+                let total = captures.iter().map(|(_, n)| *n).max().unwrap_or(0);
+                let mut start = 0;
+                let mut index = 0;
+                while start < total {
+                    let count = (total - start).min(30 * 16000) as usize;
+                    for &(source, _) in &captures {
+                        let mut samples = self
+                            .storage
+                            .lock()
+                            .unwrap()
+                            .capture_slice(&id, source, start, count)?;
+                        samples.resize(count, 0.0);
+                        let source = match source {
+                            1 => ChunkSource::Mic,
+                            2 => ChunkSource::System,
+                            _ => ChunkSource::Mixed,
+                        };
+                        self.process_source_chunk(
+                            id.clone(),
+                            source,
+                            index,
+                            samples,
+                            16000,
+                            if index == 0 { 0.0 } else { 2.0 },
+                            draft.mode.clone(),
+                            None,
+                        )?;
+                    }
+                    if start + count as i64 >= total {
+                        break;
+                    }
+                    start += 28 * 16000;
+                    index += 1;
+                }
+            } else {
+                for (index, source) in keys {
+                    let chunk = self
+                        .storage
+                        .lock()
+                        .unwrap()
+                        .recovery_chunk(&id, index, source)?;
+                    let samples = chunk.samples.ok_or_else(|| {
+                        CoreError::AudioError("Recovery audio has expired".into())
+                    })?;
+                    self.process_source_chunk(
+                        id.clone(),
+                        chunk.source,
+                        chunk.index,
+                        samples,
+                        chunk.sample_rate,
+                        chunk.overlap,
+                        draft.mode.clone(),
+                        None,
+                    )?;
+                }
             }
             self.finish_session(id.clone(), draft.mode, None, Some(draft.source))?;
             Ok(())

@@ -181,7 +181,7 @@ impl Storage {
             .map_err(|e| CoreError::IoError(e.to_string()))?;
         // Backups preserve recoverable text, but never extend temporary audio retention.
         let backup = Connection::open(path).map_err(|e| CoreError::IoError(e.to_string()))?;
-        backup.execute_batch("PRAGMA secure_delete=ON; UPDATE recording_chunks SET audio=NULL; VACUUM; PRAGMA wal_checkpoint(TRUNCATE);").map_err(|e|CoreError::IoError(e.to_string()))
+        backup.execute_batch("PRAGMA secure_delete=ON; UPDATE recording_chunks SET audio=NULL; UPDATE capture_blocks SET audio=NULL; VACUUM; PRAGMA wal_checkpoint(TRUNCATE);").map_err(|e|CoreError::IoError(e.to_string()))
     }
     pub fn import_from(&mut self, source: &Path, work_directory: &Path) -> Result<(), CoreError> {
         let staging = work_directory.join(format!("restore-{}", uuid::Uuid::new_v4()));
