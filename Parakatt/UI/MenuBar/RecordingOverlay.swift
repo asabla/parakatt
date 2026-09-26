@@ -60,6 +60,12 @@ private struct RecordingDot: View {
     }
 }
 
+final class OverlayMeterState: ObservableObject { @Published var level: Float = 0 }
+private struct LiveOverlayMeter: View {
+    @ObservedObject var state: OverlayMeterState
+    var body: some View { AudioLevelBarsView(level: state.level, tint: .red.opacity(0.8)) }
+}
+
 /// Floating overlay shown during recording with live transcription preview.
 struct RecordingOverlayView: View {
     let isRecording: Bool
@@ -73,6 +79,8 @@ struct RecordingOverlayView: View {
     var inputDeviceName: String = ""
     var modelStatus: String = ""
     var captureWarning: String?
+    var meter: OverlayMeterState?
+    var stopInstruction = "Release to stop"
 
     /// True when the LocalAgreement-2 path has produced anything to
     /// display. We prefer the committed/tentative split when it's
@@ -117,7 +125,8 @@ struct RecordingOverlayView: View {
                 HStack(spacing: 10) {
                     RecordingDot()
 
-                    AudioLevelBarsView(level: audioLevel, tint: .red.opacity(0.8))
+                    if let meter { LiveOverlayMeter(state: meter) }
+                    else { AudioLevelBarsView(level: audioLevel, tint: .red.opacity(0.8)) }
 
                     Text("Recording")
                         .font(.system(.body, weight: .semibold))
@@ -125,7 +134,7 @@ struct RecordingOverlayView: View {
 
                     Spacer()
 
-                    Text("Release to stop")
+                    Text(stopInstruction)
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                         .padding(.horizontal, 10)
@@ -163,55 +172,11 @@ struct RecordingOverlayView: View {
                             // opacity. Built as a single Text via
                             // string concatenation so it line-wraps
                             // naturally as one paragraph.
-                            ScrollViewReader { proxy in
-                                ScrollView {
-                                    let composed: Text = {
-                                        var t = Text(committedText)
-                                            .foregroundStyle(.primary)
-                                        if !tentativeText.isEmpty {
-                                            if !committedText.isEmpty {
-                                                t = t + Text(" ")
-                                            }
-                                            t = t + Text(tentativeText)
-                                                .foregroundStyle(.secondary)
-                                                .italic()
-                                        }
-                                        return t
-                                    }()
-                                    composed
-                                        .font(.system(.body, design: .rounded))
-                                        .multilineTextAlignment(.leading)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .id("la2Text")
-                                }
-                                .onChange(of: committedText) { _, _ in
-                                    proxy.scrollTo("la2Text", anchor: .bottom)
-                                }
-                                .onChange(of: tentativeText) { _, _ in
-                                    proxy.scrollTo("la2Text", anchor: .bottom)
-                                }
-                                .onAppear {
-                                    proxy.scrollTo("la2Text", anchor: .bottom)
-                                }
-                            }
-                            .frame(maxHeight: 160)
+                            FollowLiveText(
+                                text: Text(committedText).foregroundStyle(.primary) + Text(tentativeText.isEmpty ? "" : " " + tentativeText).foregroundStyle(.secondary).italic(),
+                                revision: committedText + "\n" + tentativeText)
                         } else if let text = liveText, !text.isEmpty {
-                            ScrollViewReader { proxy in
-                                ScrollView {
-                                    Text(text)
-                                        .font(.system(.body, design: .rounded))
-                                        .multilineTextAlignment(.leading)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .id("liveText")
-                                }
-                                .onChange(of: text) { _, _ in
-                                    proxy.scrollTo("liveText", anchor: .bottom)
-                                }
-                                .onAppear {
-                                    proxy.scrollTo("liveText", anchor: .bottom)
-                                }
-                            }
-                            .frame(maxHeight: 160)
+                            FollowLiveText(text: Text(text), revision: text)
                         } else if silenceDetected {
                             Label("No audio detected — check your microphone", systemImage: "mic.slash")
                                 .font(.callout)
@@ -258,6 +223,7 @@ class RecordingOverlayController {
     private var hostingView: NSHostingView<RecordingOverlayView>?
     private var cancellables = Set<AnyCancellable>()
     private let appState: AppState
+    private let meter = OverlayMeterState()
     private var isVisible = false
 
     init(appState: AppState) {
@@ -267,6 +233,8 @@ class RecordingOverlayController {
 
     private func observeState() {
         let recording = appState.recording
+        recording.$currentAudioLevel.removeDuplicates().receive(on: DispatchQueue.main)
+            .sink { [weak self] in self?.meter.level = $0 }.store(in: &cancellables)
         recording.$isRecording
             .combineLatest(recording.$isProcessing)
             .map { $0 || $1 }
@@ -287,7 +255,7 @@ class RecordingOverlayController {
         // audioLevel) and "annotation state" (LA-2 committed,
         // tentative, silenceDetected, clippingDetected).
         let core = recording.$isRecording
-            .combineLatest(recording.$isProcessing, recording.$liveTranscription, recording.$currentAudioLevel)
+            .combineLatest(recording.$isProcessing, recording.$liveTranscription)
 
         let la2 = recording.$livePreviewCommitted
             .combineLatest(recording.$livePreviewTentative)
@@ -301,7 +269,7 @@ class RecordingOverlayController {
             .throttle(for: .milliseconds(50), scheduler: DispatchQueue.main, latest: true)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] coreState, la2State, warnings, capture in
-                let (isRecording, isProcessing, liveText, audioLevel) = coreState
+                let (isRecording, isProcessing, liveText) = coreState
                 let (committed, tentative) = la2State
                 let (silenceDetected, clippingDetected) = warnings
                 let newView = RecordingOverlayView(
@@ -310,10 +278,11 @@ class RecordingOverlayController {
                     liveText: liveText,
                     committedText: committed,
                     tentativeText: tentative,
-                    audioLevel: audioLevel,
+                    audioLevel: 0,
                     silenceDetected: silenceDetected,
                     clippingDetected: clippingDetected,
-                    inputDeviceName: capture.0, modelStatus: capture.1, captureWarning: capture.2
+                    inputDeviceName: capture.0, modelStatus: capture.1, captureWarning: capture.2,
+                    meter: self?.meter, stopInstruction: self?.appState.loadHotkeyConfig().mode == "toggle" ? "Press shortcut to stop" : "Release to stop"
                 )
                 self?.hostingView?.rootView = newView
 
