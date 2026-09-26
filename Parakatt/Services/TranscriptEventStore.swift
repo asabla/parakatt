@@ -20,10 +20,11 @@ struct TranscriptEventStore {
         return changed
     }
     var text: String {
-        chunks.values.sorted {
+        let ordered = chunks.values.sorted {
             if $0.chunkId != $1.chunkId { return $0.chunkId < $1.chunkId }
             return sourceOrder($0.source) < sourceOrder($1.source)
-        }.map(\.text).filter { !$0.isEmpty }.joined(separator: "\n\n")
+        }
+        return assembleTranscriptParts(parts: ordered.map(\.text), sources: ordered.map(\.source))
     }
     private func sourceOrder(_ source: ChunkSource) -> Int {
         switch source { case .mixed: return 0; case .mic: return 1; case .system: return 2 }

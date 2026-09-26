@@ -77,6 +77,16 @@ Configure optional LLM processing in **Settings > LLM**. Ollama and LM Studio ru
 
 For reproducible benchmarks, fixture attribution, and release checks, see [the validation commands](reports/maintenance/README.md).
 
+## Recording recovery and corrections
+
+History marks a recording as incomplete if speech recognition fails. An incomplete recording is not pasted into another app. Use **Review recovery** in History to save the available recognized text or retry retained audio. The text is saved after each submitted speech chunk. Audio that is still in the capture buffer or waiting for the model is not yet in the recovery record.
+
+Temporary audio retention is off by default. Enable it in Settings only if you want audio recovery. Successful recordings remove their recovery records immediately. Temporary audio expires after 24 hours when the app next accesses recovery data, with a total retention limit of 512 MiB. Turning the setting off clears retained audio. Backups include recognized recovery text, but exclude temporary audio.
+
+In the history detail menu, use **Retry failed processing** to process failed LLM sections again. **Edit processed text** changes the display and export text. The original recognized text and timestamps remain available. **Undo last text change** restores the previous display text. Copy uses the selected transcript view.
+
+The recording overlay shows the actual input device, model readiness, and missing or silent input. Normal logs contain character counts, not transcript text.
+
 ## Unsigned Builds
 
 If you download a release that hasn't been notarized by Apple, macOS Gatekeeper will block it. To open:
@@ -106,7 +116,7 @@ This is standard for open-source macOS apps distributed outside the App Store.
 **Meeting transcription: no system audio captured**
 - System Audio Recording permission is required: System Settings > Privacy & Security > Screen & System Audio Recording
 - On macOS 15+, only "System Audio Recording" is needed (not full Screen Recording)
-- If a specific app is selected but not running, Parakatt falls back to all system audio
+- If the selected app is not running, start it and select it again, or explicitly select all system audio. Parakatt does not expand capture automatically.
 
 **Hotkey not working**
 - Ensure Accessibility permission is granted in System Settings > Privacy & Security > Accessibility

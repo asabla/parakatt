@@ -70,6 +70,9 @@ struct RecordingOverlayView: View {
     let audioLevel: Float
     let silenceDetected: Bool
     let clippingDetected: Bool
+    var inputDeviceName: String = ""
+    var modelStatus: String = ""
+    var captureWarning: String?
 
     /// True when the LocalAgreement-2 path has produced anything to
     /// display. We prefer the committed/tentative split when it's
@@ -131,6 +134,21 @@ struct RecordingOverlayView: View {
                 }
                 .padding(.horizontal, 18)
                 .padding(.vertical, 12)
+
+                if !inputDeviceName.isEmpty {
+                    HStack {
+                        Label(inputDeviceName, systemImage: "mic")
+                        Spacer()
+                        Text(modelStatus)
+                    }
+                    .font(.caption).foregroundStyle(.secondary)
+                    .padding(.horizontal, 18).padding(.bottom, 8)
+                }
+                if let captureWarning {
+                    Label(captureWarning, systemImage: "exclamationmark.triangle")
+                        .font(.callout).foregroundStyle(.orange)
+                        .padding(.horizontal, 18).padding(.bottom, 8)
+                }
 
                 // Expanded content — live text or warnings
                 if hasText || hasWarning {
@@ -277,11 +295,12 @@ class RecordingOverlayController {
         let warnings = recording.$silenceDetected
             .combineLatest(recording.$audioClippingDetected)
 
+        let capture = recording.$inputDeviceName.combineLatest(recording.$modelStatus, recording.$captureWarning)
         core
-            .combineLatest(la2, warnings)
+            .combineLatest(la2, warnings, capture)
             .throttle(for: .milliseconds(50), scheduler: DispatchQueue.main, latest: true)
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] coreState, la2State, warnings in
+            .sink { [weak self] coreState, la2State, warnings, capture in
                 let (isRecording, isProcessing, liveText, audioLevel) = coreState
                 let (committed, tentative) = la2State
                 let (silenceDetected, clippingDetected) = warnings
@@ -293,7 +312,8 @@ class RecordingOverlayController {
                     tentativeText: tentative,
                     audioLevel: audioLevel,
                     silenceDetected: silenceDetected,
-                    clippingDetected: clippingDetected
+                    clippingDetected: clippingDetected,
+                    inputDeviceName: capture.0, modelStatus: capture.1, captureWarning: capture.2
                 )
                 self?.hostingView?.rootView = newView
 

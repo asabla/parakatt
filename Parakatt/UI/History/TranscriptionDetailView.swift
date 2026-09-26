@@ -5,6 +5,8 @@ import UniformTypeIdentifiers
 /// Detail view for a single transcription — header, toolbar, scrollable text.
 /// When timestamp segments are available, shows a timeline view instead of flat text.
 struct TranscriptionDetailView: View {
+    @EnvironmentObject private var appState: AppState
+    let sections: [HistorySection]
     let item: StoredTranscription
     let segments: [TimestampedSegment]
     let recognizedText: String?
@@ -14,6 +16,10 @@ struct TranscriptionDetailView: View {
     let onTitleChanged: (String) -> Void
     let onDelete: () -> Void
 
+    @State private var editingText = false
+    @State private var correctedText = ""
+    @State private var operationBusy = false
+    @State private var operationError: String?
     @State private var showRecognized = false
     @State private var editingTitle = false
     @State private var titleText = ""
@@ -21,7 +27,8 @@ struct TranscriptionDetailView: View {
     @State private var copied = false
     @FocusState private var titleFieldFocused: Bool
 
-    init(item: StoredTranscription, segments: [TimestampedSegment], recognizedText: String?, processingStatus: String?, hasSpeakerLabels: Bool, onTitleChanged: @escaping (String) -> Void, onDelete: @escaping () -> Void, initiallyShowRecognized: Bool = false, speakerHues: [String: Double]? = nil) {
+    init(item: StoredTranscription, segments: [TimestampedSegment], recognizedText: String?, processingStatus: String?, hasSpeakerLabels: Bool, onTitleChanged: @escaping (String) -> Void, onDelete: @escaping () -> Void, initiallyShowRecognized: Bool = false, speakerHues: [String: Double]? = nil, sections: [HistorySection] = []) {
+        self.sections = sections
         self.item = item
         self.segments = segments
         self.recognizedText = recognizedText
@@ -45,8 +52,8 @@ struct TranscriptionDetailView: View {
                 .pickerStyle(.segmented)
                 .labelsHidden()
                 .frame(maxWidth: 380, alignment: .leading)
-                if processingStatus == "degraded" {
-                    Label("Some sections use recognized text because processing did not complete.", systemImage: "info.circle")
+                if ["degraded", "incomplete", "interrupted"].contains(processingStatus ?? "") {
+                    Label(processingStatus == "degraded" ? "Some sections use recognized text because processing did not complete." : "This recording is incomplete. Available recognized text has been kept.", systemImage: "info.circle")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -55,15 +62,59 @@ struct TranscriptionDetailView: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
             .frame(maxWidth: .infinity, alignment: .leading)
+            if sections.contains(where: { $0.status == "failed" || $0.status == "speech_failed" }) {
+                DisclosureGroup("Sections that need attention") {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(Array(sections.filter { $0.status == "failed" || $0.status == "speech_failed" }.enumerated()), id: \.offset) { entry in
+                                let section = entry.element
+                                Text("Section \(section.chunkId + 1) (\(String(describing: section.source))): \(section.status == "speech_failed" ? "Speech was not recognized. Review recovery." : "Processing failed or was skipped. Recognized text was kept.")")
+                                    .font(.caption)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        }
+                    }.frame(maxHeight: 100)
+                }.padding(.horizontal, 20).padding(.bottom, 10)
+            }
+            if let operationError {
+                Text(operationError).font(.callout).foregroundStyle(.red).padding(.horizontal, 20)
+            }
             textSection
                 .background(Color(nsColor: .textBackgroundColor))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .onDisappear { if operationBusy { appState.cancelHistoryProcessing(id: item.id) } }
+        .sheet(isPresented: $editingText) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Edit processed text").font(.title2)
+                Text("The original recognized text and timeline remain available.").foregroundStyle(.secondary)
+                TextEditor(text: $correctedText).font(.body).border(Color.secondary.opacity(0.3))
+                HStack {
+                    Button("Cancel") { editingText = false }
+                    Spacer()
+                    Button("Save") {
+                        let text = correctedText
+                        performHistoryChange { try $0.editTranscription(id: item.id, text: text) }
+                        showRecognized = false
+                        editingText = false
+                    }.keyboardShortcut(.defaultAction)
+                }
+            }.padding(20).frame(width: 600, height: 440)
+        }
         .alert("Delete Transcription?", isPresented: $showDeleteConfirm) {
             Button("Cancel", role: .cancel) {}
             Button("Delete", role: .destructive) { onDelete() }
         } message: {
             Text("This transcription will be permanently removed.")
+        }
+    }
+
+    private func performHistoryChange(_ work: @escaping (CoreBridge) throws -> Void) {
+        operationBusy = true
+        operationError = nil
+        appState.changeHistory(work) { error in
+            operationBusy = false
+            operationError = error
         }
     }
 
@@ -109,7 +160,7 @@ struct TranscriptionDetailView: View {
             HStack(spacing: 8) {
                 Button {
                     NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(item.text, forType: .string)
+                    NSPasteboard.general.setString(showRecognized ? (recognizedText ?? (segments.isEmpty ? item.text : segments.map(\.text).joined(separator: " "))) : item.text, forType: .string)
                     let anim: Animation? = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
                         ? nil : .easeInOut(duration: 0.2)
                     withAnimation(anim) { copied = true }
@@ -128,7 +179,23 @@ struct TranscriptionDetailView: View {
                     Label("Export", systemImage: "square.and.arrow.up")
                 }
 
-                Spacer()
+                Menu {
+                    Button("Edit processed text…") { correctedText = item.text; editingText = true }.disabled(operationBusy)
+                    Button("Undo last text change") {
+                        performHistoryChange { try $0.undoTranscriptionEdit(id: item.id) }
+                    }.disabled(operationBusy)
+                    Button("Retry failed processing") {
+                        performHistoryChange { try $0.retryHistoryProcessing(id: item.id) }
+                    }.disabled(operationBusy || processingStatus != "degraded")
+                    Button("Cancel processing") { appState.cancelHistoryProcessing(id: item.id) }.disabled(!operationBusy)
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                .help("Edit text or retry processing")
+                if operationBusy {
+                    ProgressView().controlSize(.small)
+                }
+                Spacer(minLength: 4)
 
                 Button(role: .destructive) {
                     showDeleteConfirm = true
@@ -136,6 +203,7 @@ struct TranscriptionDetailView: View {
                     Label("Delete", systemImage: "trash")
                 }
                 .tint(.red)
+                .disabled(operationBusy)
             }
             .buttonStyle(.bordered)
             .controlSize(.regular)

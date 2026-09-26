@@ -9,6 +9,10 @@ import Foundation
 /// here once the boundary is proven by these published fields.
 @MainActor
 final class RecordingCoordinator: ObservableObject {
+    @Published var inputDeviceName = ""
+    @Published var modelStatus = "Transcription model unavailable"
+    @Published var captureWarning: String?
+
     /// True while the user is actively recording (held or toggled on).
     @Published var isRecording = false
     /// True while a chunk is being transcribed / inserted (UI shows spinner).
