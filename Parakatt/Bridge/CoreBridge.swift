@@ -184,6 +184,10 @@ class CoreBridge {
     }
 
     /// Test the current LLM connection.
+    func getLlmContextEnabled() -> Bool { engine.getLlmContextEnabled() }
+    func setLlmContextEnabled(_ enabled: Bool) throws { try engine.setLlmContextEnabled(enabled: enabled) }
+    func testLlmPipeline() throws -> ProviderDiagnostic { try engine.testLlmPipeline() }
+
     func testLlmConnection() throws -> String {
         try engine.testLlmConnection()
     }

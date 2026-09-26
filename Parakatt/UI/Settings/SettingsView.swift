@@ -1157,6 +1157,7 @@ struct LlmSettingsView: View {
     @State private var availableModels: [String] = []
     @State private var statusMessage = ""
     @State private var isFetching = false
+    @State private var isTestingProvider = false
 
     fileprivate struct ProviderOption: Identifiable {
         let id: String
@@ -1214,6 +1215,8 @@ struct LlmSettingsView: View {
                         }
 
                         VStack(alignment: .leading, spacing: 10) {
+                            Toggle("Use preceding speech as context", isOn: Binding(get: { appState.settings.llmContextEnabled }, set: { appState.setLlmContextEnabled($0) }))
+                                .help("Provide up to 120 earlier words from the same speaker source to help keep names and sentences consistent. The original recognized text remains available.")
                             if ["openai", "anthropic"].contains(appState.llmProvider) {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text("API Key")
@@ -1277,7 +1280,8 @@ struct LlmSettingsView: View {
                                 HStack(spacing: 8) {
                                     Button("Apply") { applyConfig() }
 
-                                    Button("Test Connection") { testConnection() }
+                                    Button("Test selected model") { testConnection() }.disabled(isTestingProvider)
+                                        .help("Send a short synthetic request to the selected provider. No recording is sent.")
 
                                     if !statusMessage.isEmpty {
                                         HStack(spacing: 4) {
@@ -1353,16 +1357,11 @@ struct LlmSettingsView: View {
     }
 
     private func testConnection() {
-        // Apply first to ensure current settings are active
-        appState.configureLlm()
-        statusMessage = "Testing..."
-
-        DispatchQueue.global(qos: .userInitiated).async {
-            let result = appState.testLlmConnection()
-            DispatchQueue.main.async {
-                statusMessage = result
-            }
-        }
+        guard appState.configureLlm() else { statusMessage = "Could not apply provider settings"; return }
+        isTestingProvider = true
+        let testedModel = appState.llmModel
+        statusMessage = "Testing selected model with synthetic text…"
+        appState.testLlmPipeline { statusMessage = "Model: \(testedModel)\n" + $0; isTestingProvider = false }
     }
 }
 

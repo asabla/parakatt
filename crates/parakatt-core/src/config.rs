@@ -27,6 +27,8 @@ pub struct Config {
 pub struct GeneralConfig {
     #[serde(default)]
     pub recovery_audio: bool,
+    #[serde(default)]
+    pub llm_context_enabled: bool,
     #[serde(default = "default_mode")]
     pub active_mode: String,
     #[serde(default = "default_true")]
@@ -90,6 +92,7 @@ impl Default for GeneralConfig {
     fn default() -> Self {
         Self {
             recovery_audio: false,
+            llm_context_enabled: false,
             active_mode: default_mode(),
             auto_paste: true,
             show_overlay: true,

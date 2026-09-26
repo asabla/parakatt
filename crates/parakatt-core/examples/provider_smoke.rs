@@ -17,8 +17,14 @@ fn main() {
         "anthropic" => Wire::Anthropic,
         _ => std::process::exit(2),
     };
+    let base = args[1].trim_end_matches('/');
+    let base = if matches!(wire, Wire::Ollama) || base.ends_with("/v1") {
+        base.to_string()
+    } else {
+        format!("{base}/v1")
+    };
     let mut provider = HttpProvider::new(
-        &args[1],
+        &base,
         &args[2],
         std::env::var("PARAKATT_PROVIDER_KEY").ok(),
         wire,
@@ -26,6 +32,8 @@ fn main() {
     provider.output_limit = 256;
     let start = std::time::Instant::now();
     let result = provider.process(&LlmRequest {
+        preceding_text: None,
+        allow_preceding_context: false,
         text: "This is a synthetic connection test. Det här är ett syntetiskt anslutningstest."
             .into(),
         system_prompt: "Return only the word READY.".into(),

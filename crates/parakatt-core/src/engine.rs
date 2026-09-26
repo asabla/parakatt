@@ -1292,6 +1292,26 @@ impl Engine {
 
     /// Test the currently configured LLM connection. Returns the provider name
     /// on success or an error message on failure.
+    pub fn get_llm_context_enabled(&self) -> bool {
+        self.config.lock().unwrap().general.llm_context_enabled
+    }
+    pub fn set_llm_context_enabled(&self, enabled: bool) -> Result<(), CoreError> {
+        let mut config = self.config.lock().unwrap();
+        let previous = config.general.llm_context_enabled;
+        config.general.llm_context_enabled = enabled;
+        if let Err(error) = config.save(&self.config_dir) {
+            config.general.llm_context_enabled = previous;
+            return Err(error);
+        }
+        Ok(())
+    }
+    pub fn test_llm_pipeline(&self) -> Result<crate::llm::ProviderDiagnostic, CoreError> {
+        let provider =
+            self.llm.lock().unwrap().clone().ok_or_else(|| {
+                CoreError::LlmError("Select and configure a provider first".into())
+            })?;
+        Ok(provider.diagnose())
+    }
     pub fn test_llm_connection(&self) -> Result<String, CoreError> {
         let llm_guard = crate::util::lock_named(&self.llm, "LLM", CoreError::LlmError)?;
         let llm = llm_guard
@@ -2114,6 +2134,7 @@ impl Engine {
             config.modes.clone()
         };
         let max_words = config.general.llm_max_words as usize;
+        let allow_preceding_context = config.general.llm_context_enabled;
         drop(config);
         let Some(mode) = modes::find_mode(&all_modes, mode) else {
             return Ok(None);
@@ -2144,6 +2165,8 @@ impl Engine {
         Ok(Some((
             provider,
             LlmRequest {
+                preceding_text: None,
+                allow_preceding_context,
                 text: text.into(),
                 system_prompt,
                 context: Some(ctx.clone()),
