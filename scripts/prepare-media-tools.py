@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Build the pinned macOS media bundle. Build tools are never runtime dependencies."""
-import base64, hashlib, json, os, pathlib, shutil, subprocess, sys, tarfile, urllib.request, zipfile
+import base64, hashlib, json, os, pathlib, shutil, subprocess, sys, tarfile, zipfile
+from media_tool_downloads import fetch_verified
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DEST = ROOT / 'target/media-tools'
 CACHE = ROOT / 'target/media-cache'
 BUILD = ROOT / 'target/media-build'
 LOCK = ROOT / 'config/media-tools.json'
 manifest = json.loads(LOCK.read_text())
-fingerprint = hashlib.sha256(LOCK.read_bytes() + pathlib.Path(__file__).read_bytes() + (ROOT / "scripts/collect-deno-notices.py").read_bytes()).hexdigest()
+fingerprint = hashlib.sha256(LOCK.read_bytes() + pathlib.Path(__file__).read_bytes() + (ROOT / "scripts/collect-deno-notices.py").read_bytes() + (ROOT / "scripts/media_tool_downloads.py").read_bytes()).hexdigest()
 if (DEST / 'stamp').exists() and (DEST / 'stamp').read_text() == fingerprint:
     sys.exit(0)
 for directory in [DEST, CACHE, BUILD, DEST / 'licenses', DEST / 'sources']:
@@ -16,14 +17,7 @@ def run(args, cwd=None, env=None):
     subprocess.run(list(map(str,args)), cwd=cwd, env=env, check=True)
 def fetch(name):
     spec=manifest[name]; path=CACHE / spec.get('filename', spec['url'].rsplit('/',1)[1])
-    if not path.exists():
-        temporary=path.with_suffix('.download')
-        with urllib.request.urlopen(spec['url'], timeout=90) as source, temporary.open('wb') as sink:
-            shutil.copyfileobj(source,sink)
-        temporary.replace(path)
-    if hashlib.sha256(path.read_bytes()).hexdigest()!=spec['sha256']:
-        raise SystemExit('Checksum mismatch: '+name)
-    return path
+    return fetch_verified(spec['url'], path, spec['sha256'], name)
 shutil.copy2(fetch('yt-dlp'), DEST / 'yt-dlp')
 with zipfile.ZipFile(fetch('deno')) as archive:
     (DEST / 'deno').write_bytes(archive.read('deno'))
@@ -87,6 +81,7 @@ for key, spec in manifest.items():
     (DEST/'licenses'/(key+'.txt')).write_bytes(contents)
 run([sys.executable,ROOT/'scripts/collect-deno-notices.py'])
 shutil.copy2(ROOT/'scripts/collect-deno-notices.py',DEST/'sources/collect-deno-notices.py')
+shutil.copy2(ROOT/'scripts/media_tool_downloads.py',DEST/'sources/media_tool_downloads.py')
 (DEST/'build-options.json').write_text(json.dumps(flags,indent=2))
 (DEST/'sources/build-options.json').write_text(json.dumps(flags,indent=2))
 (DEST/'sources/README.txt').write_text('Corresponding sources for the bundled media tools. The FFmpeg and dav1d source archives are unmodified. Build options and pinned download hashes are included. To reproduce the application bundle, check out the matching Parakatt release, copy these archives to target/media-cache using the filenames in media-tools.json, and run make media-tools. The preparation script uses the selected Xcode SDK and builds for Apple Silicon and macOS 14.0. Build-only Python tools are installed in target/media-build/venv. No build tools are required on the end user system.\n')
