@@ -10,10 +10,12 @@ pub mod local_agreement;
 pub mod models;
 pub mod modes;
 pub mod processing;
+pub mod recovery;
 pub mod session;
 pub mod speech;
 pub mod storage;
 pub mod stt;
+pub mod text_assembly;
 pub(crate) mod util;
 pub mod vad;
 
@@ -76,7 +78,9 @@ pub enum CoreError {
 /// and leave the system stream for diarization to split into
 /// `Speaker 1`, `Speaker 2`, … `Mixed` is the legacy path (single
 /// blended buffer, no speaker tagging).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, uniffi::Enum)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, uniffi::Enum,
+)]
 pub enum ChunkSource {
     Mixed,
     Mic,
@@ -84,7 +88,7 @@ pub enum ChunkSource {
 }
 
 /// A sentence-level timestamp segment from STT.
-#[derive(Debug, Clone, uniffi::Record)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, uniffi::Record)]
 pub struct TimestampedSegment {
     pub text: String,
     /// Start time in seconds relative to the audio start.

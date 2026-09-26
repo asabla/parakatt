@@ -33,7 +33,7 @@ pub struct TranscriptionQuery {
 
 /// Manages the transcription SQLite database.
 pub struct Storage {
-    conn: Connection,
+    pub(crate) conn: Connection,
 }
 
 impl Storage {
@@ -57,6 +57,7 @@ impl Storage {
 
         let storage = Self { conn };
         storage.migrate()?;
+        storage.migrate_recovery()?;
         Ok(storage)
     }
 
@@ -163,6 +164,12 @@ impl Storage {
             .unchecked_transaction()
             .map_err(|e| CoreError::IoError(e.to_string()))?;
         let id = self.save(transcription)?;
+        self.conn
+            .execute(
+                "DELETE FROM transcript_segments WHERE transcription_id=?1",
+                [&id],
+            )
+            .map_err(|e| CoreError::IoError(e.to_string()))?;
         self.save_segments(&id, segments, None)?;
         self.save_processing(&id, summary)?;
         tx.commit().map_err(|e| CoreError::IoError(e.to_string()))?;
@@ -171,7 +178,10 @@ impl Storage {
     pub fn export_to(&self, path: &Path) -> Result<(), CoreError> {
         self.conn
             .backup(rusqlite::MAIN_DB, path, None)
-            .map_err(|e| CoreError::IoError(e.to_string()))
+            .map_err(|e| CoreError::IoError(e.to_string()))?;
+        // Backups preserve recoverable text, but never extend temporary audio retention.
+        let backup = Connection::open(path).map_err(|e| CoreError::IoError(e.to_string()))?;
+        backup.execute_batch("PRAGMA secure_delete=ON; UPDATE recording_chunks SET audio=NULL; VACUUM; PRAGMA wal_checkpoint(TRUNCATE);").map_err(|e|CoreError::IoError(e.to_string()))
     }
     pub fn import_from(&mut self, source: &Path, work_directory: &Path) -> Result<(), CoreError> {
         let staging = work_directory.join(format!("restore-{}", uuid::Uuid::new_v4()));
@@ -231,7 +241,7 @@ impl Storage {
         self.conn
             .execute(
                 "INSERT INTO transcriptions (id, created_at, duration_secs, source, mode, audio_source, app_context, title, text)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9) ON CONFLICT(id) DO UPDATE SET text=excluded.text,duration_secs=excluded.duration_secs,source=excluded.source,mode=excluded.mode",
                 params![
                     transcription.id,
                     transcription.created_at,
