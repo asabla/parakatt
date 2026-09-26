@@ -12,8 +12,16 @@ struct HistoryDetailCache {
         return value
     }
     private func cost(_ value: HistoryDetailData) -> Int {
-        (value.item?.text.utf8.count ?? 0) + value.segments.reduce(0) { $0 + $1.text.utf8.count } + (value.recognizedText?.utf8.count ?? 0)
-            + value.sections.reduce(0) { $0 + $1.text.utf8.count + $1.recognizedText.utf8.count }
+        var bytes = value.item?.text.utf8.count ?? 0
+        bytes += value.recognizedText?.utf8.count ?? 0
+        for segment in value.segments {
+            bytes += segment.text.utf8.count
+        }
+        for section in value.sections {
+            bytes += section.text.utf8.count
+            bytes += section.recognizedText.utf8.count
+        }
+        return bytes
     }
     mutating func insert(_ value: HistoryDetailData, for id: String) {
         values.removeValue(forKey: id); order.removeAll { $0 == id }
