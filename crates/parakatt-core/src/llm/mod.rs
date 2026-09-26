@@ -11,6 +11,9 @@ use crate::CoreError;
 /// Request to an LLM provider for text processing.
 #[derive(Debug, Clone)]
 pub struct LlmRequest {
+    /// Prior recognized speech from this source, never part of the rewrite target.
+    pub preceding_text: Option<String>,
+    pub allow_preceding_context: bool,
     /// The transcribed text to process.
     pub text: String,
     /// System prompt defining the processing behavior.
@@ -19,8 +22,24 @@ pub struct LlmRequest {
     pub context: Option<crate::AppContext>,
 }
 
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct ProviderDiagnostic {
+    pub connection: String,
+    pub authentication: String,
+    pub model: String,
+    pub completion: String,
+}
+
 /// Trait that all LLM backends must implement.
 pub trait LlmProvider: Send + Sync {
+    fn diagnose(&self) -> ProviderDiagnostic {
+        ProviderDiagnostic {
+            connection: "Not tested".into(),
+            authentication: "Not tested".into(),
+            model: "Not tested".into(),
+            completion: "This provider does not support a full diagnostic".into(),
+        }
+    }
     /// Process text according to the system prompt and context.
     fn process(&self, request: &LlmRequest) -> Result<String, CoreError>;
 

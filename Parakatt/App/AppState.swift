@@ -344,6 +344,7 @@ class AppState: ObservableObject {
             }
 
             settings.recoveryAudio = bridge?.getRecoveryAudio() ?? false
+            settings.llmContextEnabled = bridge?.getLlmContextEnabled() ?? false
 
             // Load behavior settings from config
             if let ap = try? bridge?.getAutoPaste() { autoPaste = ap }
@@ -945,6 +946,22 @@ class AppState: ObservableObject {
             errorMessage = error.localizedDescription
             NSLog("[Parakatt] LLM config failed: %@", error.localizedDescription)
             return false
+        }
+    }
+
+    func setLlmContextEnabled(_ enabled: Bool) {
+        do { try bridge?.setLlmContextEnabled(enabled); settings.llmContextEnabled = enabled }
+        catch { errorMessage = error.localizedDescription }
+    }
+    func testLlmPipeline(completion: @escaping (String) -> Void) {
+        guard let bridge else { completion("Engine unavailable"); return }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let message: String
+            do {
+                let result = try bridge.testLlmPipeline()
+                message = (result.completion.hasPrefix("Passed") ? "OK\n" : "") + "Connection: \(result.connection)\nAuthentication: \(result.authentication)\nModel: \(result.model)\nCompletion: \(result.completion)"
+            } catch { message = error.localizedDescription }
+            DispatchQueue.main.async { completion(message) }
         }
     }
 

@@ -111,7 +111,7 @@ impl ProcessingSession {
         index: u32,
         source: ChunkSource,
         raw: String,
-        work: Option<(Arc<dyn LlmProvider>, LlmRequest)>,
+        mut work: Option<(Arc<dyn LlmProvider>, LlmRequest)>,
         skip: Option<String>,
     ) -> Result<(), CoreError> {
         let mut state = self.state.lock().unwrap();
@@ -123,6 +123,25 @@ impl ProcessingSession {
             return Err(CoreError::TranscriptionFailed(
                 "Duplicate chunk identity".into(),
             ));
+        }
+        if let Some((_, request)) = work
+            .as_mut()
+            .filter(|(_, request)| request.allow_preceding_context)
+        {
+            let preceding = state
+                .chunks
+                .range(..key)
+                .rev()
+                .filter(|(_, chunk)| chunk.source == source)
+                .take(2)
+                .map(|(_, chunk)| chunk.raw.as_str())
+                .collect::<Vec<_>>();
+            let text = preceding.into_iter().rev().collect::<Vec<_>>().join(" ");
+            let words = text.split_whitespace().rev().take(120).collect::<Vec<_>>();
+            if !words.is_empty() {
+                request.preceding_text =
+                    Some(words.into_iter().rev().collect::<Vec<_>>().join(" "));
+            }
         }
         state.chunks.insert(
             key,
@@ -311,6 +330,99 @@ impl ProcessingSession {
 mod tests {
     use super::*;
     #[test]
+    fn context_is_bounded_and_never_crosses_sources_or_sessions() {
+        struct Inspect(Arc<Mutex<Vec<LlmRequest>>>);
+        impl LlmProvider for Inspect {
+            fn name(&self) -> &str {
+                "inspect"
+            }
+            fn is_available(&self) -> bool {
+                true
+            }
+            fn process(&self, r: &LlmRequest) -> Result<String, CoreError> {
+                self.0.lock().unwrap().push(r.clone());
+                Ok(r.text.clone())
+            }
+        }
+        let observed = Arc::new(Mutex::new(Vec::new()));
+        let provider: Arc<dyn LlmProvider> = Arc::new(Inspect(observed.clone()));
+        let session = ProcessingSession::new("context".into());
+        session
+            .enqueue(
+                0,
+                ChunkSource::Mic,
+                "Åsa godkände inte 42 poster.".into(),
+                None,
+                None,
+            )
+            .unwrap();
+        session
+            .enqueue(
+                0,
+                ChunkSource::System,
+                "Other speaker must not leak".into(),
+                None,
+                None,
+            )
+            .unwrap();
+        let r = LlmRequest {
+            text: "Det gäller version 1.2.".into(),
+            preceding_text: None,
+            allow_preceding_context: true,
+            system_prompt: "Polish".into(),
+            context: None,
+        };
+        session
+            .enqueue(
+                1,
+                ChunkSource::Mic,
+                r.text.clone(),
+                Some((provider.clone(), r.clone())),
+                None,
+            )
+            .unwrap();
+        session.wait_idle().unwrap();
+        assert_eq!(
+            observed.lock().unwrap()[0].preceding_text.as_deref(),
+            Some("Åsa godkände inte 42 poster.")
+        );
+        session
+            .enqueue(2, ChunkSource::Mic, "word ".repeat(200), None, None)
+            .unwrap();
+        session
+            .enqueue(
+                3,
+                ChunkSource::Mic,
+                r.text.clone(),
+                Some((provider.clone(), r.clone())),
+                None,
+            )
+            .unwrap();
+        session.finish().unwrap();
+        assert_eq!(
+            observed.lock().unwrap()[1]
+                .preceding_text
+                .as_ref()
+                .unwrap()
+                .split_whitespace()
+                .count(),
+            120
+        );
+        let other = ProcessingSession::new("other".into());
+        other
+            .enqueue(
+                0,
+                ChunkSource::Mic,
+                r.text.clone(),
+                Some((provider, r)),
+                None,
+            )
+            .unwrap();
+        other.finish().unwrap();
+        assert!(observed.lock().unwrap()[2].preceding_text.is_none());
+    }
+
+    #[test]
     fn orders_by_identity_and_rejects_duplicates() {
         let s = ProcessingSession::new("test".into());
         s.enqueue(1, ChunkSource::Mic, "second".into(), None, None)
@@ -376,6 +488,8 @@ mod worker_tests {
     }
     fn request(index: u32) -> LlmRequest {
         LlmRequest {
+            preceding_text: None,
+            allow_preceding_context: false,
             text: format!("chunk {index}"),
             system_prompt: "polish".into(),
             context: None,

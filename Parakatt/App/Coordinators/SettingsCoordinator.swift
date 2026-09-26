@@ -18,6 +18,7 @@ final class SettingsCoordinator: ObservableObject {
     @Published var showRecordingOverlay = true
     @Published var debugMode = false
     @Published var recoveryAudio = false
+    @Published var llmContextEnabled = false
     @Published var speakerLabelsEnabled = false
     @Published var activeMode = "dictation"
 
