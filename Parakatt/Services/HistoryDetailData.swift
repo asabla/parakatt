@@ -2,13 +2,15 @@ import Foundation
 import ParakattCore
 
 struct HistoryDetailData {
+    let item: StoredTranscription?
     let sections: [HistorySection]
     let segments: [TimestampedSegment]
     let recognizedText: String?
     let processingStatus: String?
     let hasSpeakerLabels: Bool
     let speakerHues: [String: Double]
-    init(segments: [TimestampedSegment] = [], processing: ProcessingSummary? = nil, sections: [HistorySection] = []) {
+    init(segments: [TimestampedSegment] = [], processing: ProcessingSummary? = nil, sections: [HistorySection] = [], item: StoredTranscription? = nil) {
+        self.item = item
         self.sections = sections
         self.segments = segments
         self.recognizedText = processing?.recognizedText

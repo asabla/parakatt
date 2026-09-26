@@ -280,7 +280,7 @@ impl Storage {
             param_idx += 1;
         }
 
-        sql.push_str(" ORDER BY created_at DESC");
+        sql.push_str(" ORDER BY created_at DESC, id DESC");
         sql.push_str(&format!(" LIMIT ?{param_idx} OFFSET ?{}", param_idx + 1));
         param_values.push(Box::new(query.limit));
         param_values.push(Box::new(query.offset));
@@ -341,7 +341,7 @@ impl Storage {
             param_idx += 1;
         }
 
-        sql.push_str(" ORDER BY rank");
+        sql.push_str(" ORDER BY rank, t.created_at DESC, t.id DESC");
         sql.push_str(&format!(" LIMIT ?{param_idx} OFFSET ?{}", param_idx + 1));
         param_values.push(Box::new(limit));
         param_values.push(Box::new(offset));

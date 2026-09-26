@@ -10,7 +10,11 @@ struct TranscriptionHistoryView: View {
     @State private var showRecovery = false
     @State private var queryGeneration = UUID()
     @State private var searchTask: Task<Void, Never>?
-    @State private var segmentCache: [String: HistoryDetailData] = [:]
+    @State private var segmentCache = HistoryDetailCache()
+    @State private var historyError: String?
+    @State private var loadingPage = false
+    @State private var hasMore = false
+    @State private var nextOffset: UInt32 = 0
     @State private var selectedDetail = HistoryDetailData()
     @State private var searchText = ""
     @State private var sidebarVisible = true
@@ -70,6 +74,9 @@ struct TranscriptionHistoryView: View {
                 .font(.callout)
                 .padding(.horizontal, 16)
                 .padding(.bottom, 10)
+            }
+            if let historyError {
+                HStack { Text(historyError).foregroundStyle(.red); Button("Retry") { refresh() } }.padding(.horizontal, 16)
             }
             Divider()
             HSplitView {
@@ -169,7 +176,7 @@ struct TranscriptionHistoryView: View {
                                 selectedIds = Set(transcriptions.map(\.id))
                             }
                         } label: {
-                            Text(selectedIds.count == transcriptions.count ? "Deselect All" : "Select All")
+                            Text(selectedIds.count == transcriptions.count ? "Deselect loaded" : "Select loaded")
                         }
                         .buttonStyle(.borderless)
                         .foregroundStyle(Color.accentColor)
@@ -299,6 +306,11 @@ struct TranscriptionHistoryView: View {
                 }
                 .listStyle(.inset)
             }
+            if loadingPage { ProgressView().controlSize(.small).padding(8) }
+            if hasMore {
+                Button("Load more recordings") { loadPage(generation: queryGeneration, append: true) }
+                    .disabled(loadingPage).padding(8)
+            }
         }
         .alert("Delete \(selectedIds.count) transcription\(selectedIds.count == 1 ? "" : "s")?",
                isPresented: $showDeleteConfirmation) {
@@ -320,7 +332,7 @@ struct TranscriptionHistoryView: View {
 
     @ViewBuilder
     private var detailContent: some View {
-        if let id = selectedId, let item = transcriptions.first(where: { $0.id == id }) {
+        if let id = selectedId, let item = selectedDetail.item.flatMap({ $0.id == id ? $0 : nil }) ?? transcriptions.first(where: { $0.id == id }) {
             TranscriptionDetailView(
                 item: item,
                 segments: selectedDetail.segments,
@@ -392,6 +404,8 @@ struct TranscriptionHistoryView: View {
         searchTask?.cancel()
         let generation = UUID()
         queryGeneration = generation
+        hasMore = false
+        loadingPage = false
         appState.queryRecovery { if queryGeneration == generation { recoveryDrafts = $0 } }
         if invalidateCache { segmentCache.removeAll() }
         searchTask = Task { @MainActor in
@@ -399,23 +413,46 @@ struct TranscriptionHistoryView: View {
                 do { try await Task.sleep(nanoseconds: 250_000_000) } catch { return }
             }
             guard !Task.isCancelled else { return }
-            appState.queryHistory(search: searchText.isEmpty ? nil : searchText, source: sourceFilter) { rows in
-                guard queryGeneration == generation else { return }
-                transcriptions = rows
+            loadPage(generation: generation, append: false)
+        }
+    }
+
+    private func loadPage(generation: UUID, append: Bool) {
+        loadingPage = true
+        historyError = nil
+        let offset: UInt32 = append ? nextOffset : 0
+        appState.queryHistoryPage(search: searchText.isEmpty ? nil : searchText, source: sourceFilter, offset: offset) { result in
+            guard queryGeneration == generation else { return }
+            loadingPage = false
+            switch result {
+            case .success(let rows):
+                hasMore = rows.count > 100
+                let page = Array(rows.prefix(100))
+                nextOffset = offset + UInt32(page.count)
+                if append {
+                    let known = Set(transcriptions.map(\.id))
+                    transcriptions.append(contentsOf: page.filter { !known.contains($0.id) })
+                } else { transcriptions = page }
                 loadSegments()
+            case .failure(let error): historyError = "Could not load history: \(error.localizedDescription)"
             }
         }
     }
 
     private func loadSegments() {
         guard let id = selectedId else { selectedDetail = HistoryDetailData(); return }
-        if let cached = segmentCache[id] { selectedDetail = cached; return }
+        if let cached = segmentCache.value(for: id) { selectedDetail = cached; return }
         selectedDetail = HistoryDetailData()
         let generation = queryGeneration
-        appState.queryDetail(id: id) { rows in
+        appState.queryDetail(id: id) { result in
             guard queryGeneration == generation else { return }
-            segmentCache[id] = rows
-            if selectedId == id { selectedDetail = rows }
+            switch result {
+            case .success(let rows):
+                segmentCache.insert(rows, for: id)
+                if selectedId == id { selectedDetail = rows }
+            case .failure(let error):
+                if selectedId == id { historyError = "Could not load this transcript: \(error.localizedDescription)" }
+            }
         }
     }
 

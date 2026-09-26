@@ -1434,6 +1434,14 @@ class AppState: ObservableObject {
         }
     }
 
+    func queryHistoryPage(search: String?, source: String?, offset: UInt32, completion: @escaping (Result<[StoredTranscription], Error>) -> Void) {
+        guard let bridge else { completion(.failure(NSError(domain: "Parakatt", code: 1, userInfo: [NSLocalizedDescriptionKey: "The engine is unavailable."]))); return }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = Result { try bridge.listTranscriptions(query: TranscriptionQuery(searchText: search, sourceFilter: source, limit: 101, offset: offset)) }
+            DispatchQueue.main.async { completion(result) }
+        }
+    }
+
     func queryHistory(search: String?, source: String?, completion: @escaping ([StoredTranscription]) -> Void) {
         guard let bridge else { completion([]); return }
         DispatchQueue.global(qos: .userInitiated).async {
@@ -1443,14 +1451,16 @@ class AppState: ObservableObject {
         }
     }
 
-    func queryDetail(id: String, completion: @escaping (HistoryDetailData) -> Void) {
-        guard let bridge else { completion(HistoryDetailData()); return }
+    func queryDetail(id: String, completion: @escaping (Result<HistoryDetailData, Error>) -> Void) {
+        guard let bridge else { completion(.failure(NSError(domain: "Parakatt", code: 1, userInfo: [NSLocalizedDescriptionKey: "The engine is unavailable."]))); return }
         DispatchQueue.global(qos: .userInitiated).async {
-            let rows = (try? bridge.getTranscriptionSegments(id: id)) ?? []
-            let processing = try? bridge.getTranscriptionProcessing(id: id)
-            let sections = (try? bridge.historySections(id: id)) ?? []
-            let detail = HistoryDetailData(segments: rows, processing: processing, sections: sections)
-            DispatchQueue.main.async { completion(detail) }
+            let result = Result {
+                let rows = try bridge.getTranscriptionSegments(id: id)
+                let processing = try bridge.getTranscriptionProcessing(id: id)
+                let sections = try bridge.historySections(id: id)
+                return HistoryDetailData(segments: rows, processing: processing, sections: sections, item: try bridge.getTranscription(id: id))
+            }
+            DispatchQueue.main.async { completion(result) }
         }
     }
 
