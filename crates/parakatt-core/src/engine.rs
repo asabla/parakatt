@@ -91,6 +91,7 @@ pub struct Engine {
     download_progress: Arc<Mutex<DownloadProgress>>,
     download_cancel: Arc<AtomicBool>,
     sessions: Mutex<SessionManager>,
+    capturing: Mutex<std::collections::HashSet<String>>,
     processing: Mutex<std::collections::HashMap<String, Arc<crate::processing::ProcessingSession>>>,
     completed_events:
         Mutex<std::collections::VecDeque<(String, Vec<crate::processing::TranscriptionEvent>)>>,
@@ -144,6 +145,7 @@ impl Engine {
             download_progress: Arc::new(Mutex::new(DownloadProgress::idle())),
             download_cancel: Arc::new(AtomicBool::new(false)),
             sessions: Mutex::new(SessionManager::new()),
+            capturing: Mutex::new(std::collections::HashSet::new()),
             processing: Mutex::new(std::collections::HashMap::new()),
             completed_events: Mutex::new(std::collections::VecDeque::new()),
             storage: Mutex::new(Storage::open(&config_dir)?),
@@ -1567,7 +1569,13 @@ impl Engine {
             20.0 * (peak.max(1e-9) as f64).log10()
         );
 
-        let retain_audio = self.get_recovery_audio();
+        let retain_audio = self.get_recovery_audio()
+            && self
+                .storage
+                .lock()
+                .unwrap()
+                .capture_sources(&session_id)?
+                .is_empty();
         self.storage.lock().unwrap().journal_chunk(
             &session_id,
             chunk_index,
@@ -1757,7 +1765,13 @@ impl Engine {
             return Ok(result);
         }
 
-        let retain_audio = self.get_recovery_audio();
+        let retain_audio = self.get_recovery_audio()
+            && self
+                .storage
+                .lock()
+                .unwrap()
+                .capture_sources(&session_id)?
+                .is_empty();
         self.storage.lock().unwrap().journal_chunk(
             &session_id,
             slice_index,
@@ -1893,11 +1907,11 @@ impl Engine {
                 None,
             )
         };
-        let failed_chunks = self
-            .storage
-            .lock()
-            .unwrap()
-            .draft_failure_count(&session_id)?;
+        let failed_chunks = {
+            let storage = self.storage.lock().unwrap();
+            storage.draft_failure_count(&session_id)?
+                + u32::from(storage.has_speech_gap(&session_id)?)
+        };
         if failed_chunks > 0 {
             summary.status = "incomplete".into();
         }
@@ -2489,6 +2503,69 @@ mod processing_integration_tests {
             .lock()
             .unwrap()
             .contains_key("history:retry"));
+    }
+
+    #[test]
+    fn recover_capture_before_any_speech_chunk_was_submitted() {
+        let (engine, _dir, calls) = setup();
+        engine.set_recovery_audio(true).unwrap();
+        engine
+            .begin_capture("early".into(), "push_to_talk".into(), "dictation".into())
+            .unwrap();
+        engine
+            .append_capture_audio("early".into(), ChunkSource::Mixed, vec![0.1; 16000])
+            .unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        assert!(engine.list_recording_drafts().unwrap().is_empty());
+        assert!(engine.recover_recording("early".into(), true).is_err());
+        engine.end_capture("early".into());
+        assert!(engine.list_recording_drafts().unwrap()[0].audio_available);
+        engine.recover_recording("early".into(), true).unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            engine.storage.lock().unwrap().get("early").unwrap().text,
+            "recognized words"
+        );
+        assert!(engine.list_recording_drafts().unwrap().is_empty());
+    }
+    #[test]
+    fn lost_capture_blocks_prevent_success_even_if_recognition_succeeds() {
+        let (engine, _dir, _) = setup();
+        engine
+            .begin_capture("gap".into(), "push_to_talk".into(), "dictation".into())
+            .unwrap();
+        engine
+            .start_recording("gap".into(), "push_to_talk".into(), "dictation".into())
+            .unwrap();
+        engine
+            .process_chunk(
+                "gap".into(),
+                vec![0.1; 16000],
+                16000,
+                0,
+                "dictation".into(),
+                None,
+            )
+            .unwrap();
+        engine.mark_capture_gap("gap".into(), true).unwrap();
+        assert!(engine
+            .finish_session(
+                "gap".into(),
+                "dictation".into(),
+                None,
+                Some("push_to_talk".into())
+            )
+            .is_err());
+        assert_eq!(
+            engine
+                .storage
+                .lock()
+                .unwrap()
+                .get_processing("gap")
+                .unwrap()
+                .status,
+            "incomplete"
+        );
     }
 
     #[test]

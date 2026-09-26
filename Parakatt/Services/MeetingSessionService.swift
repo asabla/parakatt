@@ -75,6 +75,8 @@ class MeetingSessionService {
     private let sessionId: String
     private let bridge: CoreBridge
 
+    private var captureJournal: CaptureJournal?
+    private let speechWork = WorkCapacity(limit: 2)
     private var mixBuffer: [Float] = []
     /// When `dualStreamEnabled`, these hold the same wall-clock window as
     /// `mixBuffer` would, but kept per-source so we can dispatch mic and
@@ -146,6 +148,19 @@ class MeetingSessionService {
 
         self.dualStreamEnabled = speakerLabelsEnabled
 
+        captureJournal = try CaptureJournal(bridge: bridge, id: sessionId, source: "meeting", mode: mode) { [weak self] message in
+            guard let self, !self.cancelled else { return }
+            self.onError?(message)
+            self.stop(mode: self.activeMode, context: self.activeContext)
+        }
+        // Any failed startup must release the capture registration after writes drain.
+        var started = false
+        defer {
+            if !started {
+                let journal = captureJournal
+                transcriptionQueue.async { journal?.finish() }
+            }
+        }
         // Start session in the Rust engine.
         try bridge.startSession(sessionId: sessionId, source: "meeting", mode: mode)
         processingEvents = TranscriptEventStore(sessionID: sessionId)
@@ -195,6 +210,7 @@ class MeetingSessionService {
             throw error
         }
 
+        started = true
         isActive = true
         startTime = Date()
         captureStartedAt = CFAbsoluteTimeGetCurrent()
@@ -285,6 +301,7 @@ class MeetingSessionService {
         transcriptionQueue.async { [weak self] in
             guard let self else { return }
 
+            self.captureJournal?.finish()
             // Process the final chunk synchronously.
             self.processRemainingChunkSync()
 
@@ -346,9 +363,21 @@ class MeetingSessionService {
             systemChunkBuffer.removeAll()
             bufferLock.unlock()
             guard max(mic.count, system.count) >= 1600 else { return }
-            let index = chunkIndex
-            chunkIndex += 1
-            processSourceSlice(mic, system, index: index)
+            let total = max(mic.count, system.count)
+            var offset = 0
+            while offset < total, !cancelled {
+                let count = min(Int(chunkDurationSecs * Double(sampleRate)), total - offset)
+                func slice(_ samples: [Float]) -> [Float] {
+                    let start = min(offset, samples.count)
+                    let end = min(offset + count, samples.count)
+                    return Array(samples[start..<end]) + Array(repeating: 0, count: count - (end - start))
+                }
+                let index = chunkIndex
+                chunkIndex += 1
+                processSourceSlice(slice(mic), slice(system), index: index)
+                if offset + count >= total { break }
+                offset += count - Int(overlapDurationSecs * Double(sampleRate))
+            }
             return
         }
 
@@ -359,10 +388,19 @@ class MeetingSessionService {
                   Double(mixBuffer.count) / Double(sampleRate))
             return
         }
-        let chunkSamples = mixBuffer
+        let remaining = mixBuffer
         mixBuffer.removeAll()
         bufferLock.unlock()
+        var offset = 0
+        while offset < remaining.count, !cancelled {
+            let count = min(Int(chunkDurationSecs * Double(sampleRate)), remaining.count - offset)
+            processFinalMixedChunk(Array(remaining[offset..<(offset + count)]))
+            if offset + count >= remaining.count { break }
+            offset += count - Int(overlapDurationSecs * Double(sampleRate))
+        }
+    }
 
+    private func processFinalMixedChunk(_ chunkSamples: [Float]) {
         let currentIndex = chunkIndex
         chunkIndex += 1
 
@@ -372,6 +410,7 @@ class MeetingSessionService {
                 audioSamples: chunkSamples,
                 sampleRate: sampleRate,
                 chunkIndex: currentIndex,
+                chunkOverlapSecs: currentIndex > 0 ? overlapDurationSecs : 0,
                 mode: activeMode,
                 context: activeContext
             )
@@ -416,6 +455,8 @@ class MeetingSessionService {
         healthWatchdog = nil
         micCapture.stopCapture()
         systemCapture.stopCapture()
+        let journal = captureJournal
+        transcriptionQueue.async { journal?.finish() }
 
         NSLog("[Parakatt] Meeting session CANCELLED")
     }
@@ -466,6 +507,7 @@ class MeetingSessionService {
     private let chunkRmsLock = NSLock()
 
     private func appendMicSamples(_ samples: [Float]) {
+        captureJournal?.append(samples, source: .mic)
         let now = CFAbsoluteTimeGetCurrent()
         micLock.lock()
         lastMicReceivedAt = now
@@ -473,6 +515,7 @@ class MeetingSessionService {
         if micPendingSamples.count > maxPendingSamples {
             let excess = micPendingSamples.count - maxPendingSamples
             micPendingSamples.removeFirst(excess)
+            logBufferOverflow(droppedSamples: excess, label: "microphone pending")
             NSLog("[Parakatt] WARNING: Mic pending buffer overflow — dropped %d samples (%.1fs)", excess, Double(excess) / Double(sampleRate))
         }
         micLock.unlock()
@@ -502,6 +545,7 @@ class MeetingSessionService {
     }
 
     private func appendSystemSamples(_ samples: [Float]) {
+        captureJournal?.append(samples, source: .system)
         let now = CFAbsoluteTimeGetCurrent()
         systemLock.lock()
         lastSystemReceivedAt = now
@@ -509,6 +553,7 @@ class MeetingSessionService {
         if systemPendingSamples.count > maxPendingSamples {
             let excess = systemPendingSamples.count - maxPendingSamples
             systemPendingSamples.removeFirst(excess)
+            logBufferOverflow(droppedSamples: excess, label: "system pending")
             NSLog("[Parakatt] WARNING: System pending buffer overflow — dropped %d samples (%.1fs)", excess, Double(excess) / Double(sampleRate))
         }
         systemLock.unlock()
@@ -655,6 +700,12 @@ class MeetingSessionService {
     }
 
     private func logBufferOverflow(droppedSamples: Int, label: String) {
+        captureJournal?.markSpeechGap()
+        DispatchQueue.main.async { [weak self] in
+            guard let self, !self.cancelled else { return }
+            self.onError?("Audio was lost because speech processing could not keep up. This recording is incomplete; review recovery in History.")
+            self.stop(mode: self.activeMode, context: self.activeContext)
+        }
         let now = CFAbsoluteTimeGetCurrent()
         guard now - lastBufferOverflowLogAt > 5.0 else { return }
         lastBufferOverflowLogAt = now
@@ -690,6 +741,7 @@ class MeetingSessionService {
             return
         }
 
+        guard speechWork.reserve() else { bufferLock.unlock(); return }
         // Take the chunk (up to chunk size).
         let chunkSamples = Array(mixBuffer.prefix(samplesPerChunk))
 
@@ -704,7 +756,9 @@ class MeetingSessionService {
         chunkIndex += 1
 
         // Process chunk on a background thread.
+        let capacity = speechWork
         transcriptionQueue.async { [weak self] in
+            defer { capacity.release() }
             guard let self, !self.cancelled else { return }
 
             do {
@@ -767,6 +821,7 @@ class MeetingSessionService {
             return
         }
 
+        guard speechWork.reserve() else { bufferLock.unlock(); return }
         let takeCount = min(samplesPerChunk, available)
         let micChunk = Array(micChunkBuffer.prefix(takeCount))
         let systemChunk = Array(systemChunkBuffer.prefix(takeCount))
@@ -780,7 +835,9 @@ class MeetingSessionService {
         let currentIndex = chunkIndex
         chunkIndex += 1
 
+        let capacity = speechWork
         transcriptionQueue.async { [weak self] in
+            defer { capacity.release() }
             self?.processSourceSlice(micChunk, systemChunk, index: currentIndex)
         }
     }

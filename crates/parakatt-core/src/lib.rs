@@ -1,4 +1,5 @@
 pub mod audio;
+mod capture_recovery;
 pub mod config;
 mod credentials;
 pub mod dictionary;

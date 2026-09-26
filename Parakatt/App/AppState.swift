@@ -204,7 +204,9 @@ class AppState: ObservableObject {
 
     // MARK: - Audio buffer
 
-    private var audioBuffer: [Float] = []
+    private var audioBuffer = FloatQueue()
+    private var captureJournal: CaptureJournal?
+    private let speechWork = WorkCapacity(limit: 2)
     private let audioBufferLock = NSLock()
 
     // MARK: - Incremental push-to-talk session
@@ -482,6 +484,15 @@ class AppState: ObservableObject {
         audioBufferLock.unlock()
 
         do {
+            if let bridge {
+                let generation = speechGeneration
+                captureJournal = try CaptureJournal(bridge: bridge, id: generation.uuidString, source: "push_to_talk", mode: activeMode) { [weak self] message in
+                    guard let self, self.speechGeneration == generation else { return }
+                    self.errorMessage = message
+                    self.recording.captureWarning = message
+                    if self.isRecording { self.stopRecording() }
+                }
+            }
             try audioCaptureService?.startCapture()
             recording.inputDeviceName = audioCaptureService?.activeDeviceName ?? "Unknown microphone"
             recording.captureWarning = nil
@@ -538,6 +549,8 @@ class AppState: ObservableObject {
                   isModelLoaded ? 1 : 0, firstChunkDelaySecs)
         } catch {
             isRecording = false
+            let journal = captureJournal
+            transcriptionQueue.async { journal?.finish() }
             errorMessage = "Failed to start recording: \(error.localizedDescription)"
             NSLog("[Parakatt] Recording FAILED: %@", error.localizedDescription)
         }
@@ -579,6 +592,8 @@ class AppState: ObservableObject {
     /// Called after the capture drain grace period to stop capture and process remaining audio.
     private func finishStopRecording() {
         audioCaptureService?.stopCapture()
+        let journal = captureJournal
+        transcriptionQueue.async { journal?.finish() }
         // Re-prewarm so the next hotkey press doesn't pay the macOS
         // mic cold-start cost (which can be 2-5s after a few seconds
         // of inactivity). The pre-warm fills a 500ms ring that the
@@ -638,13 +653,14 @@ class AppState: ObservableObject {
             NSLog("[Parakatt] Recording stopped (incremental session, processing tail)")
 
             audioBufferLock.lock()
-            let remainingSamples = audioBuffer
+            let remainingSamples = Array(audioBuffer)
             audioBuffer.removeAll()
             audioBufferLock.unlock()
 
             let context = contextService?.currentContext()
             let mode = activeMode
             let currentIndex = pttChunkIndex
+            let journal = captureJournal
 
             transcriptionQueue.async { [weak self] in
                 guard let self, let bridge = self.bridge else {
@@ -652,6 +668,7 @@ class AppState: ObservableObject {
                     return
                 }
 
+                journal?.finish()
                 // Wait for any in-flight chunk to complete, then run the
                 // tail under the same lock. Scoped so the lock is released
                 // before the (potentially slow) finishSession call below,
@@ -732,7 +749,7 @@ class AppState: ObservableObject {
             NSLog("[Parakatt] Recording stopped (short, single-shot)")
 
             audioBufferLock.lock()
-            let samples = audioBuffer
+            let samples = Array(audioBuffer)
             audioBuffer.removeAll()
             audioBufferLock.unlock()
 
@@ -1682,6 +1699,7 @@ class AppState: ObservableObject {
         isProcessing = true
         let generation = speechGeneration
         let job = SessionCancellation()
+        let journal = captureJournal
         shortProcessing = job
 
         let maxAmp = samples.map { abs($0) }.max() ?? 0
@@ -1710,7 +1728,8 @@ class AppState: ObservableObject {
             }
 
             do {
-                let sessionID = UUID().uuidString
+                journal?.finish()
+                let sessionID = generation.uuidString
                 guard try job.start({ try bridge.startSession(sessionId: sessionID, source: "push_to_talk", mode: effectiveMode) }, onCancel: { bridge.cancelSession(sessionId: sessionID) }) else { return }
                 defer { job.finish(); bridge.cancelSession(sessionId: sessionID) }
                 let recognized = try bridge.processChunk(sessionId: sessionID, audioSamples: samples,
@@ -1772,7 +1791,7 @@ class AppState: ObservableObject {
             return
         }
 
-        let sessionId = UUID().uuidString
+        let sessionId = speechGeneration.uuidString
 
         do {
             try bridge.startSession(sessionId: sessionId, source: "push_to_talk", mode: activeMode)
@@ -1849,6 +1868,7 @@ class AppState: ObservableObject {
             return
         }
 
+        guard speechWork.reserve() else { audioBufferLock.unlock(); return }
         // Take up to maxSamples worth — variable-length chunks.
         let take = min(bufferLen, maxSamples)
         let chunkSamples = Array(audioBuffer.prefix(take))
@@ -1880,7 +1900,9 @@ class AppState: ObservableObject {
         let context = contextService?.currentContext()
         let mode = activeMode
 
+        let capacity = speechWork
         transcriptionQueue.async { [weak self] in
+            defer { capacity.release() }
             guard let self, let bridge = self.bridge else { return }
 
             self.pttChunkLock.lock()
@@ -1970,7 +1992,7 @@ class AppState: ObservableObject {
 
         // Snapshot the current buffer (unprocessed tail during incremental mode)
         audioBufferLock.lock()
-        let snapshot = audioBuffer
+        let snapshot = Array(audioBuffer)
         audioBufferLock.unlock()
 
         guard snapshot.count >= minSamplesForStreaming else { return }
@@ -2122,10 +2144,20 @@ class AppState: ObservableObject {
     private var longRecordingWarned = false
 
     private func appendAudioSamples(_ samples: [Float]) {
+        captureJournal?.append(samples, source: .mixed)
         audioBufferLock.lock()
-        audioBuffer.append(contentsOf: samples)
+        let overflow = audioBuffer.count + samples.count > 60 * 16000
+        if !overflow { audioBuffer.append(contentsOf: samples) }
         let total = audioBuffer.count
         audioBufferLock.unlock()
+        if overflow {
+            captureJournal?.markSpeechGap()
+            DispatchQueue.main.async { [weak self] in
+                self?.errorMessage = "Speech processing could not keep up. Recording is incomplete; review recovery in History."
+                self?.stopRecording()
+            }
+            return
+        }
 
         // Feed the cache-aware streaming preview in parallel. The
         // service does its own backpressure (drops if a feed is

@@ -96,9 +96,16 @@ impl Storage {
                 )
                 .map_err(io)?;
         }
+        self.migrate_capture()?;
         self.expire_recovery_audio()
     }
     pub fn expire_recovery_audio(&self) -> Result<(), CoreError> {
+        self.conn
+            .execute(
+                "UPDATE capture_blocks SET audio=NULL WHERE created < unixepoch()-86400",
+                [],
+            )
+            .map_err(io)?;
         self.conn
             .execute(
                 "UPDATE recording_chunks SET audio=NULL WHERE audio_created < unixepoch()-86400",
@@ -108,6 +115,9 @@ impl Storage {
         Ok(())
     }
     pub fn clear_recovery_audio(&self) -> Result<(), CoreError> {
+        self.conn
+            .execute("UPDATE capture_blocks SET audio=NULL", [])
+            .map_err(io)?;
         self.conn
             .execute("UPDATE recording_chunks SET audio=NULL", [])
             .map_err(io)?;
@@ -136,6 +146,20 @@ impl Storage {
         tx.commit().map_err(io)
     }
     pub fn save_recovered_text(&self, draft: &RecordingDraft) -> Result<(), CoreError> {
+        self.store_recovered_text(draft, false)
+    }
+    pub fn preserve_recovered_text(&self, draft: &RecordingDraft) -> Result<(), CoreError> {
+        // Keep an existing saved result unchanged if a retry fails.
+        if draft.recognized_text.is_empty() || self.get(&draft.id).is_ok() {
+            return Ok(());
+        }
+        self.store_recovered_text(draft, true)
+    }
+    fn store_recovered_text(
+        &self,
+        draft: &RecordingDraft,
+        preserve_draft: bool,
+    ) -> Result<(), CoreError> {
         if draft.recognized_text.is_empty() {
             return Err(CoreError::TranscriptionFailed(
                 "No recognized text is available. Retained audio is required for recovery.".into(),
@@ -178,7 +202,9 @@ impl Storage {
                 status: "interrupted".into(),
             },
         )?;
-        self.discard_draft(&draft.id)?;
+        if !preserve_draft {
+            self.discard_draft(&draft.id)?;
+        }
         tx.commit().map_err(io)
     }
     pub fn begin_draft(&self, id: &str, source: &str, mode: &str) -> Result<(), CoreError> {
@@ -216,6 +242,15 @@ impl Storage {
                 .collect::<Vec<u8>>()
         });
         self.conn.execute("INSERT INTO recording_chunks(session_id,chunk_id,source,sample_rate,overlap,duration,audio,audio_created) VALUES(?1,?2,?3,?4,?5,?6,?7,unixepoch()) ON CONFLICT(session_id,chunk_id,source) DO UPDATE SET audio=excluded.audio,audio_created=excluded.audio_created,failed=1", params![id,index,source_number(source),rate,overlap,samples.len() as f64 / rate as f64,audio]).map_err(io)?;
+        let capture_bytes: i64 = self
+            .conn
+            .query_row(
+                "SELECT COALESCE(SUM(length(audio)),0) FROM capture_blocks",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(io)?;
+        let available = (512 * 1024 * 1024 - capture_bytes).max(0);
         let total: i64 = self
             .conn
             .query_row(
@@ -224,8 +259,8 @@ impl Storage {
                 |r| r.get(0),
             )
             .map_err(io)?;
-        if total > 512 * 1024 * 1024 {
-            self.conn.execute("UPDATE recording_chunks SET audio=NULL WHERE rowid IN (SELECT rowid FROM (SELECT rowid,SUM(length(audio)) OVER (ORDER BY audio_created DESC,rowid DESC) AS retained FROM recording_chunks WHERE audio IS NOT NULL) WHERE retained > 536870912)",[]).map_err(io)?;
+        if total > available {
+            self.conn.execute("UPDATE recording_chunks SET audio=NULL WHERE rowid IN (SELECT rowid FROM (SELECT rowid,SUM(length(audio)) OVER (ORDER BY audio_created DESC,rowid DESC) AS retained FROM recording_chunks WHERE audio IS NOT NULL) WHERE retained > ?1)",[available]).map_err(io)?;
         }
         Ok(())
     }
@@ -294,6 +329,14 @@ impl Storage {
             .collect::<Result<Vec<_>, _>>()
             .map_err(io)?;
         for row in &mut rows {
+            let capture_sources = self.capture_sources(&row.id)?;
+            if !capture_sources.is_empty() {
+                row.audio_available = self.capture_available(&row.id)?;
+                row.chunk_count = row.chunk_count.max(1);
+            }
+            if self.has_speech_gap(&row.id)? {
+                row.failed_chunks += 1;
+            }
             // Read only text here; opening history must not load all retained audio.
             let chunks = self.conn.prepare("SELECT recognized_text,source FROM recording_chunks WHERE session_id=?1 ORDER BY chunk_id,source").map_err(io)?.query_map([&row.id], |r|Ok((r.get::<_,String>(0)?,source_value(r.get(1)?)))).map_err(io)?.collect::<Result<Vec<_>,_>>().map_err(io)?;
             row.recognized_text = crate::text_assembly::assemble_transcript_parts(
@@ -386,6 +429,9 @@ mod tests {
             }],
         )
         .unwrap();
+        db.begin_capture("s", "meeting", "clean").unwrap();
+        db.append_capture("s", ChunkSource::Mic, &[0.1; 16000])
+            .unwrap();
         let backup = dir.path().join("backup.db");
         db.export_to(&backup).unwrap();
         let exported = rusqlite::Connection::open(backup).unwrap();
@@ -396,6 +442,14 @@ mod tests {
                 .unwrap(),
             0
         );
+        assert_eq!(
+            exported
+                .query_row("SELECT COUNT(audio) FROM capture_blocks", [], |r| r
+                    .get::<_, u32>(0))
+                .unwrap(),
+            0
+        );
+        assert!(db.capture_available("s").unwrap());
         assert!(db.recovery_chunk("s", 0, 1).unwrap().samples.is_some());
         db.save_recovered_text(&db.recording_drafts().unwrap()[0])
             .unwrap();
