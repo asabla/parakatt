@@ -564,8 +564,8 @@ enum SystemAudioCaptureError: Error, LocalizedError {
             return "Failed to create audio IO proc (error \(s))"
         case .deviceStartFailed(let s):
             return "Failed to start audio device (error \(s))"
-        case .processNotFound(let pid):
-            return "Audio process not found for PID \(pid)"
+        case .processNotFound:
+            return "The selected audio app is unavailable. Open it and select it again, or explicitly choose all system audio."
         case .noOutputDevice:
             return "No audio output device found"
         case .deviceUIDNotFound:

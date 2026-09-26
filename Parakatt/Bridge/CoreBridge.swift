@@ -18,6 +18,17 @@ class CoreBridge {
         self.engine = try Engine(engineConfig: config)
     }
 
+    func getRecoveryAudio() -> Bool { engine.getRecoveryAudio() }
+    func setRecoveryAudio(_ value: Bool) throws { try engine.setRecoveryAudio(enabled: value) }
+    func recordingDrafts() throws -> [RecordingDraft] { try engine.listRecordingDrafts() }
+    func recoverRecording(id: String, audio: Bool) throws { try engine.recoverRecording(id: id, transcribeAudio: audio) }
+    func discardRecordingDraft(id: String) throws { try engine.discardRecordingDraft(id: id) }
+    func historySections(id: String) throws -> [HistorySection] { try engine.getHistorySections(id: id) }
+    func cancelHistoryProcessing(id: String) { engine.cancelHistoryProcessing(id: id) }
+    func retryHistoryProcessing(id: String) throws { try engine.retryHistoryProcessing(id: id) }
+    func editTranscription(id: String, text: String) throws { try engine.editTranscription(id: id, text: text) }
+    func undoTranscriptionEdit(id: String) throws { try engine.undoTranscriptionEdit(id: id) }
+
     /// Run the full pipeline: audio → STT → dictionary → LLM → text.
     func transcribe(
         audioSamples: [Float],
@@ -262,8 +273,8 @@ class CoreBridge {
     // MARK: - Session-based chunked transcription (meetings / long-form)
 
     /// Start a new chunked transcription session.
-    func startSession(sessionId: String) throws {
-        try engine.startSession(sessionId: sessionId)
+    func startSession(sessionId: String, source: String = "meeting", mode: String = "dictation") throws {
+        try engine.startRecording(sessionId: sessionId, source: source, mode: mode)
     }
 
     /// Process one audio chunk within a session.
@@ -274,7 +285,7 @@ class CoreBridge {
     /// the start of `audioSamples` are a re-encoding of audio the
     /// previous chunk already covered. Pass > 0 to use the
     /// authoritative time-based dedup (NeMo middle-token style),
-    /// pass 0 to fall back to text-based dedup.
+    /// pass 0 when the audio contains no overlap.
     func processChunk(
         sessionId: String,
         audioSamples: [Float],

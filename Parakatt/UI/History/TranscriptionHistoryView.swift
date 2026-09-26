@@ -6,6 +6,8 @@ import UniformTypeIdentifiers
 struct TranscriptionHistoryView: View {
     @EnvironmentObject var appState: AppState
 
+    @State private var recoveryDrafts: [RecordingDraft] = []
+    @State private var showRecovery = false
     @State private var queryGeneration = UUID()
     @State private var searchTask: Task<Void, Never>?
     @State private var segmentCache: [String: HistoryDetailData] = [:]
@@ -59,6 +61,16 @@ struct TranscriptionHistoryView: View {
         // extend over the detail header when this view is hosted in an NSWindow.
         VStack(spacing: 0) {
             searchBar
+            if !recoveryDrafts.isEmpty {
+                HStack {
+                    Label("\(recoveryDrafts.count) interrupted or incomplete recording(s)", systemImage: "exclamationmark.circle")
+                    Spacer()
+                    Button("Review recovery") { showRecovery = true }
+                }
+                .font(.callout)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 10)
+            }
             Divider()
             HSplitView {
                 if sidebarVisible {
@@ -71,6 +83,9 @@ struct TranscriptionHistoryView: View {
         }
         .background(Color(nsColor: .windowBackgroundColor))
         .frame(minWidth: 760, minHeight: 480)
+        .sheet(isPresented: $showRecovery) {
+            RecordingRecoveryView(drafts: recoveryDrafts).environmentObject(appState)
+        }
         .onAppear { refresh() }
         .onReceive(appState.$historyRevision.dropFirst()) { _ in refresh(invalidateCache: true) }
         .onChange(of: selectedId) { loadSegments() }
@@ -321,7 +336,8 @@ struct TranscriptionHistoryView: View {
                     selectedId = nil
                     refresh(invalidateCache: true)
                 },
-                speakerHues: selectedDetail.speakerHues
+                speakerHues: selectedDetail.speakerHues,
+                sections: selectedDetail.sections
             ).id(id)
         } else {
             emptyDetailView
@@ -376,6 +392,7 @@ struct TranscriptionHistoryView: View {
         searchTask?.cancel()
         let generation = UUID()
         queryGeneration = generation
+        appState.queryRecovery { if queryGeneration == generation { recoveryDrafts = $0 } }
         if invalidateCache { segmentCache.removeAll() }
         searchTask = Task { @MainActor in
             if debounce {

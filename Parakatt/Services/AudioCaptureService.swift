@@ -48,6 +48,13 @@ class AudioCaptureService {
     private var converterSourceRate: Double = 0
     private var converterPending = false
 
+    var activeDeviceName: String {
+        engineLock.lock()
+        let uid = activeInputUID
+        engineLock.unlock()
+        return Self.listInputDevices().first { $0.uid == uid }?.name ?? "Unknown microphone"
+    }
+
     /// Currently selected device ID (nil = system default).
     private var selectedDeviceUID: String?
     private var activeInputUID: String?
@@ -306,8 +313,9 @@ class AudioCaptureService {
             var inputSize: UInt32 = 0
             guard AudioObjectGetPropertyDataSize(deviceID, &inputAddress, 0, nil, &inputSize) == noErr else { continue }
 
-            let bufferListPointer = UnsafeMutablePointer<AudioBufferList>.allocate(capacity: 1)
-            defer { bufferListPointer.deallocate() }
+            let storage = UnsafeMutableRawPointer.allocate(byteCount: Int(inputSize), alignment: MemoryLayout<AudioBufferList>.alignment)
+            defer { storage.deallocate() }
+            let bufferListPointer = storage.bindMemory(to: AudioBufferList.self, capacity: 1)
             guard AudioObjectGetPropertyData(deviceID, &inputAddress, 0, nil, &inputSize, bufferListPointer) == noErr else { continue }
 
             let bufferList = UnsafeMutableAudioBufferListPointer(bufferListPointer)
@@ -430,7 +438,8 @@ class AudioCaptureService {
         if !stillAvailable {
             NSLog("[Parakatt] Selected device %@ was disconnected — falling back to system default", uid)
             selectedDeviceUID = nil
-            onDeviceChanged?()
+            // Notify after restart so observers read the actual replacement input.
+            defer { onDeviceChanged?() }
 
             engineLock.lock()
             let isActive = audioEngine != nil

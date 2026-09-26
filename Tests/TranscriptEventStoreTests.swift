@@ -11,9 +11,9 @@ final class TranscriptEventStoreTests: XCTestCase {
         var store = TranscriptEventStore(sessionID: "recording")
         XCTAssertTrue(store.apply([event(0, 0, "first raw"), event(1, 0, "second raw")]))
         XCTAssertTrue(store.apply([event(1, 2, "Second."), event(0, 2, "First.")]))
-        XCTAssertEqual(store.text, "First.\n\nSecond.")
+        XCTAssertEqual(store.text, "First. Second.")
         XCTAssertFalse(store.apply([event(0, 0, "stale"), event(0, 3, "previous session", session: "previous")]))
-        XCTAssertEqual(store.text, "First.\n\nSecond.")
+        XCTAssertEqual(store.text, "First. Second.")
     }
     func testClosedSessionRejectsLateCallbacks() {
         var store = TranscriptEventStore(sessionID: "recording")

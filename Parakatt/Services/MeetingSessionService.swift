@@ -147,7 +147,7 @@ class MeetingSessionService {
         self.dualStreamEnabled = speakerLabelsEnabled
 
         // Start session in the Rust engine.
-        try bridge.startSession(sessionId: sessionId)
+        try bridge.startSession(sessionId: sessionId, source: "meeting", mode: mode)
         processingEvents = TranscriptEventStore(sessionID: sessionId)
         processingTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             guard let self, !self.cancelled else { return }

@@ -666,10 +666,19 @@ struct GeneralSettingsView: View {
                         Divider().padding(.leading, 52)
 
                         BehaviorToggleRow(
+                            icon: "arrow.counterclockwise",
+                            color: .blue,
+                            label: "Temporary audio for recovery",
+                            description: "Keep local audio for interrupted recordings for up to 24 hours, within a 512 MB limit. Successful recordings delete it. Turning this off clears retained audio; recognized text is kept.",
+                            isOn: Binding(get: { appState.settings.recoveryAudio }, set: { appState.setRecoveryAudio($0) })
+                        )
+                        Divider().padding(.leading, 52)
+
+                        BehaviorToggleRow(
                             icon: "ant",
                             color: .orange,
                             label: "Debug mode",
-                            description: "Enable verbose logging for troubleshooting (visible in Console.app)",
+                            description: "Enable diagnostic logging without transcript contents (visible in Console.app)",
                             isOn: Binding(
                                 get: { appState.debugMode },
                                 set: { appState.setDebugMode($0) }
