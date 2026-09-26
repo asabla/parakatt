@@ -20,7 +20,7 @@ all: rust swift-package xcode build
 
 # Build the Rust core library
 rust:
-	cargo build --locked --release -p parakatt-core --features "$(PARAKATT_SPEECH_FEATURES)"
+	cargo build --locked --release --target aarch64-apple-darwin -p parakatt-core --features "$(PARAKATT_SPEECH_FEATURES)"
 
 # Run Rust tests
 test:

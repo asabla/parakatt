@@ -19,7 +19,7 @@ jobs:
     runs-on: macos-15
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.1
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@1.94.1
@@ -29,7 +29,7 @@ jobs:
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: crates/parakatt-core
+          workspaces: ". -> target"
 
       - name: Check formatting
         run: cargo fmt --check
@@ -47,7 +47,7 @@ jobs:
 
       - name: Save advisory findings
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: dependency-advisories
           path: dependency-advisories.json
@@ -57,7 +57,7 @@ jobs:
     runs-on: macos-15
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.1
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@1.94.1
@@ -67,7 +67,7 @@ jobs:
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: crates/parakatt-core
+          workspaces: ". -> target"
 
       - name: Install build tools
         run: |
@@ -104,7 +104,7 @@ jobs:
           ls dist/*.zip dist/*.dmg
 
       - name: Save release candidate
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: parakatt-release-candidate-arm64
           path: |
