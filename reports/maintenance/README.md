@@ -101,3 +101,7 @@ scripts/profile-ui.sh
 Do not run competing builds or benchmarks during latency acceptance runs. The benchmark command writes JSON and Markdown with source, worker, runtime-lock, model, hardware, OS, backend, accuracy, load, and memory provenance. The JSON retains observations. Some early reports were collected while the maintenance worktree was dirty; their immutable worker hashes identify the binaries tested. Do not treat the commit field in such a report as a clean source build.
 
 Official implementation references: [shared Nemotron models](https://github.com/altunenes/parakeet-rs/blob/v0.3.8/examples/shared_model.rs), [OpenAI Responses](https://platform.openai.com/docs/api-reference/responses/create), [Anthropic Messages](https://platform.claude.com/docs/en/api/messages/create), and [Ollama chat](https://docs.ollama.com/api/chat), and [Ollama thinking metadata](https://github.com/ollama/ollama/blob/main/docs/capabilities/thinking.mdx).
+
+## Reliability and history follow-up
+
+See [the follow-up report](reliability-follow-up.md) for chunk recovery, text corrections, capture diagnostics, updated verification, and measurements from the actual app process. The remaining release checks above still apply unless the follow-up report explicitly records completion.

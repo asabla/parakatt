@@ -21,6 +21,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         ParakattCore.initLogging(defaultLevel: "info")
 
         if runMaintenanceSmokeIfRequested() { return }
+        if runPerformanceFixtureIfRequested() { return }
 
         permissionService = PermissionService()
         permissionService?.requestPermissionsIfNeeded()
