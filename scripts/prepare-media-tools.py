@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """Build the pinned macOS media bundle. Build tools are never runtime dependencies."""
 import base64, hashlib, json, os, pathlib, shutil, subprocess, sys, tarfile, zipfile
-from media_tool_downloads import fetch_verified
+from media_tool_downloads import fetch_verified, verify
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DEST = ROOT / 'target/media-tools'
 CACHE = ROOT / 'target/media-cache'
 BUILD = ROOT / 'target/media-build'
 LOCK = ROOT / 'config/media-tools.json'
 manifest = json.loads(LOCK.read_text())
-fingerprint = hashlib.sha256(LOCK.read_bytes() + pathlib.Path(__file__).read_bytes() + (ROOT / "scripts/collect-deno-notices.py").read_bytes() + (ROOT / "scripts/media_tool_downloads.py").read_bytes()).hexdigest()
+local_notices = b''.join((ROOT / spec['local_path']).read_bytes() for spec in manifest.values() if isinstance(spec, dict) and 'local_path' in spec)
+fingerprint = hashlib.sha256(LOCK.read_bytes() + pathlib.Path(__file__).read_bytes() + (ROOT / "scripts/collect-deno-notices.py").read_bytes() + (ROOT / "scripts/media_tool_downloads.py").read_bytes() + local_notices).hexdigest()
 if (DEST / 'stamp').exists() and (DEST / 'stamp').read_text() == fingerprint:
     sys.exit(0)
 for directory in [DEST, CACHE, BUILD, DEST / 'licenses', DEST / 'sources']:
@@ -16,7 +17,12 @@ for directory in [DEST, CACHE, BUILD, DEST / 'licenses', DEST / 'sources']:
 def run(args, cwd=None, env=None):
     subprocess.run(list(map(str,args)), cwd=cwd, env=env, check=True)
 def fetch(name):
-    spec=manifest[name]; path=CACHE / spec.get('filename', spec['url'].rsplit('/',1)[1])
+    spec=manifest[name]
+    if 'local_path' in spec:
+        path=ROOT / spec['local_path']
+        verify(path, spec['sha256'], name)
+        return path
+    path=CACHE / spec.get('filename', spec['url'].rsplit('/',1)[1])
     return fetch_verified(spec['url'], path, spec['sha256'], name)
 shutil.copy2(fetch('yt-dlp'), DEST / 'yt-dlp')
 with zipfile.ZipFile(fetch('deno')) as archive:
@@ -77,6 +83,10 @@ for key in ['yt-dlp-notices','deno-notices']:
 for key, spec in manifest.items():
     if not key.startswith('native-notice-'): continue
     contents=fetch(key).read_bytes()
+    if 'local_path' in spec:
+        source=DEST / 'sources' / spec['local_path']
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_bytes(contents)
     if spec.get('encoding')=='base64': contents=base64.b64decode(contents)
     (DEST/'licenses'/(key+'.txt')).write_bytes(contents)
 run([sys.executable,ROOT/'scripts/collect-deno-notices.py'])

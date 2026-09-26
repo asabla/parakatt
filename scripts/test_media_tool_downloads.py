@@ -1,14 +1,16 @@
 """Offline regression tests for media build download failures."""
+import base64
 import hashlib
 import http.client
 import io
+import json
 import pathlib
 import tempfile
 import unittest
 import urllib.error
 from unittest.mock import patch
 
-from media_tool_downloads import fetch_verified
+from media_tool_downloads import fetch_verified, verify
 
 
 class DownloadTests(unittest.TestCase):
@@ -79,6 +81,21 @@ class DownloadTests(unittest.TestCase):
         self.path.write_bytes(b'corrupt cache')
         with self.assertRaisesRegex(ValueError, 'Checksum mismatch: test-notice'):
             self.fetch()
+        self.open.assert_not_called()
+
+    def test_pinned_native_notices_are_available_offline(self):
+        root = pathlib.Path(__file__).resolve().parents[1]
+        manifest = json.loads((root / 'config/media-tools.json').read_text())
+        notices = {name: spec for name, spec in manifest.items() if name.startswith('native-notice-')}
+        self.assertTrue(notices)
+        for name, spec in notices.items():
+            with self.subTest(notice=name):
+                path = root / spec['local_path']
+                verify(path, spec['sha256'], name)
+                contents = path.read_bytes()
+                if spec.get('encoding') == 'base64':
+                    contents = base64.b64decode(contents, validate=True)
+                self.assertTrue(contents.decode('utf-8').strip())
         self.open.assert_not_called()
 
 
