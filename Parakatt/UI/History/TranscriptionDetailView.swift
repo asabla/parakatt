@@ -16,6 +16,7 @@ struct TranscriptionDetailView: View {
     let onTitleChanged: (String) -> Void
     let onDelete: () -> Void
 
+    @StateObject private var playback = MediaPlayback()
     @State private var findText = ""
     @State private var matches: [TranscriptMatch] = []
     @State private var activeMatch = 0
@@ -101,11 +102,13 @@ struct TranscriptionDetailView: View {
             if let operationError {
                 Text(operationError).font(.callout).foregroundStyle(.red).padding(.horizontal, 20)
             }
+            if item.source == "import", let service = appState.mediaImports { MediaPlaybackView(id: item.id, playback: playback, service: service) }
             textSection
                 .background(Color(nsColor: .textBackgroundColor))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .onDisappear { if operationBusy { appState.cancelHistoryProcessing(id: item.id) } }
+        .onChange(of: item.id) { playback.stop() }
+        .onDisappear { playback.stop(); if operationBusy { appState.cancelHistoryProcessing(id: item.id) } }
         .sheet(isPresented: $editingText) {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Edit processed text").font(.title2)
@@ -150,8 +153,8 @@ struct TranscriptionDetailView: View {
             // Metadata chips
             MetadataFlowLayout(spacing: 12) {
                 MetadataChip(
-                    icon: item.source == "meeting" ? "person.2.fill" : "mic.fill",
-                    text: item.source == "meeting" ? "Meeting" : "Voice Note",
+                    icon: item.source == "import" ? "video.fill" : (item.source == "meeting" ? "person.2.fill" : "mic.fill"),
+                    text: item.source == "import" ? "Video" : (item.source == "meeting" ? "Meeting" : "Voice Note"),
                     color: item.source == "meeting" ? .green : .blue
                 )
 
@@ -197,6 +200,9 @@ struct TranscriptionDetailView: View {
                 Menu {
                     Button("Markdown (.md)") { exportMarkdown() }
                     Button("JSON (.json)") { exportJSON() }
+                    Button("Subtitles (.srt)") { exportSubtitles(vtt: false) }.disabled(segments.isEmpty)
+                    Button("WebVTT (.vtt)") { exportSubtitles(vtt: true) }.disabled(segments.isEmpty)
+                    if processingStatus != "completed" { Text("This transcript may be incomplete.") }
                 } label: {
                     Label("Export", systemImage: "square.and.arrow.up")
                 }
@@ -318,6 +324,9 @@ struct TranscriptionDetailView: View {
                     } else { timelineView }
                 }
             }
+            .onChange(of: playback.position) {
+                if playback.follow, showRecognized, let index = segments.firstIndex(where: { $0.startSecs <= playback.position && playback.position < $0.endSecs }) { proxy.scrollTo(index, anchor: .center) }
+            }
             .onChange(of: findText) { updateMatches(); if let match = matches.first { proxy.scrollTo(match.section, anchor: .center) } }
             .onChange(of: activeMatch) { if matches.indices.contains(activeMatch) { proxy.scrollTo(matches[activeMatch].section, anchor: .center) } }
             .onChange(of: showRecognized) { updateMatches() }
@@ -370,7 +379,11 @@ struct TranscriptionDetailView: View {
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.bottom, 12)
-                }.id(index)
+                }
+                .background(item.source == "import" && segment.startSecs <= playback.position && playback.position < segment.endSecs ? Color.accentColor.opacity(0.12) : Color.clear)
+                .contentShape(Rectangle())
+                .onTapGesture { if item.source == "import" { playback.seek(segment.startSecs) } }
+                .id(index)
             }
         }
         .padding(20)
@@ -398,6 +411,17 @@ struct TranscriptionDetailView: View {
 
     // MARK: - Export
 
+    private func exportSubtitles(vtt: Bool) {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [UTType(filenameExtension: vtt ? "vtt" : "srt") ?? .plainText]
+        panel.nameFieldStringValue = (item.title ?? "Transcript") + (vtt ? ".vtt" : ".srt")
+        panel.message = processingStatus == "completed" ? "Subtitles use recognized speech and its original timing." : "This transcript may be incomplete. Subtitles use available recognized speech."
+        if panel.runModal() == .OK, let url = panel.url {
+            do { try TranscriptExport.subtitles(segments: segments, duration: item.durationSecs, vtt: vtt).write(to: url, atomically: true, encoding: .utf8) }
+            catch { operationError = "The subtitle file could not be saved." }
+        }
+    }
+
     private func exportMarkdown() {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [UTType.plainText]
@@ -413,7 +437,7 @@ struct TranscriptionDetailView: View {
 
             **Date:** \(formattedDate(item.createdAt))
             **Duration:** \(formattedDuration(item.durationSecs))
-            **Type:** \(item.source == "meeting" ? "Meeting" : "Voice Note")
+            **Type:** \(item.source == "import" ? "Video" : (item.source == "meeting" ? "Meeting" : "Voice Note"))
             **Mode:** \(item.mode)
 
             ---

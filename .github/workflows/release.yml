@@ -90,6 +90,7 @@ jobs:
       - name: Create zip
         run: |
           mkdir -p dist
+          ditto -c -k --keepParent target/media-tools/sources "dist/Parakatt-${{ steps.version.outputs.version }}-media-sources.zip"
           ditto -c -k --keepParent "${{ steps.build-path.outputs.dir }}/Parakatt.app" "dist/Parakatt-${{ steps.version.outputs.version }}-arm64.zip"
 
       - name: Create DMG
@@ -112,6 +113,7 @@ jobs:
           files: |
             dist/Parakatt-${{ steps.version.outputs.version }}-arm64.zip
             dist/Parakatt-${{ steps.version.outputs.version }}-arm64.dmg
+            dist/*-media-sources.zip
             reports/maintenance/*.md
             reports/maintenance/*.json
             crates/parakatt-core/backend-validation.json

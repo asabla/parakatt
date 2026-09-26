@@ -246,6 +246,7 @@ class AppState: ObservableObject {
 
     private let transcriptionQueue = DispatchQueue(label: "Parakatt.transcription", qos: .userInitiated)
     @Published var historyRevision: UInt64 = 0
+    @Published var mediaImports: MediaImportService?
     @Published var modelInventoryRevision: UInt64 = 0
     private var modelQueryGeneration = UUID()
     private var bridge: CoreBridge?
@@ -317,6 +318,13 @@ class AppState: ObservableObject {
                 configDir: configDirectory().path,
                 activeMode: activeMode
             )
+            if let bridge {
+                let imports = MediaImportService(bridge: bridge, root: configDirectory().deletingLastPathComponent().appendingPathComponent("media"))
+                imports.canTranscribe = { [weak self] in guard let self else { return false }; return self.isModelLoaded && !self.isRecording && !self.isMeetingActive && !self.isProcessing }
+                imports.modelReady = { [weak self] in self?.isModelLoaded == true }
+                imports.onChange = { [weak self] in self?.historyRevision &+= 1 }
+                mediaImports = imports
+            }
             engineReady = true
             NSLog("[Parakatt] Engine created")
 
@@ -429,6 +437,7 @@ class AppState: ObservableObject {
 
     /// Clean up all running sessions and audio capture on app termination.
     func shutdown() {
+        mediaImports?.shutdown()
         shortProcessing?.cancel()
         livePreview?.cancel()
         stopRecording()
@@ -1542,6 +1551,7 @@ class AppState: ObservableObject {
     }
 
     func deleteTranscription(id: String) {
+        if mediaImports?.attachment(id) != nil { mediaImports?.discard(id); return }
         do {
             try bridge?.deleteTranscription(id: id)
             historyRevision &+= 1
@@ -1552,11 +1562,14 @@ class AppState: ObservableObject {
     }
 
     func deleteTranscriptions(ids: [String]) -> Int {
+        let imported = ids.filter { mediaImports?.attachment($0) != nil }
+        for id in imported { mediaImports?.discard(id) }
+        let ids = ids.filter { !imported.contains($0) }
         do {
             let count = try bridge?.deleteTranscriptions(ids: ids) ?? 0
             historyRevision &+= 1
             NSLog("[Parakatt] Bulk deleted %d transcriptions", count)
-            return Int(count)
+            return Int(count) + imported.count
         } catch {
             NSLog("[Parakatt] Failed to bulk delete: %@", error.localizedDescription)
             return 0

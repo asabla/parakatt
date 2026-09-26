@@ -91,6 +91,10 @@ targets:
         embed: true
       - package: ParakattCore
       - package: HotKey
+    postBuildScripts:
+      - name: Bundle media tools
+        script: 'python3 "$SRCROOT/scripts/install-media-tools.py" "$TARGET_BUILD_DIR/$WRAPPER_NAME"'
+        basedOnDependencyAnalysis: false
     scheme:
       testTargets:
         - ParakattTests

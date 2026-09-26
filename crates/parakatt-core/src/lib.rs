@@ -8,6 +8,7 @@ pub mod engine;
 pub mod filler;
 pub mod llm;
 pub mod local_agreement;
+pub mod media_import;
 pub mod models;
 pub mod modes;
 pub mod processing;

@@ -8,6 +8,7 @@ struct TranscriptionHistoryView: View {
 
     @State private var recoveryDrafts: [RecordingDraft] = []
     @State private var showRecovery = false
+    @State private var showImports = false
     @State private var queryGeneration = UUID()
     @State private var searchTask: Task<Void, Never>?
     @State private var segmentCache = HistoryDetailCache()
@@ -30,12 +31,14 @@ struct TranscriptionHistoryView: View {
         case all = "All"
         case notes = "Notes"
         case meetings = "Meetings"
+        case imports = "Videos"
 
         var sourceValue: String? {
             switch self {
             case .all: nil
             case .notes: "push_to_talk"
             case .meetings: "meeting"
+            case .imports: "import"
             }
         }
 
@@ -44,6 +47,7 @@ struct TranscriptionHistoryView: View {
             case .all: "tray.full"
             case .notes: "mic"
             case .meetings: "person.2"
+            case .imports: "video"
             }
         }
     }
@@ -52,6 +56,7 @@ struct TranscriptionHistoryView: View {
         switch sourceFilter {
         case "push_to_talk": .notes
         case "meeting": .meetings
+        case "import": .imports
         default: .all
         }
     }
@@ -92,6 +97,9 @@ struct TranscriptionHistoryView: View {
         .frame(minWidth: 760, minHeight: 480)
         .sheet(isPresented: $showRecovery) {
             RecordingRecoveryView(drafts: recoveryDrafts).environmentObject(appState)
+        }
+        .sheet(isPresented: $showImports) {
+            if let service = appState.mediaImports { VStack { HStack { Spacer(); Button("Done") { showImports = false } }.padding(); MediaImportView(service: service) } }
         }
         .onAppear { refresh() }
         .onReceive(appState.$historyRevision.dropFirst()) { _ in refresh(invalidateCache: true) }
@@ -134,6 +142,8 @@ struct TranscriptionHistoryView: View {
             .frame(maxWidth: 360)
             .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
             Spacer(minLength: 0)
+            Button("Import Video…") { showImports = true }
+            Button("Import Link…") { showImports = true }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -373,7 +383,7 @@ struct TranscriptionHistoryView: View {
                     .foregroundStyle(.tertiary)
                     .multilineTextAlignment(.center)
             } else {
-                Text("Transcriptions from voice notes and meetings will appear here.")
+                Text("Transcriptions from voice notes, meetings, and videos will appear here.")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
                     .multilineTextAlignment(.center)
@@ -590,7 +600,7 @@ private struct SourceBadge: View {
     private var isMeeting: Bool { source == "meeting" }
 
     var body: some View {
-        Image(systemName: isMeeting ? "person.2.fill" : "mic.fill")
+        Image(systemName: source == "import" ? "video.fill" : (isMeeting ? "person.2.fill" : "mic.fill"))
             .font(.system(size: 9, weight: .semibold))
             .foregroundStyle(isMeeting ? .green : .blue)
             .frame(width: 20, height: 20)

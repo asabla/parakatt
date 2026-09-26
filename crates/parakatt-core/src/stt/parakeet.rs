@@ -109,6 +109,33 @@ impl SttProvider for ParakeetProvider {
         audio: &[f32],
         sample_rate: u32,
     ) -> Result<TranscriptionResult, CoreError> {
+        self.transcribe_timed(audio, sample_rate, TimestampMode::Sentences)
+    }
+
+    fn transcribe_import(
+        &self,
+        audio: &[f32],
+        sample_rate: u32,
+    ) -> Result<TranscriptionResult, CoreError> {
+        self.transcribe_timed(audio, sample_rate, TimestampMode::Words)
+    }
+
+    fn name(&self) -> &str {
+        &self.model_id
+    }
+
+    fn is_loaded(&self) -> bool {
+        true
+    }
+}
+
+impl ParakeetProvider {
+    fn transcribe_timed(
+        &self,
+        audio: &[f32],
+        sample_rate: u32,
+        timestamp_mode: TimestampMode,
+    ) -> Result<TranscriptionResult, CoreError> {
         let start = std::time::Instant::now();
 
         let mut model = self.model.lock().map_err(|e| {
@@ -120,12 +147,7 @@ impl SttProvider for ParakeetProvider {
             &self.accelerated,
             |model| {
                 model
-                    .transcribe_samples(
-                        audio.to_vec(),
-                        sample_rate,
-                        1,
-                        Some(TimestampMode::Sentences),
-                    )
+                    .transcribe_samples(audio.to_vec(), sample_rate, 1, Some(timestamp_mode))
                     .map_err(|e| CoreError::TranscriptionFailed(e.to_string()))
             },
             || Self::create(&self.directory, SpeechBackend::Cpu, self.threads),
@@ -135,7 +157,7 @@ impl SttProvider for ParakeetProvider {
         let duration = start.elapsed();
         let text = result.text.trim().to_string();
 
-        // Extract sentence-level timestamps from parakeet-rs TimedToken.
+        // Keep the timing granularity requested by the caller.
         let segments: Vec<TimestampedSegment> = result
             .tokens
             .iter()
@@ -163,14 +185,6 @@ impl SttProvider for ParakeetProvider {
             segments,
             llm_error: None,
         })
-    }
-
-    fn name(&self) -> &str {
-        &self.model_id
-    }
-
-    fn is_loaded(&self) -> bool {
-        true
     }
 }
 

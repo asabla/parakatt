@@ -22,6 +22,15 @@ pub trait SttProvider: Send + Sync {
     fn transcribe(&self, audio: &[f32], sample_rate: u32)
         -> Result<TranscriptionResult, CoreError>;
 
+    /// Imported media uses word timing at overlap boundaries when supported.
+    fn transcribe_import(
+        &self,
+        audio: &[f32],
+        sample_rate: u32,
+    ) -> Result<TranscriptionResult, CoreError> {
+        self.transcribe(audio, sample_rate)
+    }
+
     /// Provider name for display and logging.
     fn name(&self) -> &str;
 

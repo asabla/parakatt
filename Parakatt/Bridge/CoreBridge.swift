@@ -7,6 +7,15 @@ import ParakattCore
 class CoreBridge {
     private let engine: Engine
 
+    func createImport(kind: String, input: String, title: String, mode: String) throws -> ImportJob { try engine.createImportJob(kind: kind, input: input, title: title, mode: mode) }
+    func importJobs() throws -> [ImportJob] { try engine.listImportJobs() }
+    func importJob(_ id: String) throws -> ImportJob { try engine.getImportJob(id: id) }
+    func importState(_ id: String, _ state: String, message: String = "") throws -> ImportJob { try engine.setImportState(id: id, state: state, message: message) }
+    func attachMedia(_ id: String, _ attachment: MediaAttachment) throws -> ImportJob { try engine.attachImportMedia(id: id, attachment: attachment) }
+    func importChunk(_ id: String, samples: [Float], offset: Double) throws -> ImportJob { try engine.processImportChunk(id: id, samples: samples, mediaOffsetSecs: offset) }
+    func invalidateImportSource(_ id: String) throws { try engine.invalidateImportSource(id: id) }
+    func processImportText(_ id: String) throws { try engine.processImportText(id: id) }
+
     init(modelsDir: String, configDir: String, activeMode: String = "dictation") throws {
         let config = EngineConfig(
             modelsDir: modelsDir,

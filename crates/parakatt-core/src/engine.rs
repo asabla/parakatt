@@ -1,4 +1,5 @@
 mod history;
+mod imports;
 
 /// Core engine that orchestrates the full pipeline:
 /// audio → preprocessing → STT → dictionary → LLM → result.
@@ -96,6 +97,8 @@ pub struct Engine {
     completed_events:
         Mutex<std::collections::VecDeque<(String, Vec<crate::processing::TranscriptionEvent>)>>,
     storage: Mutex<Storage>,
+    import_cancellation:
+        Mutex<std::collections::HashMap<String, tokio_util::sync::CancellationToken>>,
 }
 
 #[uniffi::export]
@@ -149,6 +152,7 @@ impl Engine {
             processing: Mutex::new(std::collections::HashMap::new()),
             completed_events: Mutex::new(std::collections::VecDeque::new()),
             storage: Mutex::new(Storage::open(&config_dir)?),
+            import_cancellation: Mutex::new(std::collections::HashMap::new()),
         };
 
         // Don't auto-load the model in the constructor — model loading
