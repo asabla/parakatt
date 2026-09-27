@@ -34,3 +34,13 @@ These checks ran on an Apple Silicon Mac using macOS 27.0. Binary deployment tar
 Playback conversion and timing have automated coverage. The UI automation service timed out, so full manual interaction coverage for drag-and-drop, seeking, and live-recording priority has not been performed. The existing project has no Developer ID signing/notarization setup; this feature preserves its stable launcher and existing distribution policy.
 
 Use `scripts/smoke-media.py` to repeat packaged transcription checks. Detailed local outputs are in the ignored `target/video-validation` directory. Downloaded test videos, source caches, model data, and transcript contents are not committed.
+
+## Playback correction, 2026-09-27
+
+Long videos that need conversion now show source checking, conversion percentage, finalization, and player loading separately. Conversion progress is read directly from the process pipe so it reaches the interface without waiting for a full buffer. A conversion with no advancing media timestamp for 120 seconds fails with a visible error. Player readiness has a separate 20-second deadline.
+
+Each attempt has its own temporary output and cancellation token. Cancelled and superseded attempts cannot publish a player or overwrite the current attempt. Review copies are checked for duration and actual player readiness before publication and reuse; damaged copies are rebuilt. Compatible native sources remain usable without conversion.
+
+The Swift suite passes 51 tests with one existing interactive test skipped. Added checks cover live progress before process exit, stalled conversion, cancellation, stale load results, specific error messages, corrupt-copy recovery, cached-copy reuse, native playback, and player readiness deadlines. The release package and startup checks pass.
+
+Run `python3 scripts/smoke-media.py <app> <video> --playback --output <report.json>` for full-length packaged playback validation. This uses isolated metadata, converts the complete source if needed, checks decoded video frames after seeking to the beginning, middle, and end, then verifies cached reuse and the original source checksum. It does not transcribe the video or change the user's import. Video data and local diagnostic output stay outside Git.

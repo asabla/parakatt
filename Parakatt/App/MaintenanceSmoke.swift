@@ -8,6 +8,22 @@ import ParakattCore
 func runMaintenanceSmokeIfRequested() -> Bool {
     let environment = ProcessInfo.processInfo.environment
     guard environment["PARAKATT_SMOKE_TEST"] == "1", let root = environment["PARAKATT_DATA_ROOT"] else { return false }
+    if let source = environment["PARAKATT_SMOKE_PLAYBACK"] {
+        Task { @MainActor in
+            var result: [String: Any] = ["started": true]
+            do {
+                let data = URL(fileURLWithPath: root, isDirectory: true)
+                try FileManager.default.createDirectory(at: data, withIntermediateDirectories: true)
+                let core = try CoreBridge(modelsDir: data.appendingPathComponent("models").path, configDir: data.appendingPathComponent("config").path)
+                result["playback"] = try await mediaPlaybackSmoke(core: core, source: URL(fileURLWithPath: source), root: data)
+            } catch { result["error"] = error.localizedDescription }
+            if let bytes = try? JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .sortedKeys]) {
+                try? bytes.write(to: URL(fileURLWithPath: root).appendingPathComponent("startup.json"), options: .atomic)
+            }
+            NSApp.terminate(nil)
+        }
+        return true
+    }
     var report: [String: Any] = ["started": false]
     do {
         let data = URL(fileURLWithPath: root, isDirectory: true)

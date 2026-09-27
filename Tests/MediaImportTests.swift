@@ -132,6 +132,107 @@ final class MediaImportTests: XCTestCase {
         DispatchQueue.global().asyncAfter(deadline: .now() + 0.2) { running.cancel() }
         XCTAssertThrowsError(try MediaTools.run("ffmpeg", ["-v", "error", "-re", "-f", "lavfi", "-i", "sine=duration=120", "-f", "null", "-"], cancellation: running))
     }
+
+    func testPlaybackConversionStallIsReported() throws {
+        XCTAssertThrowsError(try MediaTools.run("ffmpeg", ["-v", "error", "-re", "-f", "lavfi", "-i", "sine=duration=120", "-f", "null", "-"], cancellation: MediaCancellation(), stallTimeout: 0.1)) { error in
+            XCTAssertTrue((error as? MediaImportError)?.message.contains("stopped making progress") == true)
+        }
+    }
+
+    func testConversionProgressArrivesBeforeProcessExit() throws {
+        let token = MediaCancellation()
+        let start = ProcessInfo.processInfo.systemUptime
+        XCTAssertThrowsError(try MediaTools.run("ffmpeg", ["-v", "error", "-nostats", "-progress", "pipe:1", "-stats_period", "0.1", "-re", "-f", "lavfi", "-i", "sine=duration=8", "-f", "null", "-"], cancellation: token, progress: { line in
+            if line.hasPrefix("out_time_us="), let value = Double(line.dropFirst(12)), value > 0 { token.cancel() }
+        }))
+        XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - start, 4, "Progress must stream while the process is running")
+    }
+
+    @MainActor
+    func testPlaybackCancellationCacheAndCorruptCopyRecovery() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = directory.appendingPathComponent("source.mkv")
+        _ = try MediaTools.run("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "color=c=black:s=64x64:r=10:d=4", "-f", "lavfi", "-i", "sine=duration=4", "-c:v", "mpeg4", "-c:a", "flac", source.path], cancellation: MediaCancellation())
+        let hash = try MediaTools.fingerprint(source, cancellation: MediaCancellation())
+        let core = try CoreBridge(modelsDir: directory.appendingPathComponent("models").path, configDir: directory.appendingPathComponent("config").path)
+        let service = MediaImportService(bridge: core, root: directory.appendingPathComponent("media"))
+        var job = try core.createImport(kind: "file", input: source.path, title: "Playback test", mode: "dictation")
+        job.attachment.path = source.path; job.attachment.fingerprint = hash; job.attachment.durationSecs = 4
+        _ = try core.attachMedia(job.id, job.attachment)
+        let cancelled = MediaCancellation()
+        do {
+            _ = try await service.playbackURL(job.id, token: cancelled) { if case .creatingCopy = $0 { cancelled.cancel() } }
+            XCTFail("Cancelled conversion must not publish a copy")
+        } catch is CancellationError { }
+        let owned = try service.directory(job.id)
+        XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: owned.path).isEmpty)
+        let progress = PlaybackProgressRecorder()
+        let copy = try await service.playbackURL(job.id, token: MediaCancellation(), progress: progress.record)
+        XCTAssertTrue(progress.values.contains { if case .creatingCopy = $0 { return true }; return false })
+        XCTAssertTrue(progress.values.contains(.checkingPlayback))
+        XCTAssertTrue(progress.values.contains { if case .creatingCopy(let value) = $0 { return value > 0 }; return $0 == .finishingCopy })
+        let cached = PlaybackProgressRecorder()
+        let reused = try await service.playbackURL(job.id, token: MediaCancellation(), progress: cached.record)
+        XCTAssertEqual(reused, copy)
+        XCTAssertFalse(cached.values.contains { if case .creatingCopy = $0 { return true }; return false })
+        try Data("broken cached copy".utf8).write(to: copy)
+        let repaired = try await service.playbackURL(job.id, token: MediaCancellation())
+        let player = try await MediaTools.readyPlayer(repaired, cancellation: MediaCancellation())
+        XCTAssertEqual(player.currentItem?.status, .readyToPlay)
+        player.replaceCurrentItem(with: nil)
+        XCTAssertEqual(try MediaTools.fingerprint(source, cancellation: MediaCancellation()), hash)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: owned.path), ["review.mp4"])
+        do {
+            _ = try await MediaTools.readyPlayer(repaired, cancellation: MediaCancellation(), timeout: 0)
+            XCTFail("Player readiness must have a deadline")
+        } catch { XCTAssertTrue(error.localizedDescription.contains("did not become ready")) }
+        var native = try core.createImport(kind: "file", input: repaired.path, title: "Native playback", mode: "dictation")
+        native.attachment.path = repaired.path; native.attachment.durationSecs = 4
+        native.attachment.fingerprint = try MediaTools.fingerprint(repaired, cancellation: MediaCancellation())
+        _ = try core.attachMedia(native.id, native.attachment)
+        let nativeURL = try await service.playbackURL(native.id, token: MediaCancellation())
+        XCTAssertEqual(nativeURL, repaired, "A compatible source must not require another conversion")
+    }
+
+    @MainActor
+    func testObsoletePlaybackCannotOverwriteNewLoad() async throws {
+        let playback = MediaPlayback()
+        var first: CheckedContinuation<URL, Error>?
+        var second: CheckedContinuation<URL, Error>?
+        var oldProgress: ((MediaPlaybackProgress) -> Void)?
+        playback.load { _, progress in
+            oldProgress = progress
+            return try await withCheckedThrowingContinuation { first = $0 }
+        }
+        while first == nil { await Task.yield() }
+        playback.load { _, _ in try await withCheckedThrowingContinuation { second = $0 } }
+        while second == nil { await Task.yield() }
+        oldProgress?(.creatingCopy(0.9))
+        first?.resume(throwing: MediaImportError("Obsolete error"))
+        try await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertTrue(playback.loading)
+        XCTAssertNil(playback.error)
+        XCTAssertEqual(playback.preparation, .checkingSource(0))
+        playback.stop()
+        second?.resume(returning: URL(fileURLWithPath: "/does-not-exist"))
+        try await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertFalse(playback.loading)
+        XCTAssertNil(playback.player)
+        XCTAssertNil(playback.error)
+        playback.load { _, _ in throw MediaImportError("The source changed. Locate the original video.") }
+        for _ in 0..<100 where playback.loading { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertFalse(playback.loading)
+        XCTAssertEqual(playback.error, "The source changed. Locate the original video.")
+    }
+}
+
+private final class PlaybackProgressRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: [MediaPlaybackProgress] = []
+    var values: [MediaPlaybackProgress] { lock.lock(); defer { lock.unlock() }; return stored }
+    func record(_ value: MediaPlaybackProgress) { lock.lock(); stored.append(value); lock.unlock() }
 }
 
 private final class MediaHTTPFixture {
