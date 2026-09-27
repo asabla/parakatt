@@ -1,0 +1,247 @@
+{
+  "version": "3.7.3",
+  "binary": {
+    "url": "https://download.videolan.org/pub/cocoapods/prod/VLCKit-3.7.3-319ed2c0-79128878.tar.xz",
+    "filename": "VLCKit-3.7.3.tar.xz",
+    "sha256": "019afdae4e2e2d0f3ac325fac8f7ba0af25dca70b9d157df7d60db88e0be8e5d"
+  },
+  "sources": {
+    "vlckit": {
+      "url": "https://codeload.github.com/videolan/vlckit/tar.gz/319ed2c0",
+      "filename": "vlckit-319ed2c0.tar.gz",
+      "sha256": "b228ad8bf0f5def10c8aa5ef2343725d4af1e31280acf70b41791a8627a87be2"
+    },
+    "vlc": {
+      "url": "https://codeload.github.com/videolan/vlc/tar.gz/79128878",
+      "filename": "vlc-79128878.tar.gz",
+      "sha256": "7d41aa364f4f5e25d8e4b447f1a87caedfbd96973e071f642ba455e9f45df8cf"
+    }
+  },
+  "contrib": {
+    "libaom-3.5.0.tar.gz": {
+      "url": "https://storage.googleapis.com/aom-releases/libaom-3.5.0.tar.gz",
+      "filename": "libaom-3.5.0.tar.gz",
+      "sha256": "d37dbee372e2430a7efde813984ae6d78bdf1fc4080ebe32457c9115408b0738"
+    },
+    "libass-0.17.3.tar.gz": {
+      "url": "https://github.com//libass/libass/releases/download/0.17.3/libass-0.17.3.tar.gz",
+      "filename": "libass-0.17.3.tar.gz",
+      "sha256": "da7c348deb6fa6c24507afab2dee7545ba5dd5bbf90a137bfe9e738f7df68537"
+    },
+    "dav1d-1.5.1.tar.xz": {
+      "url": "https://downloads.videolan.org/pub/videolan/dav1d/1.5.1/dav1d-1.5.1.tar.xz",
+      "filename": "dav1d-1.5.1.tar.xz",
+      "sha256": "401813f1f89fa8fd4295805aa5284d9aed9bc7fc1fdbe554af4292f64cbabe21"
+    },
+    "libdvbpsi-1.3.3.tar.bz2": {
+      "url": "https://downloads.videolan.org/pub/videolan/libdvbpsi/1.3.3/libdvbpsi-1.3.3.tar.bz2",
+      "filename": "libdvbpsi-1.3.3.tar.bz2",
+      "sha256": "02b5998bcf289cdfbd8757bedd5987e681309b0a25b3ffe6cebae599f7a00112"
+    },
+    "libebml-1.4.3.tar.xz": {
+      "url": "https://downloads.videolan.org/pub/contrib/ebml/libebml-1.4.3.tar.xz",
+      "filename": "libebml-1.4.3.tar.xz",
+      "sha256": "746abbc216b634ec17e70213b9a2ae2aeef0ac1ffc393f2f96f7e4cd5435a921"
+    },
+    "ffmpeg-4.4.5.tar.xz": {
+      "url": "https://downloads.videolan.org/pub/contrib/ffmpeg/ffmpeg-4.4.5.tar.xz",
+      "filename": "ffmpeg-4.4.5.tar.xz",
+      "sha256": "f9514e0d3515aee5a271283df71636e1d1ff7274b15853bcd84e144be416ab07"
+    },
+    "flac-1.3.4.tar.xz": {
+      "url": "https://downloads.videolan.org/pub/contrib/flac/flac-1.3.4.tar.xz",
+      "filename": "flac-1.3.4.tar.xz",
+      "sha256": "8ff0607e75a322dd7cd6ec48f4f225471404ae2730d0ea945127b1355155e737"
+    },
+    "freetype-2.13.1.tar.xz": {
+      "url": "https://downloads.videolan.org/pub/contrib/freetype2/freetype-2.13.1.tar.xz",
+      "filename": "freetype-2.13.1.tar.xz",
+      "sha256": "ea67e3b019b1104d1667aa274f5dc307d8cbd606b399bc32df308a77f1a564bf"
+    },
+    "fribidi-1.0.12.tar.xz": {
+      "url": "https://downloads.videolan.org/pub/contrib/fribidi/fribidi-1.0.12.tar.xz",
+      "filename": "fribidi-1.0.12.tar.xz",
+      "sha256": "0cd233f97fc8c67bb3ac27ce8440def5d3ffacf516765b91c2cc654498293495"
+    },
+    "libgcrypt-1.10.1.tar.bz2": {
+      "url": "https://downloads.videolan.org/pub/contrib/gcrypt/libgcrypt-1.10.1.tar.bz2",
+      "filename": "libgcrypt-1.10.1.tar.bz2",
+      "sha256": "ef14ae546b0084cd84259f61a55e07a38c3b53afc0f546bffcef2f01baffe9de"
+    },
+    "libgpg-error-1.27.tar.bz2": {
+      "url": "https://downloads.videolan.org/pub/contrib/gpg-error/libgpg-error-1.27.tar.bz2",
+      "filename": "libgpg-error-1.27.tar.bz2",
+      "sha256": "4f93aac6fecb7da2b92871bb9ee33032be6a87b174f54abf8ddf0911a22d29d2"
+    },
+    "libgsm_1.0.13.tar.gz": {
+      "url": "https://downloads.videolan.org/pub/contrib/gsm/libgsm_1.0.13.tar.gz",
+      "filename": "libgsm_1.0.13.tar.gz",
+      "sha256": "52c518244d428c2e56c543b98c9135f4a76ff780c32455580b793f60a0a092ad"
+    },
+    "harfbuzz-11.5.0.tar.xz": {
+      "url": "https://downloads.videolan.org/pub/contrib/harfbuzz/harfbuzz-11.5.0.tar.xz",
+      "filename": "harfbuzz-11.5.0.tar.xz",
+      "sha256": "2d30ba45c4c8ec4de661a1002b4f88d0841ff1a3087f34629275f5436d722109"
+    },
+    "lame-3.100.tar.gz": {
+      "url": "https://downloads.videolan.org/pub/contrib/lame/lame-3.100.tar.gz",
+      "filename": "lame-3.100.tar.gz",
+      "sha256": "ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e"
+    },
+    "libarchive-3.8.0.tar.gz": {
+      "url": "https://github.com//libarchive/libarchive/releases/download/v3.8.0/libarchive-3.8.0.tar.gz",
+      "filename": "libarchive-3.8.0.tar.gz",
+      "sha256": "191b5b24811499d5c2e5efa3248975fa6daa5e6a227700cc7b8e54d6d7c06eef"
+    },
+    "libdsm-0.4.3.tar.xz": {
+      "url": "https://downloads.videolan.org/pub/contrib/libdsm/libdsm-0.4.3.tar.xz",
+      "filename": "libdsm-0.4.3.tar.xz",
+      "sha256": "d31921bd6f6a23878266b945731f7d57505472ef85d66f944c43b9f8eacc2a8a"
+    },
+    "libebur128-1.2.4.tar.gz": {
+      "url": "https://downloads.videolan.org/pub/contrib/libebur128/libebur128-1.2.4.tar.gz",
+      "filename": "libebur128-1.2.4.tar.gz",
+      "sha256": "2ee41a3a5ae3891601ae975d5ec2642b997d276ef647cf5c5b363b6127f7add8"
+    },
+    "libplacebo-0.2.1.tar.gz": {
+      "url": "https://downloads.videolan.org/pub/contrib/libplacebo/libplacebo-0.2.1.tar.gz",
+      "filename": "libplacebo-0.2.1.tar.gz",
+      "sha256": "d5d920a1745e4209287d32e8b96a85127b61b843304813980e11104cd9f15e82"
+    },
+    "libtasn1-4.8.tar.gz": {
+      "url": "https://downloads.videolan.org/pub/contrib/libtasn1/libtasn1-4.8.tar.gz",
+      "filename": "libtasn1-4.8.tar.gz",
+      "sha256": "fa802fc94d79baa00e7397cedf29eb6827d4bd8b4dd77b577373577c93a8c513"
+    },
+    "libxml2-2.9.14.tar.xz": {
+      "url": "https://downloads.videolan.org/pub/contrib/libxml2/libxml2-2.9.14.tar.xz",
+      "filename": "libxml2-2.9.14.tar.xz",
+      "sha256": "60d74a257d1ccec0475e749cba2f21559e48139efba6ff28224357c7c798dfee"
+    },
+    "live.2016.10.21.tar.gz": {
+      "url": "https://downloads.videolan.org/pub/contrib/live555/live.2016.10.21.tar.gz",
+      "filename": "live.2016.10.21.tar.gz",
+      "sha256": "65b1aa7ec7c487466020e980d1fd68007390f7575b384c1d0fed49b94ba2c240"
+    },
+    "libmatroska-1.7.0.tar.xz": {
+      "url": "https://downloads.videolan.org/pub/contrib/matroska/libmatroska-1.7.0.tar.xz",
+      "filename": "libmatroska-1.7.0.tar.xz",
+      "sha256": "927239d8d49aed604877106aaf934f318b2c7e6b88451c9277476443308690c3"
+    },
+    "libmodplug-0.8.9.0.tar.gz": {
+      "url": "https://downloads.videolan.org/pub/contrib/modplug/libmodplug-0.8.9.0.tar.gz",
+      "filename": "libmodplug-0.8.9.0.tar.gz",
+      "sha256": "457ca5a6c179656d66c01505c0d95fafaead4329b9dbaa0f997d00a3508ad9de"
+    },
+    "mpg123-1.30.1.tar.bz2": {
+      "url": "https://downloads.videolan.org/pub/contrib/mpg123/mpg123-1.30.1.tar.bz2",
+      "filename": "mpg123-1.30.1.tar.bz2",
+      "sha256": "1b20c9c751bea9be556749bd7f97cf580f52ed11f2540756e9af26ae036e4c59"
+    },
+    "libmysofa-0.5.tar.gz": {
+      "url": "https://downloads.videolan.org/pub/contrib/mysofa/libmysofa-0.5.tar.gz",
+      "filename": "libmysofa-0.5.tar.gz",
+      "sha256": "c4ffef39c24b14ea91f5631058adfd192e491e2d5c48bf7f5678e6fb02daa814"
+    },
+    "libnfs-5.0.1.tar.gz": {
+      "url": "https://downloads.videolan.org/pub/contrib/nfs/libnfs-5.0.1.tar.gz",
+      "filename": "libnfs-5.0.1.tar.gz",
+      "sha256": "7ef445410b42f36b9bad426608b53ccb9ccca4101e545c383f564c11db672ca8"
+    },
+    "libogg-1.3.6.tar.xz": {
+      "url": "https://downloads.videolan.org/pub/contrib/ogg/libogg-1.3.6.tar.xz",
+      "filename": "libogg-1.3.6.tar.xz",
+      "sha256": "5c8253428e181840cd20d41f3ca16557a9cc04bad4a3d04cce84808677fa1061"
+    },
+    "openjpeg-2.5.0.tar.gz": {
+      "url": "https://downloads.videolan.org/pub/contrib/openjpeg/openjpeg-2.5.0.tar.gz",
+      "filename": "openjpeg-2.5.0.tar.gz",
+      "sha256": "0333806d6adecc6f7a91243b2b839ff4d2053823634d4f6ed7a59bc87409122a"
+    },
+    "opus-1.3.tar.gz": {
+      "url": "https://downloads.videolan.org/pub/contrib/opus/opus-1.3.tar.gz",
+      "filename": "opus-1.3.tar.gz",
+      "sha256": "4f3d69aefdf2dbaf9825408e452a8a414ffc60494c70633560700398820dc550"
+    },
+    "libpng-1.6.50.tar.xz": {
+      "url": "https://downloads.videolan.org/pub/contrib/png/libpng-1.6.50.tar.xz",
+      "filename": "libpng-1.6.50.tar.xz",
+      "sha256": "4df396518620a7aa3651443e87d1b2862e4e88cad135a8b93423e01706232307"
+    },
+    "protobuf-3.1.0-cpp.tar.gz": {
+      "url": "https://downloads.videolan.org/pub/contrib/protobuf/protobuf-3.1.0-cpp.tar.gz",
+      "filename": "protobuf-3.1.0-cpp.tar.gz",
+      "sha256": "51ceea9957c875bdedeb1f64396b5b0f3864fe830eed6a2d9c066448373ea2d6"
+    },
+    "libshout-2.4.1.tar.gz": {
+      "url": "https://downloads.videolan.org/pub/contrib/shout/libshout-2.4.1.tar.gz",
+      "filename": "libshout-2.4.1.tar.gz",
+      "sha256": "f3acb8dec26f2dbf6df778888e0e429a4ce9378a9d461b02a7ccbf2991bbf24d"
+    },
+    "libsmb2-4.0.0.tar.gz": {
+      "url": "https://downloads.videolan.org/pub/contrib/smb2/libsmb2-4.0.0.tar.gz",
+      "filename": "libsmb2-4.0.0.tar.gz",
+      "sha256": "b4d1b13bc07adc68379a72f723b9032a950afd62fed7f2aa3e57f3421406da11"
+    },
+    "soxr-0.1.3-Source.tar.xz": {
+      "url": "https://downloads.videolan.org/pub/contrib/soxr/soxr-0.1.3-Source.tar.xz",
+      "filename": "soxr-0.1.3-Source.tar.xz",
+      "sha256": "b111c15fdc8c029989330ff559184198c161100a59312f5dc19ddeb9b5a15889"
+    },
+    "spatialaudio-0.3.0.tar.bz2": {
+      "url": "https://downloads.videolan.org/pub/contrib/spatialaudio/spatialaudio-0.3.0.tar.bz2",
+      "filename": "spatialaudio-0.3.0.tar.bz2",
+      "sha256": "284c1dbd8efd46c03be84ac7070bc87cae81b7125352b143a70be3e2b96988e3"
+    },
+    "speex-1.2.1.tar.gz": {
+      "url": "https://downloads.videolan.org/pub/contrib/speex/speex-1.2.1.tar.gz",
+      "filename": "speex-1.2.1.tar.gz",
+      "sha256": "4b44d4f2b38a370a2d98a78329fefc56a0cf93d1c1be70029217baae6628feea"
+    },
+    "speexdsp-1.2.1.tar.gz": {
+      "url": "https://downloads.videolan.org/pub/contrib/speexdsp/speexdsp-1.2.1.tar.gz",
+      "filename": "speexdsp-1.2.1.tar.gz",
+      "sha256": "8c777343e4a6399569c72abc38a95b24db56882c83dbdb6c6424a5f4aeb54d3d"
+    },
+    "libssh2-1.10.0.tar.gz": {
+      "url": "https://downloads.videolan.org/pub/contrib/ssh2/libssh2-1.10.0.tar.gz",
+      "filename": "libssh2-1.10.0.tar.gz",
+      "sha256": "2d64e90f3ded394b91d3a2e774ca203a4179f69aebee03003e5a6fa621e41d51"
+    },
+    "taglib-1.13.1.tar.gz": {
+      "url": "https://downloads.videolan.org/pub/contrib/taglib/taglib-1.13.1.tar.gz",
+      "filename": "taglib-1.13.1.tar.gz",
+      "sha256": "c8da2b10f1bfec2cd7dbfcd33f4a2338db0765d851a50583d410bacf055cfd0b"
+    },
+    "libtheora-1.1.1.tar.xz": {
+      "url": "https://downloads.videolan.org/pub/contrib/theora/libtheora-1.1.1.tar.xz",
+      "filename": "libtheora-1.1.1.tar.xz",
+      "sha256": "f36da409947aa2b3dcc6af0a8c2e3144bc19db2ed547d64e9171c59c66561c61"
+    },
+    "pupnp-release-1.14.13.tar.gz": {
+      "url": "https://github.com//pupnp/pupnp/archive/refs/tags/release-1.14.13.tar.gz",
+      "filename": "pupnp-release-1.14.13.tar.gz",
+      "sha256": "8c099da99b3506bef683d46415bc3158260ca5528b4cec211d880eb5dea61176"
+    },
+    "libvorbis-1.3.6.tar.xz": {
+      "url": "https://downloads.videolan.org/pub/contrib/vorbis/libvorbis-1.3.6.tar.xz",
+      "filename": "libvorbis-1.3.6.tar.xz",
+      "sha256": "af00bb5a784e7c9e69f56823de4637c350643deedaf333d0fa86ecdba6fcb415"
+    },
+    "libvpx-1.15.2.tar.gz": {
+      "url": "https://downloads.videolan.org/pub/contrib/vpx/libvpx-1.15.2.tar.gz",
+      "filename": "libvpx-1.15.2.tar.gz",
+      "sha256": "26fcd3db88045dee380e581862a6ef106f49b74b6396ee95c2993a260b4636aa"
+    },
+    "zlib-1.3.1.tar.xz": {
+      "url": "https://downloads.videolan.org/pub/contrib/zlib/zlib-1.3.1.tar.xz",
+      "filename": "zlib-1.3.1.tar.xz",
+      "sha256": "38ef96b8dfe510d42707d9c781877914792541133e1870841463bfa73f883e32"
+    },
+    "zvbi-0.2.35.tar.bz2": {
+      "url": "https://downloads.videolan.org/pub/contrib/zvbi/zvbi-0.2.35.tar.bz2",
+      "filename": "zvbi-0.2.35.tar.bz2",
+      "sha256": "fc883c34111a487c4a783f91b1b2bb5610d8d8e58dcba80c7ab31e67e4765318"
+    }
+  }
+}

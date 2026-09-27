@@ -24,3 +24,9 @@ for name in ['manifest.json', 'build-options.json']:
     stale = destination / name
     if stale.exists(): stale.unlink()
     shutil.copy2(source / name, notices.parent / name)
+
+playback = root / 'target/playback-engine'
+shutil.copy2(playback / 'COPYING.txt', notices / 'VLCKit-LGPL-2.1.txt')
+shutil.copy2(root / 'config/playback-engine.json', notices.parent / 'playback-engine.json')
+for notice in (playback / 'licenses').iterdir():
+    shutil.copy2(notice, notices / ('playback-' + notice.name))

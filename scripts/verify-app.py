@@ -40,3 +40,11 @@ for name in ("yt-dlp", "deno", "ffmpeg", "ffprobe"):
     subprocess.run(["codesign", "--verify", str(helper)], check=True)
 if not (app / "Contents/Resources/MediaTools/licenses").is_dir(): raise SystemExit("Missing media license notices")
 print("Verified self-contained media tool layout")
+
+playback = app / "Contents/Frameworks/VLCKit.framework"
+if not (playback / "VLCKit").is_file(): raise SystemExit("Missing bundled video playback framework")
+subprocess.run(["codesign", "--verify", "--strict", str(playback)], check=True)
+for name in ("VLCKit-LGPL-2.1.txt",):
+    if not (app / "Contents/Resources/MediaTools/licenses" / name).is_file(): raise SystemExit("Missing playback license notice: " + name)
+if not (app / "Contents/Resources/MediaTools/playback-engine.json").is_file(): raise SystemExit("Missing playback engine version manifest")
+print("Verified bundled playback engine and notices")

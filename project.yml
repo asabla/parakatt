@@ -45,6 +45,8 @@ targets:
         APPLICATION_EXTENSION_API_ONLY: false
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/../Frameworks @loader_path/Frameworks"
     dependencies:
+      - framework: target/playback-engine/VLCKit.framework
+        embed: false
       - package: ParakattCore
       - package: HotKey
 
@@ -87,6 +89,9 @@ targets:
         INFOPLIST_FILE: Parakatt/Info.plist
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/../Frameworks"
     dependencies:
+      - framework: target/playback-engine/VLCKit.framework
+        embed: true
+        codeSign: true
       - target: ParakattApp
         embed: true
       - package: ParakattCore
@@ -113,5 +118,8 @@ targets:
         GENERATE_INFOPLIST_FILE: true
         CODE_SIGN_STYLE: Automatic
     dependencies:
+      - framework: target/playback-engine/VLCKit.framework
+        embed: true
+        codeSign: true
       - target: ParakattApp
       - package: ParakattCore

@@ -1,7 +1,6 @@
 import Foundation
 import ParakattCore
-import AVFoundation
-import Combine
+import VLCKit
 
 /// Runs only under the existing explicit maintenance mode with isolated data.
 func mediaImportSmoke(core: CoreBridge, source: URL) throws -> [String: Any] {
@@ -43,50 +42,45 @@ func mediaPlaybackSmoke(core: CoreBridge, source: URL, root: URL) async throws -
     _ = try core.attachMedia(job.id, job.attachment)
     let playback = MediaPlayback()
     defer { playback.stop(); service.shutdown() }
-    var stages: [MediaPlaybackProgress] = []
-    var lastPercent = -10
-    let subscription = playback.$preparation.compactMap { $0 }.sink { value in
-        stages.append(value)
-        if case .creatingCopy(let fraction) = value, Int(fraction * 100) >= lastPercent + 10 {
-            lastPercent = Int(fraction * 100)
-            NSLog("[Parakatt] Playback validation conversion: %d%%", lastPercent)
-        }
-    }
-    defer { subscription.cancel() }
-    func waitForPlayer() async throws -> AVPlayer {
-        let deadline = ProcessInfo.processInfo.systemUptime + 1800
+    let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 640, height: 360), styleMask: .borderless, backing: .buffered, defer: false)
+    defer { window.orderOut(nil) }
+    func waitForPlayer() async throws -> VLCMediaPlayer {
+        let deadline = ProcessInfo.processInfo.systemUptime + 30
         while playback.loading {
+            if let view = playback.videoView, window.contentView !== view { window.contentView = view; window.orderFront(nil) }
             guard ProcessInfo.processInfo.systemUptime < deadline else { throw MediaImportError("Playback validation timed out") }
-            try await Task.sleep(nanoseconds: 100_000_000)
+            try await Task.sleep(nanoseconds: 50_000_000)
         }
-        guard let player = playback.player, player.currentItem?.status == .readyToPlay else { throw MediaImportError(playback.error ?? "Player not ready") }
+        guard let player = playback.player else { throw MediaImportError(playback.error ?? "Player not ready") }
         return player
     }
+    playback.volume = 0
     playback.load(id: job.id, service: service)
     let player = try await waitForPlayer()
-    player.isMuted = true
-    let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA])
-    player.currentItem?.add(output)
+    guard player.media?.url?.standardizedFileURL == source.standardizedFileURL else { throw MediaImportError("Playback did not use the original source") }
     var frames = 0
     for position in [0, info.duration / 2, max(0, info.duration - 3)] {
-        guard await player.seek(to: CMTime(seconds: position, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) else { throw MediaImportError("Playback seek failed") }
+        let before = player.media?.statistics.displayedPictures ?? 0
+        playback.seek(position)
         player.play()
         let deadline = ProcessInfo.processInfo.systemUptime + 10
         var rendered = false
         while ProcessInfo.processInfo.systemUptime < deadline {
             try await Task.sleep(nanoseconds: 100_000_000)
-            guard player.currentItem?.status == .readyToPlay else { throw MediaImportError("Player failed after seeking") }
-            if player.currentTime().seconds > position + 0.1, output.copyPixelBuffer(forItemTime: player.currentTime(), itemTimeForDisplay: nil) != nil { rendered = true; break }
+            let seconds = (player.time.value?.doubleValue ?? 0) / 1000
+            if seconds > position + 0.1, seconds < position + 3, (player.media?.statistics.displayedPictures ?? 0) > before {
+                rendered = true; break
+            }
         }
         player.pause()
-        guard rendered else { throw MediaImportError("No decoded video frame after seeking") }
+        guard rendered else { throw MediaImportError("No displayed video frame after seeking") }
         frames += 1
     }
-    let conversionUpdates = stages.filter { if case .creatingCopy = $0 { return true }; return false }.count
-    playback.stop(); stages.removeAll()
+    playback.stop()
     playback.load(id: job.id, service: service)
     _ = try await waitForPlayer()
-    let reused = !stages.contains { if case .creatingCopy = $0 { return true }; return false }
-    guard reused, try MediaTools.fingerprint(source, cancellation: MediaCancellation()) == hash else { throw MediaImportError("Playback cache or source integrity check failed") }
-    return ["state": "ready", "duration_secs": info.duration, "conversion_updates": conversionUpdates, "seek_frames": frames, "cache_reused": reused, "source_unchanged": true]
+    let owned = try service.directory(job.id)
+    let noCopy = !FileManager.default.fileExists(atPath: owned.appendingPathComponent("review.mp4").path)
+    guard noCopy, try MediaTools.fingerprint(source, cancellation: MediaCancellation()) == hash else { throw MediaImportError("Direct playback or source integrity check failed") }
+    return ["state": "ready", "duration_secs": info.duration, "seek_frames": frames, "direct_playback": true, "playback_copy_created": false, "source_unchanged": true]
 }

@@ -47,22 +47,19 @@ struct MediaTrack: Identifiable, Sendable {
 struct MediaInfo: Sendable {
     let duration: Double
     let tracks: [MediaTrack]
-    let nativeContainer: Bool
 }
 
 enum MediaPlaybackProgress: Equatable, Sendable {
-    case checkingSource(Double), checkingPlayback, creatingCopy(Double), finishingCopy
+    case checkingSource(Double), checkingPlayback
     var label: String {
         switch self {
         case .checkingSource: return "Checking source video…"
         case .checkingPlayback: return "Opening video player…"
-        case .creatingCopy(let value): return "Creating playback copy… \(Int(value * 100))%"
-        case .finishingCopy: return "Finishing playback copy…"
         }
     }
     var fraction: Double? {
         switch self {
-        case .checkingSource(let value), .creatingCopy(let value): return value
+        case .checkingSource(let value): return value
         default: return nil
         }
     }
@@ -191,8 +188,7 @@ enum MediaTools {
             return MediaTrack(id: Int32(index), label: label, isDefault: (stream["disposition"] as? [String: Int])?["default"] == 1)
         }
         guard !tracks.isEmpty else { throw MediaImportError("The video has no audio track.") }
-        let formats = (format?["format_name"] as? String ?? "").split(separator: ",")
-        return MediaInfo(duration: duration, tracks: tracks, nativeContainer: formats.contains("mov") || formats.contains("mp4"))
+        return MediaInfo(duration: duration, tracks: tracks)
     }
     static func fingerprint(_ url: URL, cancellation: MediaCancellation, progress: ((Double) -> Void)? = nil) throws -> String {
         let file = try FileHandle(forReadingFrom: url); defer { try? file.close() }
@@ -245,33 +241,5 @@ enum MediaTools {
         }
         guard reader.status == .completed else { throw MediaImportError("Native audio decoding failed.") }
         return samples
-    }
-    static func reviewCopy(_ url: URL, track: Int32, destination: URL, cancellation: MediaCancellation, duration: Double? = nil, progress: @escaping (MediaPlaybackProgress) -> Void = { _ in }) throws {
-        try freeSpace(destination.deletingLastPathComponent())
-        let duration = try duration ?? probe(url, cancellation: cancellation).duration
-        progress(.creatingCopy(0))
-        _ = try run("ffmpeg", ["-nostdin", "-v", "error", "-nostats", "-progress", "pipe:1", "-stats_period", "0.25", "-y", "-i", url.path, "-map", "0:v:0", "-map", "0:a:\(track)", "-vf", "scale=w='min(1920,iw)':h='min(1080,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2", "-pix_fmt", "yuv420p", "-c:v", "h264_videotoolbox", "-allow_sw", "1", "-b:v", "8M", "-c:a", "aac", "-movflags", "+faststart", destination.path], cancellation: cancellation, workingDirectory: destination.deletingLastPathComponent(), stallTimeout: 120, progress: { line in
-            guard line.hasPrefix("out_time_us="), let value = Double(line.dropFirst(12)), value.isFinite else { return }
-            let fraction = max(0, min(1, value / 1_000_000 / duration))
-            progress(fraction >= 0.999 ? .finishingCopy : .creatingCopy(fraction))
-        })
-    }
-
-    @MainActor
-    static func readyPlayer(_ url: URL, cancellation: MediaCancellation, timeout: TimeInterval = 20) async throws -> AVPlayer {
-        let item = AVPlayerItem(url: url)
-        let player = AVPlayer(playerItem: item)
-        var ready = false
-        defer { if !ready { player.replaceCurrentItem(with: nil); (item.asset as? AVURLAsset)?.cancelLoading() } }
-        let deadline = ProcessInfo.processInfo.systemUptime + timeout
-        while item.status == .unknown {
-            try cancellation.check(); try Task.checkCancellation()
-            guard ProcessInfo.processInfo.systemUptime < deadline else { throw MediaImportError("The video player did not become ready. Try loading the video again.") }
-            try await Task.sleep(nanoseconds: 100_000_000)
-        }
-        try cancellation.check(); try Task.checkCancellation()
-        guard item.status == .readyToPlay else { throw MediaImportError("The video player could not open this video.") }
-        ready = true
-        return player
     }
 }

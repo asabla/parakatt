@@ -1,6 +1,7 @@
 import XCTest
 import Network
 import AVFoundation
+import VLCKit
 import ParakattCore
 @testable import ParakattApp
 
@@ -47,25 +48,18 @@ final class MediaImportTests: XCTestCase {
         let hash = try MediaTools.fingerprint(url, cancellation: token)
         XCTAssertEqual(hash.count, 64)
     }
-    func testMatroskaFallbackAndReviewCopyPreserveTimeline() async throws {
+    func testMatroskaFallbackPreservesTimeline() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let source = directory.appendingPathComponent("source.mkv")
-        let review = directory.appendingPathComponent("review.mp4")
         let token = MediaCancellation()
         _ = try MediaTools.run("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "color=c=black:s=64x64:r=10:d=4", "-itsoffset", "1", "-f", "lavfi", "-i", "sine=frequency=440:duration=2:sample_rate=48000", "-c:v", "mpeg4", "-c:a", "flac", "-t", "4", source.path], cancellation: token)
         let samples = try MediaTools.samples(source, track: 0, start: 0, duration: 2, cancellation: token)
         XCTAssertEqual(samples.count, 32000)
         XCTAssertLessThan(samples.prefix(15000).map { abs($0) }.max() ?? 1, 0.001)
         XCTAssertGreaterThan(samples.suffix(12000).map { abs($0) }.max() ?? 0, 0.01)
-        try MediaTools.reviewCopy(source, track: 0, destination: review, cancellation: token)
-        let playable = try await AVURLAsset(url: review).load(.isPlayable)
-        XCTAssertTrue(playable)
-        XCTAssertEqual(try MediaTools.probe(review, cancellation: token).duration, 4, accuracy: 0.15)
-        let reviewSamples = try MediaTools.samples(review, track: 0, start: 0, duration: 2, cancellation: token)
-        XCTAssertLessThan(reviewSamples.prefix(15000).map { abs($0) }.max() ?? 1, 0.005)
-        XCTAssertGreaterThan(reviewSamples.suffix(12000).map { abs($0) }.max() ?? 0, 0.01)
+
     }
 
     @MainActor
@@ -149,51 +143,57 @@ final class MediaImportTests: XCTestCase {
     }
 
     @MainActor
-    func testPlaybackCancellationCacheAndCorruptCopyRecovery() async throws {
+    func testPlaybackUsesOriginalAndSelectedAudioTrack() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let source = directory.appendingPathComponent("source.mkv")
-        _ = try MediaTools.run("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "color=c=black:s=64x64:r=10:d=4", "-f", "lavfi", "-i", "sine=duration=4", "-c:v", "mpeg4", "-c:a", "flac", source.path], cancellation: MediaCancellation())
+        _ = try MediaTools.run("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "color=c=black:s=64x64:r=10:d=4", "-f", "lavfi", "-i", "sine=duration=4", "-f", "lavfi", "-i", "sine=frequency=880:duration=4", "-map", "0:v", "-map", "1:a", "-map", "2:a", "-c:v", "mpeg4", "-c:a", "flac", source.path], cancellation: MediaCancellation())
         let hash = try MediaTools.fingerprint(source, cancellation: MediaCancellation())
         let core = try CoreBridge(modelsDir: directory.appendingPathComponent("models").path, configDir: directory.appendingPathComponent("config").path)
         let service = MediaImportService(bridge: core, root: directory.appendingPathComponent("media"))
+        defer { service.shutdown() }
         var job = try core.createImport(kind: "file", input: source.path, title: "Playback test", mode: "dictation")
-        job.attachment.path = source.path; job.attachment.fingerprint = hash; job.attachment.durationSecs = 4
+        job.attachment.path = source.path; job.attachment.fingerprint = hash; job.attachment.durationSecs = 4; job.attachment.audioTrack = 1
         _ = try core.attachMedia(job.id, job.attachment)
-        let cancelled = MediaCancellation()
+        let cancelled = MediaCancellation(); cancelled.cancel()
         do {
-            _ = try await service.playbackURL(job.id, token: cancelled) { if case .creatingCopy = $0 { cancelled.cancel() } }
-            XCTFail("Cancelled conversion must not publish a copy")
+            _ = try await service.playbackURL(job.id, token: cancelled)
+            XCTFail("Cancelled preparation must not load a player")
         } catch is CancellationError { }
         let owned = try service.directory(job.id)
-        XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: owned.path).isEmpty)
-        let progress = PlaybackProgressRecorder()
-        let copy = try await service.playbackURL(job.id, token: MediaCancellation(), progress: progress.record)
-        XCTAssertTrue(progress.values.contains { if case .creatingCopy = $0 { return true }; return false })
-        XCTAssertTrue(progress.values.contains(.checkingPlayback))
-        XCTAssertTrue(progress.values.contains { if case .creatingCopy(let value) = $0 { return value > 0 }; return $0 == .finishingCopy })
-        let cached = PlaybackProgressRecorder()
-        let reused = try await service.playbackURL(job.id, token: MediaCancellation(), progress: cached.record)
-        XCTAssertEqual(reused, copy)
-        XCTAssertFalse(cached.values.contains { if case .creatingCopy = $0 { return true }; return false })
-        try Data("broken cached copy".utf8).write(to: copy)
-        let repaired = try await service.playbackURL(job.id, token: MediaCancellation())
-        let player = try await MediaTools.readyPlayer(repaired, cancellation: MediaCancellation())
-        XCTAssertEqual(player.currentItem?.status, .readyToPlay)
-        player.replaceCurrentItem(with: nil)
+        let oldCopy = owned.appendingPathComponent("review.mp4")
+        try Data("old or corrupt playback copy".utf8).write(to: oldCopy)
+        let original = try await service.playbackURL(job.id, token: MediaCancellation())
+        XCTAssertEqual(original, source, "Playback must ignore old review copies")
+        let playback = MediaPlayback()
+        defer { playback.stop() }
+        playback.volume = 0
+        playback.load(id: job.id, service: service)
+        while playback.loading { try await Task.sleep(nanoseconds: 50_000_000) }
+        XCTAssertNil(playback.error)
+        let player = try XCTUnwrap(playback.player)
+        let tracks = (player.audioTrackIndexes as? [NSNumber] ?? []).map(\.int32Value).filter { $0 >= 0 }
+        XCTAssertEqual(tracks.count, 2)
+        XCTAssertEqual(player.currentAudioTrackIndex, tracks[1])
+        XCTAssertEqual(player.media?.url, source)
+        playback.rate = 1.5
+        XCTAssertEqual(player.rate, 1.5, accuracy: 0.01)
+        playback.seek(2)
+        player.play()
+        let deadline = ProcessInfo.processInfo.systemUptime + 5
+        while playback.position < 2, ProcessInfo.processInfo.systemUptime < deadline { try await Task.sleep(nanoseconds: 50_000_000) }
+        XCTAssertGreaterThanOrEqual(playback.position, 2)
+        playback.stop()
         XCTAssertEqual(try MediaTools.fingerprint(source, cancellation: MediaCancellation()), hash)
-        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: owned.path), ["review.mp4"])
-        do {
-            _ = try await MediaTools.readyPlayer(repaired, cancellation: MediaCancellation(), timeout: 0)
-            XCTFail("Player readiness must have a deadline")
-        } catch { XCTAssertTrue(error.localizedDescription.contains("did not become ready")) }
-        var native = try core.createImport(kind: "file", input: repaired.path, title: "Native playback", mode: "dictation")
-        native.attachment.path = repaired.path; native.attachment.durationSecs = 4
-        native.attachment.fingerprint = try MediaTools.fingerprint(repaired, cancellation: MediaCancellation())
-        _ = try core.attachMedia(native.id, native.attachment)
-        let nativeURL = try await service.playbackURL(native.id, token: MediaCancellation())
-        XCTAssertEqual(nativeURL, repaired, "A compatible source must not require another conversion")
+        XCTAssertEqual(try Data(contentsOf: oldCopy), Data("old or corrupt playback copy".utf8))
+        playback.load(timeout: 0) { _, _ in source }
+        while playback.loading { try await Task.sleep(nanoseconds: 50_000_000) }
+        XCTAssertTrue(playback.error?.contains("did not become ready") == true)
+        XCTAssertNil(playback.player)
+        try Data("changed source".utf8).write(to: source)
+        do { _ = try await service.playbackURL(job.id, token: MediaCancellation()); XCTFail("Changed sources must fail validation") }
+        catch { XCTAssertTrue(error.localizedDescription.contains("source changed")) }
     }
 
     @MainActor
@@ -209,7 +209,7 @@ final class MediaImportTests: XCTestCase {
         while first == nil { await Task.yield() }
         playback.load { _, _ in try await withCheckedThrowingContinuation { second = $0 } }
         while second == nil { await Task.yield() }
-        oldProgress?(.creatingCopy(0.9))
+        oldProgress?(.checkingSource(0.9))
         first?.resume(throwing: MediaImportError("Obsolete error"))
         try await Task.sleep(nanoseconds: 50_000_000)
         XCTAssertTrue(playback.loading)
@@ -228,12 +228,6 @@ final class MediaImportTests: XCTestCase {
     }
 }
 
-private final class PlaybackProgressRecorder: @unchecked Sendable {
-    private let lock = NSLock()
-    private var stored: [MediaPlaybackProgress] = []
-    var values: [MediaPlaybackProgress] { lock.lock(); defer { lock.unlock() }; return stored }
-    func record(_ value: MediaPlaybackProgress) { lock.lock(); stored.append(value); lock.unlock() }
-}
 
 private final class MediaHTTPFixture {
     let listener: NWListener
