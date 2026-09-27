@@ -16,7 +16,7 @@ final class MediaImportService: ObservableObject {
     private var task: Task<Void, Never>?
     private var cancellation = MediaCancellation()
     private var shuttingDown = false
-    private var playbackCancellations: [UUID: MediaCancellation] = [:]
+    private var playbackCancellations: [String: MediaCancellation] = [:]
     private let bridge: CoreBridge
     let root: URL
     var canTranscribe: () -> Bool = { true }
@@ -215,6 +215,7 @@ final class MediaImportService: ObservableObject {
     }
     func removeMedia(_ id: String) {
         guard activeID != id else { error = "Pause this import before removing its media."; return }
+        playbackCancellations[id]?.cancel()
         do {
             let directory = try directory(id)
             try FileManager.default.removeItem(at: directory)
@@ -222,6 +223,7 @@ final class MediaImportService: ObservableObject {
         } catch { self.error = "The downloaded media could not be removed." }
     }
     func discard(_ id: String) {
+        playbackCancellations[id]?.cancel()
         let pending = activeID == id ? task : nil
         if pending != nil { pause(id) }
         Task {
@@ -231,28 +233,56 @@ final class MediaImportService: ObservableObject {
         }
     }
     func attachment(_ id: String) -> ImportJob? { try? bridge.importJob(id) }
-    func playbackURL(_ id: String, token: MediaCancellation) async throws -> URL {
+    func playbackURL(_ id: String, token: MediaCancellation, progress: @escaping (MediaPlaybackProgress) -> Void = { _ in }) async throws -> URL {
         guard !shuttingDown else { throw CancellationError() }
-        let requestID = UUID()
-        playbackCancellations[requestID] = token
-        defer { playbackCancellations.removeValue(forKey: requestID) }
+        playbackCancellations[id]?.cancel()
+        playbackCancellations[id] = token
+        defer { if playbackCancellations[id] === token { playbackCancellations.removeValue(forKey: id) } }
         try token.check()
         var job = try bridge.importJob(id)
         let url = try sourceURL(job)
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        let identity = try sourceIdentity(url)
         let directory = try directory(id)
         let expected = job.attachment.fingerprint
-        let actual = try await work { try MediaTools.fingerprint(url, cancellation: token) }
+        let actual = try await work { try MediaTools.fingerprint(url, cancellation: token, progress: { progress(.checkingSource($0)) }) }
         guard !expected.isEmpty, expected == actual else { throw MediaImportError("The source changed. Locate the original video for synchronized playback.") }
+        try token.check()
         let proxy = directory.appendingPathComponent("review.mp4")
-        if FileManager.default.fileExists(atPath: proxy.path) { return proxy }
+        progress(.checkingPlayback)
+        if FileManager.default.fileExists(atPath: proxy.path),
+           let info = try? await work({ try MediaTools.probe(proxy, cancellation: token) }),
+           abs(info.duration - job.attachment.durationSecs) < 0.25,
+           let player = try? await MediaTools.readyPlayer(proxy, cancellation: token) {
+            player.replaceCurrentItem(with: nil)
+            try token.check()
+            return proxy
+        }
+        try token.check()
         let track = job.attachment.audioTrack
-        let playable = try await AVURLAsset(url: url).load(.isPlayable)
+        let info = try await work { try MediaTools.probe(url, cancellation: token) }
         // A review copy also fixes playback to the selected non-default audio track.
-        if playable && track == 0 { return url }
-        let partial = directory.appendingPathComponent("review.partial.mp4")
+        if info.nativeContainer && track == 0, let player = try? await MediaTools.readyPlayer(url, cancellation: token) {
+            player.replaceCurrentItem(with: nil)
+            try token.check()
+            return url
+        }
+        try token.check()
+        let partial = directory.appendingPathComponent("review.\(UUID().uuidString).partial.mp4")
         defer { try? FileManager.default.removeItem(at: partial) }
-        try await work { try MediaTools.reviewCopy(url, track: track, destination: partial, cancellation: token) }
-        try token.check(); try FileManager.default.moveItem(at: partial, to: proxy)
+        try await work { try MediaTools.reviewCopy(url, track: track, destination: partial, cancellation: token, duration: info.duration, progress: progress) }
+        try token.check()
+        guard try sourceIdentity(url) == identity else { throw MediaImportError("The source changed during playback preparation. Locate the original video and try again.") }
+        progress(.checkingPlayback)
+        let copyInfo = try await work { try MediaTools.probe(partial, cancellation: token) }
+        guard abs(copyInfo.duration - info.duration) < 0.25 else { throw MediaImportError("The playback copy is incomplete. Try loading the video again.") }
+        let player = try await MediaTools.readyPlayer(partial, cancellation: token)
+        player.replaceCurrentItem(with: nil)
+        try token.check()
+        if FileManager.default.fileExists(atPath: proxy.path) { _ = try FileManager.default.replaceItemAt(proxy, withItemAt: partial) }
+        else { try FileManager.default.moveItem(at: partial, to: proxy) }
+        job = try bridge.importJob(id)
         job.attachment.reviewPath = proxy.path; _ = try bridge.attachMedia(id, job.attachment)
         return proxy
     }

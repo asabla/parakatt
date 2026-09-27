@@ -47,6 +47,41 @@ struct MediaTrack: Identifiable, Sendable {
 struct MediaInfo: Sendable {
     let duration: Double
     let tracks: [MediaTrack]
+    let nativeContainer: Bool
+}
+
+enum MediaPlaybackProgress: Equatable, Sendable {
+    case checkingSource(Double), checkingPlayback, creatingCopy(Double), finishingCopy
+    var label: String {
+        switch self {
+        case .checkingSource: return "Checking source video…"
+        case .checkingPlayback: return "Opening video player…"
+        case .creatingCopy(let value): return "Creating playback copy… \(Int(value * 100))%"
+        case .finishingCopy: return "Finishing playback copy…"
+        }
+    }
+    var fraction: Double? {
+        switch self {
+        case .checkingSource(let value), .creatingCopy(let value): return value
+        default: return nil
+        }
+    }
+}
+
+/// Only an advancing media timestamp counts as conversion progress.
+final class MediaToolProgress: @unchecked Sendable {
+    private let lock = NSLock()
+    private var timestamp: Double = -1
+    private var lastAdvance = ProcessInfo.processInfo.systemUptime
+    func update(_ line: String) {
+        guard line.hasPrefix("out_time_us="), let value = Double(line.dropFirst(12)), value.isFinite else { return }
+        lock.lock(); defer { lock.unlock() }
+        if value > timestamp { timestamp = value; lastAdvance = ProcessInfo.processInfo.systemUptime }
+    }
+    func stalled(after timeout: TimeInterval) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        return ProcessInfo.processInfo.systemUptime - lastAdvance > timeout
+    }
 }
 
 enum MediaTools {
@@ -72,8 +107,19 @@ enum MediaTools {
             throw MediaImportError("There is not enough free disk space. Free space and resume the import.")
         }
     }
+    /// A pipe read returns available bytes immediately; FileHandle.read(upToCount:)
+    /// can wait to fill its buffer and hide live progress from a long-running tool.
+    private static func drain(_ handle: FileHandle, consume: (Data) -> Void) {
+        var buffer = [UInt8](repeating: 0, count: 8192)
+        while true {
+            let count = buffer.withUnsafeMutableBytes { Darwin.read(handle.fileDescriptor, $0.baseAddress, $0.count) }
+            if count > 0 { consume(Data(buffer.prefix(count))) }
+            else if count < 0 && errno == EINTR { continue }
+            else { break }
+        }
+    }
     /// stdout and stderr are drained concurrently, with bounded retained output.
-    static func run(_ name: String, _ arguments: [String], cancellation: MediaCancellation, limit: Int = 4 * 1024 * 1024, workingDirectory: URL? = nil, progress: ((String) -> Void)? = nil) throws -> Data {
+    static func run(_ name: String, _ arguments: [String], cancellation: MediaCancellation, limit: Int = 4 * 1024 * 1024, workingDirectory: URL? = nil, stallTimeout: TimeInterval? = nil, progress: ((String) -> Void)? = nil) throws -> Data {
         try cancellation.check()
         let process = Process(); process.executableURL = try executable(name); process.arguments = arguments
         process.currentDirectoryURL = workingDirectory
@@ -86,15 +132,19 @@ enum MediaTools {
         let group = DispatchGroup()
         final class Capture: @unchecked Sendable { var bytes = Data(); var overflow = false }
         let capture = Capture()
+        let activity = MediaToolProgress()
         group.enter()
         DispatchQueue.global(qos: .utility).async {
             var line = Data()
-            while let data = try? output.fileHandleForReading.read(upToCount: 8192), !data.isEmpty {
-                if capture.bytes.count + data.count <= limit { capture.bytes.append(data) } else { capture.overflow = true }
-                if let progress {
+            drain(output.fileHandleForReading) { data in
+                if progress == nil && stallTimeout == nil {
+                    if capture.bytes.count + data.count <= limit { capture.bytes.append(data) } else { capture.overflow = true }
+                }
+                if progress != nil || stallTimeout != nil {
                     line.append(data)
                     while let end = line.firstIndex(of: 10) {
-                        progress(String(decoding: line[..<end], as: UTF8.self)); line.removeSubrange(...end)
+                        let value = String(decoding: line[..<end], as: UTF8.self)
+                        activity.update(value); progress?(value); line.removeSubrange(...end)
                     }
                     if line.count > 16_384 { line.removeAll(keepingCapacity: true) }
                 }
@@ -104,21 +154,24 @@ enum MediaTools {
         group.enter()
         DispatchQueue.global(qos: .utility).async {
             // Do not log remote titles, URL query strings, or decoder paths.
-            while let data = try? errors.fileHandleForReading.read(upToCount: 8192), !data.isEmpty { }
+            drain(errors.fileHandleForReading) { _ in }
             group.leave()
         }
         let watchdog = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
         watchdog.schedule(deadline: .now() + 1, repeating: 1)
         let diskFailure = MediaCancellation()
         let timeoutFailure = MediaCancellation()
+        let stallFailure = MediaCancellation()
         let deadline = ProcessInfo.processInfo.systemUptime + (workingDirectory == nil ? 120 : 86_400)
         watchdog.setEventHandler {
             if ProcessInfo.processInfo.systemUptime > deadline { timeoutFailure.cancel(); cancellation.cancel() }
+            if let stallTimeout, activity.stalled(after: stallTimeout) { stallFailure.cancel(); cancellation.cancel() }
             if let workingDirectory, (try? freeSpace(workingDirectory)) == nil { diskFailure.cancel(); cancellation.cancel() }
         }
         watchdog.resume()
         process.waitUntilExit(); group.wait(); watchdog.cancel()
         if diskFailure.isCancelled { throw MediaImportError("There is not enough free disk space. Free space and resume the import.") }
+        if stallFailure.isCancelled { throw MediaImportError("Playback preparation stopped making progress. Try loading the video again.") }
         if timeoutFailure.isCancelled { throw MediaImportError("The media operation did not finish. Check the source and resume the import.") }
         try cancellation.check()
         guard process.terminationStatus == 0 else { throw MediaImportError(name == "yt-dlp" ? "The video could not be downloaded. Check that it is public and available. A Parakatt update may be required." : "The media could not be read or converted. Check that the file is complete and uses a supported format.") }
@@ -138,12 +191,21 @@ enum MediaTools {
             return MediaTrack(id: Int32(index), label: label, isDefault: (stream["disposition"] as? [String: Int])?["default"] == 1)
         }
         guard !tracks.isEmpty else { throw MediaImportError("The video has no audio track.") }
-        return MediaInfo(duration: duration, tracks: tracks)
+        let formats = (format?["format_name"] as? String ?? "").split(separator: ",")
+        return MediaInfo(duration: duration, tracks: tracks, nativeContainer: formats.contains("mov") || formats.contains("mp4"))
     }
-    static func fingerprint(_ url: URL, cancellation: MediaCancellation) throws -> String {
+    static func fingerprint(_ url: URL, cancellation: MediaCancellation, progress: ((Double) -> Void)? = nil) throws -> String {
         let file = try FileHandle(forReadingFrom: url); defer { try? file.close() }
+        let size = (try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.doubleValue ?? 0
+        var read = 0.0, lastReport = 0.0
+        progress?(0)
         var hash = SHA256()
-        while let data = try file.read(upToCount: 1024 * 1024), !data.isEmpty { try cancellation.check(); hash.update(data: data) }
+        while let data = try file.read(upToCount: 1024 * 1024), !data.isEmpty {
+            try cancellation.check(); hash.update(data: data); read += Double(data.count)
+            let now = ProcessInfo.processInfo.systemUptime
+            if now - lastReport > 0.2 { progress?(size > 0 ? min(1, read / size) : 0); lastReport = now }
+        }
+        try cancellation.check(); progress?(1)
         return hash.finalize().map { String(format: "%02x", $0) }.joined()
     }
     static func samples(_ url: URL, track: Int32, start: Double, duration: Double, cancellation: MediaCancellation) throws -> [Float] {
@@ -184,8 +246,32 @@ enum MediaTools {
         guard reader.status == .completed else { throw MediaImportError("Native audio decoding failed.") }
         return samples
     }
-    static func reviewCopy(_ url: URL, track: Int32, destination: URL, cancellation: MediaCancellation) throws {
+    static func reviewCopy(_ url: URL, track: Int32, destination: URL, cancellation: MediaCancellation, duration: Double? = nil, progress: @escaping (MediaPlaybackProgress) -> Void = { _ in }) throws {
         try freeSpace(destination.deletingLastPathComponent())
-        _ = try run("ffmpeg", ["-nostdin", "-v", "error", "-y", "-i", url.path, "-map", "0:v:0", "-map", "0:a:\(track)", "-vf", "scale=w='min(1920,iw)':h='min(1080,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2", "-c:v", "h264_videotoolbox", "-allow_sw", "1", "-b:v", "8M", "-c:a", "aac", "-movflags", "+faststart", destination.path], cancellation: cancellation, workingDirectory: destination.deletingLastPathComponent())
+        let duration = try duration ?? probe(url, cancellation: cancellation).duration
+        progress(.creatingCopy(0))
+        _ = try run("ffmpeg", ["-nostdin", "-v", "error", "-nostats", "-progress", "pipe:1", "-stats_period", "0.25", "-y", "-i", url.path, "-map", "0:v:0", "-map", "0:a:\(track)", "-vf", "scale=w='min(1920,iw)':h='min(1080,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2", "-pix_fmt", "yuv420p", "-c:v", "h264_videotoolbox", "-allow_sw", "1", "-b:v", "8M", "-c:a", "aac", "-movflags", "+faststart", destination.path], cancellation: cancellation, workingDirectory: destination.deletingLastPathComponent(), stallTimeout: 120, progress: { line in
+            guard line.hasPrefix("out_time_us="), let value = Double(line.dropFirst(12)), value.isFinite else { return }
+            let fraction = max(0, min(1, value / 1_000_000 / duration))
+            progress(fraction >= 0.999 ? .finishingCopy : .creatingCopy(fraction))
+        })
+    }
+
+    @MainActor
+    static func readyPlayer(_ url: URL, cancellation: MediaCancellation, timeout: TimeInterval = 20) async throws -> AVPlayer {
+        let item = AVPlayerItem(url: url)
+        let player = AVPlayer(playerItem: item)
+        var ready = false
+        defer { if !ready { player.replaceCurrentItem(with: nil); (item.asset as? AVURLAsset)?.cancelLoading() } }
+        let deadline = ProcessInfo.processInfo.systemUptime + timeout
+        while item.status == .unknown {
+            try cancellation.check(); try Task.checkCancellation()
+            guard ProcessInfo.processInfo.systemUptime < deadline else { throw MediaImportError("The video player did not become ready. Try loading the video again.") }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        try cancellation.check(); try Task.checkCancellation()
+        guard item.status == .readyToPlay else { throw MediaImportError("The video player could not open this video.") }
+        ready = true
+        return player
     }
 }
