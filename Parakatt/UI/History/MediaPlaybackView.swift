@@ -62,6 +62,7 @@ final class MediaPlayback: ObservableObject {
                 while true {
                     try token.check(); try Task.checkCancellation()
                     guard ProcessInfo.processInfo.systemUptime < deadline else {
+                        NSLog("[Parakatt] Video readiness timed out: state=%d output=%d decoded=%d displayed=%d", player.state.rawValue, player.hasVideoOut ? 1 : 0, media.statistics.decodedVideo, media.statistics.displayedPictures)
                         throw MediaImportError("The video player did not become ready. Check the source file and try again.")
                     }
                     guard player.state != .error, player.state != .ended else {
