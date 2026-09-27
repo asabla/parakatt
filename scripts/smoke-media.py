@@ -6,7 +6,7 @@ parser.add_argument('app',type=pathlib.Path)
 parser.add_argument('media',type=pathlib.Path)
 parser.add_argument('--models',type=pathlib.Path)
 parser.add_argument('--output',type=pathlib.Path)
-parser.add_argument('--playback', action='store_true', help='Check playback preparation, decoded frames, seeking and cache reuse without transcribing')
+parser.add_argument('--playback', action='store_true', help='Check direct playback, displayed frames, seeking and reloading without transcribing')
 args=parser.parse_args()
 with tempfile.TemporaryDirectory(prefix='parakatt-media-smoke-') as directory:
     env=dict(os.environ,PARAKATT_SMOKE_TEST='1',PARAKATT_DATA_ROOT=directory,PARAKATT_SMOKE_MEDIA=str(args.media.resolve()),PATH='/usr/bin:/bin:/usr/sbin:/sbin',HOME=directory)

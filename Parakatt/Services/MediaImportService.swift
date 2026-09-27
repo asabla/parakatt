@@ -239,51 +239,19 @@ final class MediaImportService: ObservableObject {
         playbackCancellations[id] = token
         defer { if playbackCancellations[id] === token { playbackCancellations.removeValue(forKey: id) } }
         try token.check()
-        var job = try bridge.importJob(id)
+        let job = try bridge.importJob(id)
         let url = try sourceURL(job)
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         let identity = try sourceIdentity(url)
-        let directory = try directory(id)
         let expected = job.attachment.fingerprint
         let actual = try await work { try MediaTools.fingerprint(url, cancellation: token, progress: { progress(.checkingSource($0)) }) }
-        guard !expected.isEmpty, expected == actual else { throw MediaImportError("The source changed. Locate the original video for synchronized playback.") }
         try token.check()
-        let proxy = directory.appendingPathComponent("review.mp4")
-        progress(.checkingPlayback)
-        if FileManager.default.fileExists(atPath: proxy.path),
-           let info = try? await work({ try MediaTools.probe(proxy, cancellation: token) }),
-           abs(info.duration - job.attachment.durationSecs) < 0.25,
-           let player = try? await MediaTools.readyPlayer(proxy, cancellation: token) {
-            player.replaceCurrentItem(with: nil)
-            try token.check()
-            return proxy
+        guard !expected.isEmpty, expected == actual, try sourceIdentity(url) == identity else {
+            throw MediaImportError("The source changed. Locate the original video for synchronized playback.")
         }
-        try token.check()
-        let track = job.attachment.audioTrack
-        let info = try await work { try MediaTools.probe(url, cancellation: token) }
-        // A review copy also fixes playback to the selected non-default audio track.
-        if info.nativeContainer && track == 0, let player = try? await MediaTools.readyPlayer(url, cancellation: token) {
-            player.replaceCurrentItem(with: nil)
-            try token.check()
-            return url
-        }
-        try token.check()
-        let partial = directory.appendingPathComponent("review.\(UUID().uuidString).partial.mp4")
-        defer { try? FileManager.default.removeItem(at: partial) }
-        try await work { try MediaTools.reviewCopy(url, track: track, destination: partial, cancellation: token, duration: info.duration, progress: progress) }
-        try token.check()
-        guard try sourceIdentity(url) == identity else { throw MediaImportError("The source changed during playback preparation. Locate the original video and try again.") }
+        // VLCKit plays the original container and codecs. Old review copies are ignored.
         progress(.checkingPlayback)
-        let copyInfo = try await work { try MediaTools.probe(partial, cancellation: token) }
-        guard abs(copyInfo.duration - info.duration) < 0.25 else { throw MediaImportError("The playback copy is incomplete. Try loading the video again.") }
-        let player = try await MediaTools.readyPlayer(partial, cancellation: token)
-        player.replaceCurrentItem(with: nil)
-        try token.check()
-        if FileManager.default.fileExists(atPath: proxy.path) { _ = try FileManager.default.replaceItemAt(proxy, withItemAt: partial) }
-        else { try FileManager.default.moveItem(at: partial, to: proxy) }
-        job = try bridge.importJob(id)
-        job.attachment.reviewPath = proxy.path; _ = try bridge.attachMedia(id, job.attachment)
-        return proxy
+        return url
     }
 }

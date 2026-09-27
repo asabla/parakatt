@@ -36,6 +36,7 @@ swift-package-force: rust
 # Generate the Xcode project from project.yml
 media-tools:
 	python3 scripts/prepare-media-tools.py
+	python3 scripts/prepare-playback-engine.py
 
 xcode: media-tools
 	@test "$$(xcodegen --version)" = "Version: 2.46.0" || (echo "Install XcodeGen 2.46.0 with scripts/install-xcodegen.sh"; exit 1)
