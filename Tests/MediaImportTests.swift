@@ -177,10 +177,12 @@ final class MediaImportTests: XCTestCase {
         XCTAssertEqual(tracks.count, 2)
         XCTAssertEqual(player.currentAudioTrackIndex, tracks[1])
         XCTAssertEqual(player.media?.url, source)
+        XCTAssertEqual(player.audio?.isMuted, true, "Loading the first frame must stay silent")
         playback.rate = 1.5
         XCTAssertEqual(player.rate, 1.5, accuracy: 0.01)
         playback.seek(2)
-        player.play()
+        playback.togglePlay()
+        XCTAssertEqual(player.audio?.isMuted, false)
         let deadline = ProcessInfo.processInfo.systemUptime + 5
         while playback.position < 2, ProcessInfo.processInfo.systemUptime < deadline { try await Task.sleep(nanoseconds: 50_000_000) }
         XCTAssertGreaterThanOrEqual(playback.position, 2)

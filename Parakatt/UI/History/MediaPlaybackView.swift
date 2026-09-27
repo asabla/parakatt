@@ -81,7 +81,7 @@ final class MediaPlayback: ObservableObject {
                 player.time = VLCTime(number: 0)
                 player.rate = rate
                 player.audio?.volume = Int32(volume * 100)
-                player.audio?.isMuted = false
+                // Keep preload silent until the user starts playback; pause is asynchronous.
                 if self.duration <= 0 { self.duration = (media.length.value?.doubleValue ?? 0) / 1000 }
                 loading = false; preparation = nil
                 monitor = Task { [weak self] in
@@ -111,6 +111,7 @@ final class MediaPlayback: ObservableObject {
         if player.isPlaying { player.pause(); playing = false }
         else {
             if position >= duration - 0.25 { seek(0) }
+            player.audio?.isMuted = false
             player.play(); player.rate = rate; playing = true
         }
     }
