@@ -100,6 +100,7 @@ jobs:
             CODE_SIGNING_REQUIRED=NO
         env:
           NSUnbufferedIO: "YES"
+          TEST_RUNNER_PARAKATT_TEST_HEADLESS_PLAYBACK: "1"
 
       - name: Build and verify release package
         run: |
@@ -110,7 +111,7 @@ jobs:
         run: |
           APP="$(python3 scripts/build-products.py Release)/Parakatt.app"
           "$APP/Contents/Helpers/MediaTools/ffmpeg" -v error -f lavfi -i testsrc2=size=128x72:rate=10:duration=6 -f lavfi -i sine=duration=6 -c:v mpeg4 -c:a flac target/playback-fixture.mkv
-          python3 scripts/smoke-media.py "$APP" target/playback-fixture.mkv --playback
+          python3 scripts/smoke-media.py "$APP" target/playback-fixture.mkv --playback --headless
 
       - name: Save release candidate
         uses: actions/upload-artifact@v7.0.1

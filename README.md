@@ -178,3 +178,5 @@ python3 scripts/smoke-media.py /path/to/Parakatt.app /path/to/video.mkv --playba
 ```
 
 This check verifies the original source path, displayed frames after seeks at the start, middle, and end, reloading, and source integrity. It fails if a playback copy is created.
+
+On a test host without an accelerated display, add `--headless` to validate decoded frames and seeking. The report identifies this as `video_output: headless`; it does not prove display rendering. CI uses this mode, and `TEST_RUNNER_PARAKATT_TEST_HEADLESS_PLAYBACK=1` selects it when running playback unit tests through `xcodebuild`. Run the command without `--headless` on a Mac to verify displayed frames. Normal History playback always uses the window renderer.

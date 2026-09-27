@@ -40,7 +40,8 @@ func mediaPlaybackSmoke(core: CoreBridge, source: URL, root: URL) async throws -
     job.attachment.path = source.path; job.attachment.fingerprint = hash
     job.attachment.durationSecs = info.duration; job.attachment.audioTrack = info.tracks.first(where: \.isDefault)?.id ?? 0
     _ = try core.attachMedia(job.id, job.attachment)
-    let playback = MediaPlayback()
+    let headless = ProcessInfo.processInfo.environment["PARAKATT_SMOKE_HEADLESS"] == "1"
+    let playback = MediaPlayback(headless: headless)
     defer { playback.stop(); service.shutdown() }
     let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 640, height: 360), styleMask: .borderless, backing: .buffered, defer: false)
     defer { window.orderOut(nil) }
@@ -58,9 +59,13 @@ func mediaPlaybackSmoke(core: CoreBridge, source: URL, root: URL) async throws -
     playback.load(id: job.id, service: service)
     let player = try await waitForPlayer()
     guard player.media?.url?.standardizedFileURL == source.standardizedFileURL else { throw MediaImportError("Playback did not use the original source") }
+    func frameCount() -> Int32 {
+        guard let stats = player.media?.statistics else { return 0 }
+        return headless ? stats.decodedVideo : stats.displayedPictures
+    }
     var frames = 0
     for position in [0, info.duration / 2, max(0, info.duration - 3)] {
-        let before = player.media?.statistics.displayedPictures ?? 0
+        let before = frameCount()
         playback.seek(position)
         player.play()
         let deadline = ProcessInfo.processInfo.systemUptime + 10
@@ -68,12 +73,12 @@ func mediaPlaybackSmoke(core: CoreBridge, source: URL, root: URL) async throws -
         while ProcessInfo.processInfo.systemUptime < deadline {
             try await Task.sleep(nanoseconds: 100_000_000)
             let seconds = (player.time.value?.doubleValue ?? 0) / 1000
-            if seconds > position + 0.1, seconds < position + 3, (player.media?.statistics.displayedPictures ?? 0) > before {
+            if seconds > position + 0.1, seconds < position + 3, frameCount() > before {
                 rendered = true; break
             }
         }
         player.pause()
-        guard rendered else { throw MediaImportError("No displayed video frame after seeking") }
+        guard rendered else { throw MediaImportError(headless ? "No decoded video frame after seeking" : "No displayed video frame after seeking") }
         frames += 1
     }
     playback.stop()
@@ -82,5 +87,5 @@ func mediaPlaybackSmoke(core: CoreBridge, source: URL, root: URL) async throws -
     let owned = try service.directory(job.id)
     let noCopy = !FileManager.default.fileExists(atPath: owned.appendingPathComponent("review.mp4").path)
     guard noCopy, try MediaTools.fingerprint(source, cancellation: MediaCancellation()) == hash else { throw MediaImportError("Direct playback or source integrity check failed") }
-    return ["state": "ready", "duration_secs": info.duration, "seek_frames": frames, "direct_playback": true, "playback_copy_created": false, "source_unchanged": true]
+    return ["state": "ready", "duration_secs": info.duration, "seek_frames": frames, "video_output": headless ? "headless" : "window", "direct_playback": true, "playback_copy_created": false, "source_unchanged": true]
 }

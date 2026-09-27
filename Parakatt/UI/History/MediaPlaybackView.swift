@@ -18,6 +18,10 @@ final class MediaPlayback: ObservableObject {
     private var task: Task<Void, Never>?
     private var monitor: Task<Void, Never>?
     private var accessedURL: URL?
+    private let headless: Bool
+    // Explicit maintenance/test mode for hosts without an accelerated display.
+    // History always uses the normal window renderer.
+    init(headless: Bool = false) { self.headless = headless }
 
     func load(id: String, service: MediaImportService) {
         let attachment = service.attachment(id)?.attachment
@@ -48,7 +52,8 @@ final class MediaPlayback: ObservableObject {
                 preparation = .checkingPlayback
                 let view = VLCVideoView(frame: NSRect(x: 0, y: 0, width: 640, height: 360))
                 view.backColor = .black
-                let player = VLCMediaPlayer(options: ["--ignore-config", "--no-video-title-show", "--no-osd", "--no-sub-autodetect-file", "--no-metadata-network-access", "--no-snapshot-preview", "--quiet"])
+                let options = ["--ignore-config", "--no-video-title-show", "--no-osd", "--no-sub-autodetect-file", "--no-metadata-network-access", "--no-snapshot-preview", "--quiet"]
+                let player = VLCMediaPlayer(options: options + (headless ? ["--vout=dummy", "--aout=dummy", "--avcodec-hw=none"] : []))
                 player.drawable = view
                 let media = VLCMedia(url: url)
                 // VLC's audio-track option is an ordinal, as is the import's audio track.
@@ -68,7 +73,7 @@ final class MediaPlayback: ObservableObject {
                     guard player.state != .error, player.state != .ended else {
                         throw MediaImportError("The video player could not open this video.")
                     }
-                    if player.hasVideoOut, media.statistics.decodedVideo > 0 {
+                    if (headless || player.hasVideoOut), media.statistics.decodedVideo > 0 {
                         let indexes = (player.audioTrackIndexes as? [NSNumber] ?? []).map(\.int32Value).filter { $0 >= 0 }
                         guard track >= 0, Int(track) < indexes.count else {
                             throw MediaImportError("The imported audio track is not available in this video.")
