@@ -169,8 +169,15 @@ final class MediaImportTests: XCTestCase {
         let playback = MediaPlayback()
         defer { playback.stop() }
         playback.volume = 0
+        // Match History by attaching the video output to an AppKit window.
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 640, height: 360), styleMask: .borderless, backing: .buffered, defer: false)
+        defer { window.orderOut(nil) }
         playback.load(id: job.id, service: service)
-        while playback.loading { try await Task.sleep(nanoseconds: 50_000_000) }
+        while playback.loading {
+            if let view = playback.videoView, window.contentView !== view { window.contentView = view; window.orderFront(nil) }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
         XCTAssertNil(playback.error)
         let player = try XCTUnwrap(playback.player)
         let tracks = (player.audioTrackIndexes as? [NSNumber] ?? []).map(\.int32Value).filter { $0 >= 0 }
