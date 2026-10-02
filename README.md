@@ -79,6 +79,8 @@ Use **Test selected model** in LLM settings to check the connection, authenticat
 
 For reproducible benchmarks, fixture attribution, and release checks, see [the validation commands](reports/maintenance/README.md).
 
+For version preparation, packaging, publication, and Homebrew updates, see [the release process](docs/releasing.md).
+
 ## Recording recovery and corrections
 
 History marks a recording as incomplete if speech recognition fails. An incomplete recording is not pasted into another app. Use **Review recovery** in History to save the available recognized text or retry retained audio. The text is saved after each submitted speech chunk. With temporary audio retention enabled, audio checkpoints start at capture, including while the speech model loads. Recovery can restore audio through the last completed checkpoint. A process exit can lose pending writes (up to two seconds of mono audio).

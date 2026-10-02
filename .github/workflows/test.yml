@@ -21,6 +21,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7.0.1
 
+      - name: Verify release version and tooling
+        run: |
+          ./scripts/sync-version.sh --check
+          python3 scripts/test_release_tools.py
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@1.94.1
         with:
@@ -107,6 +112,9 @@ jobs:
           make package
           ls dist/*.zip dist/*.dmg
 
+      - name: Verify DMG and prepare release metadata
+        run: python3 scripts/prepare_release.py
+
       - name: Check bundled video playback
         run: |
           APP="$(python3 scripts/build-products.py Release)/Parakatt.app"
@@ -120,4 +128,7 @@ jobs:
           path: |
             dist/*.zip
             dist/*.dmg
+            dist/SHA256SUMS
+            dist/parakatt.rb
+            dist/RELEASE_NOTES.md
           if-no-files-found: error
