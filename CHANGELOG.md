@@ -13,7 +13,7 @@ Changes since 0.6.1. See [the release notes](RELEASE_NOTES.md) for installation 
 - Recording recovery, optional bounded temporary audio retention, and retry of failed processing
 - Processed-text editing and undo while preserving recognized text and timestamps
 - Transcript search, keyboard match navigation, paginated history, and a bounded detail cache
-- Verified model downloads, Parakeet v3 final recognition, multilingual Nemotron preview, and validated WebGPU execution
+- Verified model downloads, multilingual Nemotron preview, and validated WebGPU execution with the existing Parakeet v3 final model
 - Live meeting transcript controls, pause/resume, capture diagnostics, and capture-source labels
 - Complete LLM provider diagnostics and optional bounded preceding-speech context
 - Release version/build checks, matching tag checks, asset checksums, and a cask generated from the release DMG
