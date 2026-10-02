@@ -1,4 +1,4 @@
-.PHONY: all rust swift-package swift-package-force media-tools xcode build release package test clean run launcher prepare-run run-detached
+.PHONY: all rust swift-package swift-package-force media-tools xcode build release package test clean run launcher prepare-run run-detached verify-version
 
 # Keep the generated FFI package separate from older global Xcode artifacts.
 export PARAKATT_DERIVED_DATA ?= $(CURDIR)/target/xcode
@@ -9,7 +9,7 @@ export PARAKATT_SPEECH_FEATURES ?= webgpu
 # Use the selected Xcode SDK, including when Command Line Tools has a newer SDK.
 export SDKROOT ?= $(shell xcodebuild -version -sdk macosx Path 2>/dev/null)
 
-VERSION := 0.1.0
+VERSION := $(shell cat VERSION)
 APP_NAME := Parakatt
 DMG_NAME := $(APP_NAME)-$(VERSION)-arm64.dmg
 ZIP_NAME := $(APP_NAME)-$(VERSION)-arm64.zip
@@ -47,7 +47,7 @@ build: media-tools
 	xcodebuild -project Parakatt.xcodeproj -scheme Parakatt -derivedDataPath "$(PARAKATT_DERIVED_DATA)" -configuration Debug ARCHS=arm64 build
 
 # Build the macOS app in Release configuration
-release: media-tools
+release: verify-version media-tools
 	xcodebuild -project Parakatt.xcodeproj -scheme Parakatt -derivedDataPath "$(PARAKATT_DERIVED_DATA)" -configuration Release ARCHS=arm64 build
 
 # Get the Release build products directory
@@ -136,6 +136,9 @@ rebuild: rust swift-package xcode build
 
 verify-launcher:
 	python3 scripts/verify-launcher.py
+
+verify-version:
+	./scripts/sync-version.sh --check
 
 benchmark:
 	cargo build --locked --release --example model_bench --features "$(PARAKATT_SPEECH_FEATURES)"

@@ -2,6 +2,7 @@
 """Check release layout, deployment targets, and the stable launcher identity."""
 import argparse
 from pathlib import Path
+import plistlib
 import re
 import subprocess
 
@@ -10,6 +11,13 @@ parser.add_argument("app", type=Path)
 args = parser.parse_args()
 root = Path(__file__).resolve().parents[1]
 app = args.app.resolve()
+with (app / "Contents/Info.plist").open("rb") as stream:
+    info = plistlib.load(stream)
+for field, filename in (("CFBundleShortVersionString", "VERSION"), ("CFBundleVersion", "BUILD_NUMBER")):
+    expected = (root / filename).read_text().strip()
+    if info.get(field) != expected:
+        raise SystemExit(f"Packaged {field} is {info.get(field)!r}; expected {expected!r}")
+print("Verified packaged version and build number")
 subprocess.run(["python3", str(root / "scripts/verify-launcher.py"), str(app / "Contents/MacOS/Parakatt")], check=True)
 failures, binaries = [], []
 for path in app.rglob("*"):
