@@ -17,6 +17,8 @@ jobs:
   rust:
     name: Rust Tests & Lint
     runs-on: macos-15
+    outputs:
+      macos14_available: ${{ steps.macos14.outputs.available }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7.0.1
@@ -25,6 +27,20 @@ jobs:
         run: |
           ./scripts/sync-version.sh --check
           python3 scripts/test_release_tools.py
+
+      - name: Check macOS 14 hosted runner availability
+        id: macos14
+        run: |
+          python3 - <<'PY'
+          import datetime, os
+          # GitHub retires this image on 2026-11-02. Release preparation must
+          # use an actual macOS 14 machine after that date.
+          available = datetime.datetime.now(datetime.timezone.utc).date() < datetime.date(2026, 11, 2)
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'available={str(available).lower()}\n')
+          if not available:
+              print('::warning::The macOS 14 hosted image is retired. Record a manual minimum-OS runtime check before release.')
+          PY
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@1.94.1
@@ -132,3 +148,38 @@ jobs:
             dist/parakatt.rb
             dist/RELEASE_NOTES.md
           if-no-files-found: error
+
+  macos14:
+    name: macOS 14 Candidate Runtime
+    needs: [rust, swift]
+    if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'codex/release-') && github.event.pull_request.head.repo.full_name == github.repository && needs.rust.outputs.macos14_available == 'true'
+    runs-on: macos-14
+    timeout-minutes: 45
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.2.app/Contents/Developer
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Download the verified candidate
+        uses: actions/download-artifact@v8.0.1
+        with:
+          name: parakatt-release-candidate-arm64
+          path: target/macos14-candidate
+
+      - name: Check candidate on the minimum OS
+        run: |
+          VERSION=$(cat VERSION)
+          cd target/macos14-candidate
+          shasum -a 256 -c SHA256SUMS
+          ditto -x -k "Parakatt-${VERSION}-arm64.zip" app
+          cd ../..
+          python3 scripts/check_macos14_candidate.py target/macos14-candidate/app/Parakatt.app
+
+      - name: Save minimum-OS evidence
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: parakatt-macos14-runtime
+          path: target/macos14-validation/*.json
+          if-no-files-found: warn

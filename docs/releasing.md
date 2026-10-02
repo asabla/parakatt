@@ -57,6 +57,10 @@ cargo run --locked --release --example provider_smoke -- \
 
 Use the corresponding provider, URL, and selected model for Ollama, OpenAI, or Anthropic. Remote credentials are read from `PARAKATT_PROVIDER_KEY`. Do not write credentials to reports or command arguments.
 
+Release preparation branches named `codex/release-*` in this repository also run the candidate on GitHub's Apple Silicon `macos-14` image. This job downloads the candidate from the successful Swift job, checks its asset hashes, verifies the bundle, loads the checksum-pinned Parakeet model on CPU, transcribes one attributed English and Swedish fixture each, and checks headless playback. Its JSON reports are saved as `parakatt-macos14-runtime`. It does not test display output, live capture, or an installed update.
+
+GitHub [retires the macOS 14 image on 2 November 2026](https://github.com/actions/runner-images/issues/13518), with scheduled brownouts in October. After retirement, this automatic job is disabled and the Rust job gives a warning. Run minimum-OS acceptance on an actual macOS 14 machine before subsequent releases. A skipped check is not passing runtime evidence.
+
 ## Acceptance before publication
 
 Record the commit, hardware, OS, result, and evidence for these checks in the release report:
