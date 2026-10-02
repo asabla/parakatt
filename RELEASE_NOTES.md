@@ -9,7 +9,7 @@ This release adds video transcription, original-video playback, recording recove
 - Review incomplete recordings, save recognized text, and retry retained audio. Temporary audio retention is optional, off by default, and limited to 24 hours and 512 MiB.
 - Retry failed LLM processing, edit processed text, and undo the last edit. Recognized text and timestamps remain available.
 - Search within transcripts with highlighted matches and keyboard navigation. History loads recordings in pages and keeps a bounded detail cache.
-- Use Parakeet v3 for final recognition and an optional multilingual Nemotron 3.5 preview. Model downloads use pinned revisions and verify required files before activation. Validated systems can use WebGPU; CPU remains available.
+- Use an optional multilingual Nemotron 3.5 preview with the existing Parakeet v3 final model. Model downloads now use pinned revisions and verify required files before activation. Validated systems can use WebGPU; CPU remains available.
 - Meeting transcription has live transcript controls, pause/resume, capture status, and separate microphone/system-source labels when selected. These labels identify capture sources; they do not identify individual speakers within one source.
 - Test a selected LLM model with a complete synthetic streaming request. Optional preceding-speech context stays off by default.
 
