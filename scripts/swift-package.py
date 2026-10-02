@@ -48,7 +48,14 @@ def main():
     wrapper = locked_tools / "cargo"
     wrapper.write_text("#!/usr/bin/env python3\nimport os, sys\nargs = sys.argv[1:]\nif args and args[0] in ('build', 'metadata', 'check') and '--locked' not in args: args.insert(1, '--locked')\nos.execv(os.environ['PARAKATT_REAL_CARGO'], [os.environ['PARAKATT_REAL_CARGO']] + args)\n")
     wrapper.chmod(0o755)
-    env = dict(os.environ, PARAKATT_REAL_CARGO=shutil.which("cargo"), CARGO=str(wrapper), PATH=str(locked_tools) + os.pathsep + os.environ["PATH"])
+    # A PATH entry can be a tool-manager shim. After PATH is changed, that shim
+    # can resolve cargo back to this wrapper and loop. Use the selected Rust
+    # toolchain's executable directly.
+    sysroot = Path(subprocess.check_output(["rustc", "--print", "sysroot"], text=True).strip())
+    real_cargo = sysroot / "bin/cargo"
+    if not real_cargo.is_file():
+        raise RuntimeError("The selected Rust toolchain does not contain cargo")
+    env = dict(os.environ, PARAKATT_REAL_CARGO=str(real_cargo), CARGO=str(wrapper), PATH=str(locked_tools) + os.pathsep + os.environ["PATH"])
     env.pop("CARGO_NET_OFFLINE", None)
     crate = ROOT / "crates/parakatt-core"
     generated = crate / "ParakattCore"

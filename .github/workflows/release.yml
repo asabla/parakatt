@@ -20,10 +20,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7.0.1
 
+      - name: Verify release version and tooling
+        id: version
+        run: |
+          ./scripts/sync-version.sh --check --tag "$GITHUB_REF_NAME"
+          python3 scripts/test_release_tools.py
+          echo "version=$(cat VERSION)" >> "$GITHUB_OUTPUT"
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@1.94.1
         with:
           targets: aarch64-apple-darwin
+          components: clippy, rustfmt
 
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
@@ -53,84 +61,54 @@ jobs:
           cargo fmt --check
           cargo clippy --locked --all-targets --all-features -- -D warnings
           cargo test --locked
-          xcodebuild test -project Parakatt.xcodeproj -scheme Parakatt -derivedDataPath target/xcode -destination 'platform=macOS' CODE_SIGN_IDENTITY="-" CODE_SIGNING_REQUIRED=NO
+          xcodebuild test -project Parakatt.xcodeproj -scheme Parakatt -derivedDataPath target/xcode -destination 'platform=macOS' -only-testing:ParakattTests CODE_SIGN_IDENTITY="-" CODE_SIGNING_REQUIRED=NO
         env:
           PARAKATT_DATA_ROOT: ${{ github.workspace }}/target/release-test-data
+          NSUnbufferedIO: "YES"
+          TEST_RUNNER_PARAKATT_TEST_HEADLESS_PLAYBACK: "1"
 
-      - name: Build Release
-        run: make release
-
-      - name: Get build products path
-        id: build-path
+      - name: Audit locked dependencies
         run: |
-          BUILD_DIR=$(python3 scripts/build-products.py Release)
-          echo "dir=$BUILD_DIR" >> "$GITHUB_OUTPUT"
+          cargo install cargo-audit --version 0.22.2 --locked
+          cargo audit --json > dependency-advisories.json
 
-      - name: Verify stable launcher
-        run: python3 scripts/verify-launcher.py
+      - name: Build and verify release package
+        run: make package
 
-      - name: Swap in stable launcher
+      - name: Check bundled video playback
         run: |
-          # Replace the Xcode-compiled launcher with the stable binary.
-          # The stable launcher's CDHash never changes between releases, so
-          # macOS TCC permissions (Accessibility, Microphone, Screen Recording)
-          # persist across updates.
-          cp bin/parakatt-launcher "${{ steps.build-path.outputs.dir }}/Parakatt.app/Contents/MacOS/Parakatt"
+          APP="$(python3 scripts/build-products.py Release)/Parakatt.app"
+          "$APP/Contents/Helpers/MediaTools/ffmpeg" -v error -f lavfi -i testsrc2=size=128x72:rate=10:duration=6 -f lavfi -i sine=duration=6 -c:v mpeg4 -c:a flac target/playback-fixture.mkv
+          python3 scripts/smoke-media.py "$APP" target/playback-fixture.mkv --playback --headless
 
-      - name: Verify stable launcher CDHash
+      - name: Verify DMG and prepare release metadata
         run: |
-          python3 scripts/verify-app.py "${{ steps.build-path.outputs.dir }}/Parakatt.app"
-          python3 scripts/smoke-app.py "${{ steps.build-path.outputs.dir }}/Parakatt.app"
-
-      # TODO: Add Developer ID signing and notarization when an Apple Developer
-      # Program membership is available. This would replace the self-signed
-      # approach and allow Gatekeeper to pass the app without xattr workarounds.
-
-      - name: Extract version
-        id: version
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-
-      - name: Create zip
-        run: |
-          mkdir -p dist
-          ditto -c -k --keepParent target/media-tools/sources "dist/Parakatt-${{ steps.version.outputs.version }}-media-sources.zip"
-          ditto -c -k --keepParent "${{ steps.build-path.outputs.dir }}/Parakatt.app" "dist/Parakatt-${{ steps.version.outputs.version }}-arm64.zip"
-
-      - name: Create DMG
-        run: |
-          create-dmg \
-            --volname "Parakatt" \
-            --window-pos 200 120 \
-            --window-size 600 400 \
-            --icon-size 100 \
-            --icon "Parakatt.app" 175 190 \
-            --hide-extension "Parakatt.app" \
-            --app-drop-link 425 190 \
-            "dist/Parakatt-${{ steps.version.outputs.version }}-arm64.dmg" \
-            "${{ steps.build-path.outputs.dir }}/Parakatt.app"
+          python3 scripts/prepare_release.py
+          cp dependency-advisories.json dist/dependency-advisories.json
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3.0.3
         with:
-          generate_release_notes: true
+          body_path: RELEASE_NOTES.md
+          fail_on_unmatched_files: true
           files: |
             dist/Parakatt-${{ steps.version.outputs.version }}-arm64.zip
             dist/Parakatt-${{ steps.version.outputs.version }}-arm64.dmg
-            dist/*-media-sources.zip
+            dist/Parakatt-${{ steps.version.outputs.version }}-media-sources.zip
+            dist/SHA256SUMS
+            dist/parakatt.rb
+            dist/dependency-advisories.json
             reports/maintenance/*.md
             reports/maintenance/*.json
             crates/parakatt-core/backend-validation.json
+            reports/releases/${{ steps.version.outputs.version }}.md
 
-  # Uncomment after creating the asabla/homebrew-tap repository
-  # update-homebrew:
-  #   name: Update Homebrew Cask
-  #   needs: build
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - name: Trigger tap update
-  #       uses: peter-evans/repository-dispatch@v3
-  #       with:
-  #         token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-  #         repository: asabla/homebrew-tap
-  #         event-type: release
-  #         client-payload: '{"version": "${{ github.ref_name }}"}'
+      - name: Prepare Homebrew tap update
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::warning::HOMEBREW_TAP_TOKEN is not configured. Install the attached parakatt.rb in asabla/homebrew-tap after checking the release DMG."
+            exit 0
+          fi
+          python3 scripts/prepare_homebrew.py "dist/Parakatt-$(cat VERSION)-arm64.dmg" --update-tap
