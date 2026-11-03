@@ -137,6 +137,16 @@ to reproduce them.
 
 ## Limits and retained failures
 
+The first hosted attempt and its retry at `5b4de50` failed before Swift tests
+while Python 3.15.2 bootstrapped pip in a media-tool environment. The captured
+logs show the failing command but do not establish its underlying cause. See
+[both failures](hosted-build-failures.json). CI now selects Python 3.13 explicitly.
+The build helper keys environments by interpreter identity/version and pinned
+package versions, verifies installed tools before reuse, clears partial state,
+and exposes bootstrap stderr. Four regression tests and a real fresh bootstrap
+and verified reuse passed locally. The speech model/runtime pins and inference
+code measured above were not changed by this build repair.
+
 No task build ran during timed inference, and task benchmarks were sequential.
 An existing Virtualization VM and user applications remained active. See
 [measurement context](measurement-context.json). These are measurements of this

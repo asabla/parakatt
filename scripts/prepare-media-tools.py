@@ -2,6 +2,7 @@
 """Build the pinned macOS media bundle. Build tools are never runtime dependencies."""
 import base64, hashlib, json, os, pathlib, shutil, subprocess, sys, tarfile, zipfile
 from media_tool_downloads import fetch_verified, reset_media_outputs, verify
+from media_build_environment import prepare_build_environment
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DEST = ROOT / 'target/media-tools'
 CACHE = ROOT / 'target/media-cache'
@@ -9,7 +10,7 @@ BUILD = ROOT / 'target/media-build'
 LOCK = ROOT / 'config/media-tools.json'
 manifest = json.loads(LOCK.read_text())
 local_notices = b''.join((ROOT / spec['local_path']).read_bytes() for spec in manifest.values() if isinstance(spec, dict) and 'local_path' in spec)
-fingerprint = hashlib.sha256(LOCK.read_bytes() + pathlib.Path(__file__).read_bytes() + (ROOT / "scripts/collect-deno-notices.py").read_bytes() + (ROOT / "scripts/media_tool_downloads.py").read_bytes() + local_notices).hexdigest()
+fingerprint = hashlib.sha256(LOCK.read_bytes() + pathlib.Path(__file__).read_bytes() + (ROOT / "scripts/collect-deno-notices.py").read_bytes() + (ROOT / "scripts/media_tool_downloads.py").read_bytes() + (ROOT / "scripts/media_build_environment.py").read_bytes() + local_notices).hexdigest()
 if (DEST / 'stamp').exists() and (DEST / 'stamp').read_text() == fingerprint:
     sys.exit(0)
 # Rebuild the managed notices and source set when a dependency changes.
@@ -36,10 +37,7 @@ for name in ['ffmpeg','dav1d']:
     shutil.copy2(archive,DEST / 'sources' / archive.name)
 ffmpeg=BUILD / ('ffmpeg-'+manifest['ffmpeg']['version'])
 dav1d=BUILD / ('dav1d-'+manifest['dav1d']['version'])
-venv=BUILD / 'venv-meson-1.12.1-ninja-1.13.2-packaging-26.3'
-if not (venv/'bin/meson').exists():
-    run([sys.executable,'-m','venv',venv])
-    run([venv/'bin/pip','install','meson==1.12.1','ninja==1.13.2','packaging==26.3'])
+venv=prepare_build_environment(BUILD)
 env=dict(os.environ)
 env['PATH']=str(venv/'bin')+os.pathsep+env.get('PATH','')
 env['MACOSX_DEPLOYMENT_TARGET']='14.0'
@@ -94,6 +92,7 @@ for key, spec in manifest.items():
 run([sys.executable,ROOT/'scripts/collect-deno-notices.py'])
 shutil.copy2(ROOT/'scripts/collect-deno-notices.py',DEST/'sources/collect-deno-notices.py')
 shutil.copy2(ROOT/'scripts/media_tool_downloads.py',DEST/'sources/media_tool_downloads.py')
+shutil.copy2(ROOT/'scripts/media_build_environment.py',DEST/'sources/media_build_environment.py')
 (DEST/'build-options.json').write_text(json.dumps(flags,indent=2))
 (DEST/'sources/build-options.json').write_text(json.dumps(flags,indent=2))
 (DEST/'sources/README.txt').write_text('Corresponding sources for the bundled media tools. The FFmpeg and dav1d source archives are unmodified. Build options and pinned download hashes are included. To reproduce the application bundle, check out the matching Parakatt release, copy these archives to target/media-cache using the filenames in media-tools.json, and run make media-tools. The preparation script uses the selected Xcode SDK and builds for Apple Silicon and macOS 14.0. Build-only Python tools are installed in a versioned virtual environment under target/media-build. No build tools are required on the end user system.\n')
