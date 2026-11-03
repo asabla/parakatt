@@ -6,11 +6,16 @@ import ParakattCore
 final class EvolutionTests: XCTestCase {
     func testSpeechCapacityStaysBoundedAndCanBeReused() {
         let capacity = WorkCapacity(limit: 2)
+        XCTAssertFalse(capacity.hasPendingWork)
         XCTAssertTrue(capacity.reserve()); XCTAssertTrue(capacity.reserve())
+        XCTAssertTrue(capacity.hasPendingWork)
         XCTAssertFalse(capacity.reserve())
         capacity.release()
+        XCTAssertTrue(capacity.hasPendingWork)
         XCTAssertTrue(capacity.reserve())
         XCTAssertFalse(capacity.reserve(3))
+        capacity.release(2)
+        XCTAssertFalse(capacity.hasPendingWork)
     }
     func testUnicodeSearchAndRepeatedMatches() {
         let text = "Åsa sa nej. ÅSA sa inte ja. 👋"

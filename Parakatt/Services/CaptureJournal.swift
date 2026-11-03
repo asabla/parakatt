@@ -7,6 +7,10 @@ final class WorkCapacity {
     private var used = 0
     let limit: Int
     init(limit: Int) { self.limit = limit }
+    var hasPendingWork: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return used > 0
+    }
     func reserve(_ amount: Int = 1) -> Bool {
         lock.lock(); defer { lock.unlock() }
         guard amount >= 0, amount <= limit - used else { return false }
