@@ -147,6 +147,15 @@ and exposes bootstrap stderr. Four regression tests and a real fresh bootstrap
 and verified reuse passed locally. The speech model/runtime pins and inference
 code measured above were not changed by this build repair.
 
+After that repair, the app was rebuilt from clean commit `1328617`. Bundle
+verification and [automatic GPU startup](packaged-startup-followup.json) passed
+again. [Media transcription](packaged-media-followup.json) ran with PATH limited
+to macOS system directories and produced the same chunks, segments, text length,
+and subtitle size. The corresponding-source set contains the new build helper.
+[Follow-up provenance](packaged-followup-provenance.json) records the clean source,
+launcher, frameworks, validation matrix, and helper hashes. The original
+packaged evidence remains available above.
+
 No task build ran during timed inference, and task benchmarks were sequential.
 An existing Virtualization VM and user applications remained active. See
 [measurement context](measurement-context.json). These are measurements of this

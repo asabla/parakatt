@@ -29,6 +29,9 @@ separate command so its errors are visible. These are build-only dependencies.
 ```sh
 python3 scripts/test_release_tools.py
 python3 scripts/test_media_tool_downloads.py
+python3 scripts/test_media_build_environment.py
+python3 scripts/test_benchmark_gates.py
+python3 scripts/test_benchmark_worker.py
 cargo fmt --check
 cargo clippy --locked --all-targets --all-features -- -D warnings
 cargo test --locked
