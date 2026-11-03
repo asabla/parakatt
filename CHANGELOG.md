@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## 0.7.2
+
+### Changed
+- Restore automatic WebGPU for the validated Apple M3 Max/macOS 27.0.1 build 26A434 configuration with the existing model, native runtime, and four-thread policy
+- Select Python 3.13 in CI and validate media build environments before reuse
+
+### Fixed
+- Skip optional buffered preview while required work is queued or the speech model is busy
+- End buffered preview at Stop and reject late results after session finish, cancel, reset, or replacement
+- Retry the same preview audio after a transient busy-model response
+
+### Added
+- Isolated public-fixture replay of the app's Stop-to-final-state path and retained before/after measurements
+
 ## 0.7.1
 
 ### Changed

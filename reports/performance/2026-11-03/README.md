@@ -103,6 +103,14 @@ cost of serial model use. They do not execute the app's capture, outer engine
 lock, scheduling, UI, or LLM pipeline. They are not live capture-to-display or
 stop-to-final latency measurements. No preview-priority behavior was changed.
 
+## App Stop-to-final-state follow-up
+
+The later [isolated app replay](recording-stop/README.md) measures the normal
+Stop, queue, processing, history, and published-state path. It includes a
+buffered-preview scheduling fix and retained before/after observations. It
+does not measure physical capture, paste, or compositor timing. The synthetic
+provider-only measurements above remain separate evidence.
+
 ## Native candidates: not promoted
 
 Each candidate used verified, separately pinned model files. The full-corpus
