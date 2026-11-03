@@ -107,3 +107,8 @@ do not enable the backend in the app. The gate recomputes summary statistics,
 requires complete samples, and rejects fallback. Check subtitles, edge audio,
 packaged startup, and real capture-to-display latency separately. Power is
 unmeasured unless a separate energy trace is retained.
+
+For each required language, acceleration acceptance requires no higher word
+error rate, at least 10% lower median inference time, and no higher p95 time.
+Historical schema-1 reports remain evidence of their original runs; collect a
+fresh schema-2 baseline before using the current acceptance command.

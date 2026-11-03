@@ -1,0 +1,13 @@
+{
+  "hardware": "Apple M3 Max",
+  "os": "macOS 27.0.1",
+  "os_build": "26A434",
+  "rust": "1.99.1",
+  "xcode": "27.1 (27A9275)",
+  "task_workloads": "Task builds and model benchmarks were sequential during measurement. No task build ran during timed inference.",
+  "external_workload": "An existing Virtualization VM remained active; pre-run snapshots reported 15.7 to 27.4 percent CPU for that process. User applications were left running.",
+  "power": "Not measured. The unprivileged pmset thermal query was unavailable.",
+  "memory": "Reports record maximum process RSS, not complete GPU/unified-memory residency.",
+  "source_provenance": "commit identifies the benchmark harness checkout; worker_source_commit identifies the saved worker source. The original CPU parity worker predates profiling.",
+  "curation": "Only machine-specific paths and JSON whitespace were changed when retaining evidence. Model, fixture, worker, runtime, transcript, and timing values are preserved."
+}
