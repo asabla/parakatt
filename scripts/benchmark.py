@@ -92,6 +92,10 @@ def main():
     provenance["model_files_verified"] = True
     provenance["model_manifest_sha256"] = hashlib.sha256(json.dumps(provenance["model_manifest"], sort_keys=True).encode()).hexdigest()
     observations, loads = [], []
+    # Preserve completed observations even if a later request or worker fails.
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    journal_path = args.output.with_suffix(".observations.jsonl")
+    journal_path.write_text("")
     worker_args = [str(args.binary), str(args.model), args.backend, str(args.threads)]
     if args.decoder_threads is not None or args.profile:
         worker_args += [str(args.decoder_threads if args.decoder_threads is not None else args.threads)]
@@ -114,12 +118,18 @@ def main():
                 for sample in batch:
                     process.stdin.write((json.dumps(sample) if args.streaming else sample["path"]) + "\n")
                     process.stdin.flush()
-                    result = json.loads(process.stdout.readline())
+                    line = process.stdout.readline()
+                    if not line:
+                        raise RuntimeError("Benchmark worker stopped before returning an observation; see its stderr")
+                    result = json.loads(line)
                     actual = result.get("backend", "").replace("_", "").lower()
                     if not args.streaming and actual != args.backend:
                         raise RuntimeError(f"Requested {args.backend}, inference used {actual}")
                     count, total = errors(sample["reference"], result["text"])
-                    observations.append(dict(result, id=sample["id"], language=sample["language"], errors=count, words=total, phase="cold" if run < args.cold_runs else "warm", run=iteration))
+                    observation = dict(result, id=sample["id"], language=sample["language"], errors=count, words=total, phase="cold" if run < args.cold_runs else "warm", run=iteration)
+                    observations.append(observation)
+                    with journal_path.open("a") as journal:
+                        journal.write(json.dumps(observation) + "\n")
                 print(f"Completed {'cold' if run < args.cold_runs else 'warm'} run {(run if run < args.cold_runs else iteration) + 1}", flush=True)
             process.stdin.close()
             if process.wait() != 0:

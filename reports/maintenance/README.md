@@ -93,7 +93,7 @@ make swift-package
 make xcode
 make benchmark ARGS='--model /absolute/path/to/parakeet-tdt-0.6b-v3 --backend cpu --output target/maintenance/cpu'
 make benchmark ARGS='--model /absolute/path/to/parakeet-tdt-0.6b-v3 --backend webgpu --output target/maintenance/webgpu'
-python3 scripts/compare-benchmarks.py reports/maintenance/baseline.json target/maintenance/webgpu.json --acceleration --output target/maintenance/gates.json
+python3 scripts/compare-benchmarks.py target/maintenance/cpu.json target/maintenance/webgpu.json --acceleration --output target/maintenance/gates.json
 make benchmark-streaming ARGS='--model /absolute/path/to/nemotron-3.5-asr-streaming-0.6b --output target/maintenance/preview'
 scripts/profile-ui.sh
 ```

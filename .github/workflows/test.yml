@@ -27,6 +27,8 @@ jobs:
         run: |
           ./scripts/sync-version.sh --check
           python3 scripts/test_release_tools.py
+          python3 scripts/test_benchmark_gates.py
+          python3 scripts/test_benchmark_worker.py
 
       - name: Check macOS 14 hosted runner availability
         id: macos14

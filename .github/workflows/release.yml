@@ -25,6 +25,8 @@ jobs:
         run: |
           ./scripts/sync-version.sh --check --tag "$GITHUB_REF_NAME"
           python3 scripts/test_release_tools.py
+          python3 scripts/test_benchmark_gates.py
+          python3 scripts/test_benchmark_worker.py
           echo "version=$(cat VERSION)" >> "$GITHUB_OUTPUT"
 
       - name: Install Rust

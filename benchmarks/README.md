@@ -24,6 +24,20 @@ the frontend, encoder (including host/device transfers), decoder, timestamps,
 and model-lock wait. It does not measure capture, queue wait before the provider,
 display latency, or LLM work. Use unprofiled workers for acceptance timing.
 
+When copying a WebGPU-enabled executable, put the verified
+`target/release/libwebgpu_dawn.dylib` beside it as well. Its loader path is
+relative to the executable. Record the library with `--runtime-file`.
+Each output prefix also gets an `.observations.jsonl` journal. Completed
+observations survive a later worker failure; use a new prefix for each attempt.
+
+`preview_contention_bench` is a separate synthetic worker. Build it with the
+same feature flags, then pass a model directory and `cpu` or `webgpu`. Supply
+fixture WAV paths on stdin. It compares a final request alone with one arriving
+after a 30-second repeated-audio preview request, ten trials per fixture. Its
+10 ms head start is a test condition; the recorded provider-lock wait shows
+whether contention occurred. It does not run the app's capture, scheduler, UI,
+or LLM pipeline and must not be reported as live capture latency.
+
 ## Burn/Metal worker
 
 ```sh
