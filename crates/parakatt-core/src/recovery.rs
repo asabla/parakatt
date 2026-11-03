@@ -306,7 +306,7 @@ impl Storage {
     ) -> Result<RecoveryChunk, CoreError> {
         self.conn.query_row("SELECT sample_rate,overlap,duration,recognized_text,audio FROM recording_chunks WHERE session_id=?1 AND chunk_id=?2 AND source=?3",params![id,index,source],|r| {
             let audio: Option<Vec<u8>> = r.get(4)?;
-            Ok(RecoveryChunk { index, source: source_value(source), sample_rate:r.get(0)?, overlap:r.get(1)?, duration:r.get(2)?, text:r.get(3)?, samples:audio.map(|bytes|bytes.chunks_exact(4).map(|v|f32::from_le_bytes(v.try_into().unwrap())).collect()) })
+            Ok(RecoveryChunk { index, source: source_value(source), sample_rate:r.get(0)?, overlap:r.get(1)?, duration:r.get(2)?, text:r.get(3)?, samples:audio.map(|bytes|bytes.as_chunks::<4>().0.iter().map(|v|f32::from_le_bytes(*v)).collect()) })
         }).map_err(io)
     }
     pub fn recording_drafts(&self) -> Result<Vec<RecordingDraft>, CoreError> {

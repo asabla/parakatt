@@ -10,7 +10,7 @@ import unittest
 import urllib.error
 from unittest.mock import patch
 
-from media_tool_downloads import fetch_verified, verify
+from media_tool_downloads import fetch_verified, reset_media_outputs, verify
 
 
 class DownloadTests(unittest.TestCase):
@@ -82,6 +82,27 @@ class DownloadTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Checksum mismatch: test-notice'):
             self.fetch()
         self.open.assert_not_called()
+
+    def test_media_rebuild_removes_stale_outputs_and_preserves_playback_sources(self):
+        destination = pathlib.Path(self.directory.name)
+        (destination / 'stamp').write_text('previous build')
+        sources = destination / 'sources'
+        playback = sources / 'playback'
+        playback.mkdir(parents=True)
+        (playback / 'vlc.tar.gz').write_bytes(b'playback source')
+        (sources / 'ffmpeg-old.tar.xz').write_bytes(b'old media source')
+        notices = destination / 'licenses'
+        notices.mkdir()
+        (notices / 'deno-old.txt').write_text('old notice')
+
+        reset_media_outputs(destination)
+
+        self.assertFalse((destination / 'stamp').exists())
+        self.assertEqual(list(sources.iterdir()), [playback])
+        self.assertEqual((playback / 'vlc.tar.gz').read_bytes(), b'playback source')
+        self.assertEqual(list(notices.iterdir()), [])
+        reset_media_outputs(destination)
+        self.assertTrue((playback / 'vlc.tar.gz').is_file())
 
     def test_pinned_native_notices_are_available_offline(self):
         root = pathlib.Path(__file__).resolve().parents[1]

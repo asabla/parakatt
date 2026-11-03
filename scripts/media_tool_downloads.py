@@ -2,11 +2,28 @@
 import hashlib
 import http.client
 import pathlib
+import shutil
 import sys
 import tempfile
 import time
 import urllib.error
 import urllib.request
+
+
+def reset_media_outputs(destination):
+    """Invalidate media outputs while retaining the separate playback source set."""
+    (destination / 'stamp').unlink(missing_ok=True)
+    for name in ('licenses', 'sources'):
+        directory = destination / name
+        if not directory.is_dir():
+            continue
+        for path in directory.iterdir():
+            if name == 'sources' and path.name == 'playback':
+                continue
+            if path.is_dir() and not path.is_symlink():
+                shutil.rmtree(path)
+            else:
+                path.unlink()
 
 
 def verify(path, expected, name):

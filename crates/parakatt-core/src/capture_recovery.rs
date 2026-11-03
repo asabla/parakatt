@@ -97,10 +97,12 @@ impl Storage {
             let skip = start.saturating_sub(offset).max(0) as usize;
             out.extend(
                 bytes
-                    .chunks_exact(4)
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
                     .skip(skip)
                     .take(count - out.len())
-                    .map(|b| f32::from_le_bytes(b.try_into().unwrap())),
+                    .map(|b| f32::from_le_bytes(*b)),
             );
         }
         Ok(out)

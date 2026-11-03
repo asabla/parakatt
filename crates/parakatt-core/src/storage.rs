@@ -178,7 +178,11 @@ impl Storage {
     }
     pub fn export_to(&self, path: &Path) -> Result<(), CoreError> {
         self.conn
-            .backup(rusqlite::MAIN_DB, path, None)
+            .backup(
+                rusqlite::MAIN_DB,
+                path,
+                None::<fn(rusqlite::backup::Progress)>,
+            )
             .map_err(|e| CoreError::IoError(e.to_string()))?;
         // Backups preserve recoverable text, but never extend temporary audio retention.
         let backup = Connection::open(path).map_err(|e| CoreError::IoError(e.to_string()))?;
@@ -201,7 +205,11 @@ impl Storage {
             }
             input.prepare("SELECT id,created_at,duration_secs,source,mode,audio_source,app_context,title,text FROM transcriptions LIMIT 0").map_err(|e|CoreError::IoError(e.to_string()))?;
             input
-                .backup(rusqlite::MAIN_DB, staging.join("transcriptions.db"), None)
+                .backup(
+                    rusqlite::MAIN_DB,
+                    staging.join("transcriptions.db"),
+                    None::<fn(rusqlite::backup::Progress)>,
+                )
                 .map_err(|e| CoreError::IoError(e.to_string()))?;
             let verified = Self::open(&staging)?;
             verified

@@ -15,7 +15,7 @@ impl Engine {
             config.general.llm_context_enabled,
         ))
         .map_err(io)?;
-        Ok(format!("{:x}", Sha256::digest(bytes)))
+        Ok(crate::util::hex_lower(&Sha256::digest(bytes)))
     }
 }
 #[uniffi::export]
