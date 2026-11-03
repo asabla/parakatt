@@ -11,6 +11,16 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class WorkerTests(unittest.TestCase):
+    def test_native_thread_flags_cannot_mislabel_runtime_defaults(self):
+        for backend in ("burnmetal", "nemometal"):
+            with self.subTest(backend=backend):
+                result = subprocess.run([sys.executable, str(ROOT / "scripts/benchmark.py"),
+                    "--backend", backend, "--binary", "unused", "--model", "unused",
+                    "--model-manifest", "unused", "--threads", "4", "--output", "unused"],
+                    cwd=ROOT, capture_output=True, text=True, timeout=20)
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("runtime thread policy", result.stderr)
+
     def test_mid_run_failure_preserves_the_completed_observation(self):
         with tempfile.TemporaryDirectory() as directory:
             folder = Path(directory)

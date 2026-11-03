@@ -56,6 +56,8 @@ def main():
     args = parser.parse_args()
     if args.backend in ("burnmetal", "nemometal") and (args.binary is None or args.model_manifest is None):
         parser.error("Native candidates require --binary and --model-manifest")
+    if args.backend in ("burnmetal", "nemometal") and (args.threads != 0 or args.decoder_threads is not None):
+        parser.error("Native workers use their runtime thread policy; use --threads 0 without --decoder-threads")
     if args.profile and (args.streaming or args.backend not in ("cpu", "webgpu")):
         parser.error("Stage profiling requires the application offline worker")
     if args.binary is None: args.binary = ROOT / "target/release/examples" / ("streaming_bench" if args.streaming else "model_bench")

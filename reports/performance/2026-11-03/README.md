@@ -53,9 +53,9 @@ and [build, model, fixture, launcher, and framework provenance](packaged-provena
 Rust formatting and all-target/all-feature Clippy passed. The Rust suite
 passed 196 tests, with one opt-in real-model test and two documentation
 examples skipped; the separate real-model acceptance above used all 200
-fixtures. Swift passed 52 tests with one existing opt-in test skipped and no
-failures. The six benchmark gate tests, failing-worker journal test, and
-twelve release-tool tests passed. CI runs the new benchmark tests.
+fixtures. Swift ran 52 tests, with one existing opt-in test skipped and no
+failures. The six benchmark gate tests, two worker protocol tests, and twelve
+release-tool tests passed. CI runs the new benchmark tests.
 
 ## Measured costs and thread screens
 

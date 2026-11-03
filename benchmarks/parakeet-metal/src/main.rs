@@ -7,6 +7,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if std::env::args().nth(2).as_deref() != Some("burnmetal") {
         return Err("this worker requires burnmetal".into());
     }
+    if std::env::args().nth(3).is_some_and(|v| v != "0") {
+        return Err("Burn uses its runtime thread policy; use --threads 0".into());
+    }
     let started = Instant::now();
     let config = ExecutionConfig::new().with_execution_provider(ExecutionProvider::BurnWgpu);
     let mut model = ParakeetTDT::from_pretrained(directory, Some(config))?;
