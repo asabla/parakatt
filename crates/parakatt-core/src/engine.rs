@@ -37,6 +37,11 @@ struct StreamingPreviewSession {
     la2: LocalAgreement2,
 }
 
+struct BufferedPreviewSession {
+    la2: LocalAgreement2,
+    cancellation: tokio_util::sync::CancellationToken,
+}
+
 /// The main engine exposed to Swift via UniFFI.
 ///
 /// ## Lock ordering
@@ -86,7 +91,7 @@ pub struct Engine {
     /// buffered path re-runs Parakeet TDT on a growing audio tail
     /// every few hundred milliseconds; LA-2 here is what suppresses
     /// the flicker that would otherwise show in the UI.
-    buffered_preview_la2: Mutex<std::collections::HashMap<String, LocalAgreement2>>,
+    buffered_preview_la2: Mutex<std::collections::HashMap<String, BufferedPreviewSession>>,
     llm: Mutex<Option<Arc<dyn LlmProvider>>>,
     dictionary: Mutex<Dictionary>,
     download_progress: Arc<Mutex<DownloadProgress>>,
@@ -568,7 +573,13 @@ impl Engine {
                 "Buffered preview session already exists: {session_id}"
             )));
         }
-        g.insert(session_id, LocalAgreement2::new());
+        g.insert(
+            session_id,
+            BufferedPreviewSession {
+                la2: LocalAgreement2::new(),
+                cancellation: tokio_util::sync::CancellationToken::new(),
+            },
+        );
         Ok(())
     }
 
@@ -583,11 +594,37 @@ impl Engine {
         audio_samples: Vec<f32>,
         sample_rate: u32,
     ) -> Result<StreamingChunkResult, CoreError> {
+        let cancellation = {
+            let sessions = crate::util::lock_named(
+                &self.buffered_preview_la2,
+                "Buffered preview",
+                CoreError::TranscriptionFailed,
+            )?;
+            sessions
+                .get(&session_id)
+                .map(|session| session.cancellation.clone())
+                .ok_or_else(|| {
+                    CoreError::TranscriptionFailed("Buffered preview session ended".into())
+                })?
+        };
         // 1. Preprocess + run Parakeet on the audio.
         let processed = crate::audio::preprocess(&audio_samples, sample_rate)?;
         let leading_trim_secs = processed.leading_trim_secs;
 
-        let stt_guard = crate::util::lock_named(&self.stt, "STT", CoreError::TranscriptionFailed)?;
+        // Preview is optional. Never queue it behind final transcription or
+        // model work: a timer can try again with the current audio later.
+        let Some(stt_guard) =
+            crate::util::try_lock_named(&self.stt, "STT", CoreError::TranscriptionFailed)?
+        else {
+            return Err(CoreError::TranscriptionFailed(
+                "Buffered preview skipped: STT is busy".into(),
+            ));
+        };
+        if cancellation.is_cancelled() {
+            return Err(CoreError::TranscriptionFailed(
+                "Buffered preview session ended".into(),
+            ));
+        }
         let stt = stt_guard
             .as_ref()
             .ok_or_else(|| CoreError::TranscriptionFailed("No STT model loaded".into()))?;
@@ -625,11 +662,17 @@ impl Engine {
             "Buffered preview",
             CoreError::TranscriptionFailed,
         )?;
-        let la2 = g.get_mut(&session_id).ok_or_else(|| {
+        if cancellation.is_cancelled() {
+            return Err(CoreError::TranscriptionFailed(
+                "Buffered preview session ended".into(),
+            ));
+        }
+        let session = g.get_mut(&session_id).ok_or_else(|| {
             CoreError::TranscriptionFailed(format!(
                 "Buffered preview session not found: {session_id}"
             ))
         })?;
+        let la2 = &mut session.la2;
         let agreement = la2.update(hypothesis);
 
         let newly_committed_text = agreement
@@ -662,12 +705,13 @@ impl Engine {
             "Buffered preview",
             CoreError::TranscriptionFailed,
         )?;
-        let la2 = g.remove(&session_id).ok_or_else(|| {
+        let session = g.remove(&session_id).ok_or_else(|| {
             CoreError::TranscriptionFailed(format!(
                 "Buffered preview session not found: {session_id}"
             ))
         })?;
-        Ok(la2.committed_text().to_string())
+        session.cancellation.cancel();
+        Ok(session.la2.committed_text().to_string())
     }
 
     /// Reset a buffered preview session in place (clears LA-2 buffer).
@@ -677,19 +721,23 @@ impl Engine {
             "Buffered preview",
             CoreError::TranscriptionFailed,
         )?;
-        let la2 = g.get_mut(&session_id).ok_or_else(|| {
+        let session = g.get_mut(&session_id).ok_or_else(|| {
             CoreError::TranscriptionFailed(format!(
                 "Buffered preview session not found: {session_id}"
             ))
         })?;
-        la2.reset();
+        session.cancellation.cancel();
+        session.cancellation = tokio_util::sync::CancellationToken::new();
+        session.la2.reset();
         Ok(())
     }
 
     /// Cancel a buffered preview session without returning text.
     pub fn buffered_preview_cancel(&self, session_id: String) {
         if let Ok(mut g) = self.buffered_preview_la2.lock() {
-            g.remove(&session_id);
+            if let Some(session) = g.remove(&session_id) {
+                session.cancellation.cancel();
+            }
         }
     }
 
@@ -2417,6 +2465,107 @@ mod processing_integration_tests {
         *engine.llm.lock().unwrap() = Some(Arc::new(Polish));
         (engine, directory, calls)
     }
+    #[test]
+    fn ended_buffered_preview_does_not_run_stt() {
+        let (engine, _directory, calls) = setup();
+        engine.buffered_preview_start("ended".into()).unwrap();
+        engine.buffered_preview_finish("ended".into()).unwrap();
+        assert!(engine
+            .buffered_preview_update("ended".into(), vec![0.3; 16_000], 16_000)
+            .is_err());
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn busy_model_skips_preview_without_waiting_or_running_inference() {
+        let (engine, _directory, calls) = setup();
+        let engine = Arc::new(engine);
+        engine.buffered_preview_start("busy".into()).unwrap();
+        let held = engine.stt.lock().unwrap();
+        let (send, receive) = std::sync::mpsc::channel();
+        let shared = engine.clone();
+        let worker = std::thread::spawn(move || {
+            let result = shared.buffered_preview_update("busy".into(), vec![0.3; 16_000], 16_000);
+            send.send(result).unwrap();
+        });
+        let result = receive.recv_timeout(std::time::Duration::from_secs(5));
+        drop(held);
+        worker.join().unwrap();
+        assert!(
+            matches!(result.unwrap(), Err(CoreError::TranscriptionFailed(message)) if message.contains("busy"))
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn ended_or_reset_inflight_preview_cannot_update_a_new_session() {
+        struct BlockingSpeech {
+            first: AtomicBool,
+            entered: std::sync::mpsc::Sender<()>,
+            release: Mutex<std::sync::mpsc::Receiver<()>>,
+            calls: Arc<AtomicUsize>,
+        }
+        impl SttProvider for BlockingSpeech {
+            fn name(&self) -> &str {
+                "blocking test"
+            }
+            fn is_loaded(&self) -> bool {
+                true
+            }
+            fn transcribe(
+                &self,
+                audio: &[f32],
+                rate: u32,
+            ) -> Result<TranscriptionResult, CoreError> {
+                let result = Speech(self.calls.clone()).transcribe(audio, rate);
+                if self.first.swap(false, Ordering::SeqCst) {
+                    self.entered.send(()).unwrap();
+                    self.release.lock().unwrap().recv().unwrap();
+                }
+                result
+            }
+        }
+        for operation in ["finish", "cancel", "reset"] {
+            let (engine, _directory, calls) = setup();
+            let engine = Arc::new(engine);
+            let (entered, receive) = std::sync::mpsc::channel();
+            let (release, wait) = std::sync::mpsc::channel();
+            *engine.stt.lock().unwrap() = Some(Box::new(BlockingSpeech {
+                first: AtomicBool::new(true),
+                entered,
+                release: Mutex::new(wait),
+                calls: calls.clone(),
+            }));
+            engine.buffered_preview_start("same-id".into()).unwrap();
+            let shared = engine.clone();
+            let worker = std::thread::spawn(move || {
+                shared.buffered_preview_update("same-id".into(), vec![0.3; 16_000], 16_000)
+            });
+            receive
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .unwrap();
+            match operation {
+                "finish" => {
+                    engine.buffered_preview_finish("same-id".into()).unwrap();
+                }
+                "cancel" => engine.buffered_preview_cancel("same-id".into()),
+                _ => engine.buffered_preview_reset("same-id".into()).unwrap(),
+            }
+            if operation != "reset" {
+                engine.buffered_preview_start("same-id".into()).unwrap();
+            }
+            release.send(()).unwrap();
+            assert!(worker.join().unwrap().is_err(), "{operation}");
+            assert_eq!(calls.load(Ordering::SeqCst), 1);
+            let fresh = engine
+                .buffered_preview_update("same-id".into(), vec![0.3; 16_000], 16_000)
+                .unwrap();
+            assert!(fresh.committed_text.is_empty());
+            assert_eq!(fresh.tentative_text, "recognized words");
+            assert_eq!(calls.load(Ordering::SeqCst), 2);
+        }
+    }
+
     fn failed_history(engine: &Engine) {
         let db = engine.storage.lock().unwrap();
         db.save(&StoredTranscription {

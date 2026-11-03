@@ -68,8 +68,8 @@ targets:
         NSAccessibilityUsageDescription: "Parakatt needs accessibility access to insert transcribed text into other applications."
         NSScreenCaptureUsageDescription: "Parakatt needs Screen Recording access to capture system audio for meeting transcription."
         CFBundleDisplayName: Parakatt
-        CFBundleShortVersionString: "0.7.1"
-        CFBundleVersion: "3"
+        CFBundleShortVersionString: "0.7.2"
+        CFBundleVersion: "4"
     entitlements:
       path: Parakatt/Parakatt.entitlements
       properties:
@@ -80,8 +80,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.parakatt.app
         PRODUCT_NAME: Parakatt
-        MARKETING_VERSION: "0.7.1"
-        CURRENT_PROJECT_VERSION: "3"
+        MARKETING_VERSION: "0.7.2"
+        CURRENT_PROJECT_VERSION: "4"
         MACOSX_DEPLOYMENT_TARGET: "14.0"
         SWIFT_VERSION: "5.10"
         CODE_SIGN_STYLE: Automatic

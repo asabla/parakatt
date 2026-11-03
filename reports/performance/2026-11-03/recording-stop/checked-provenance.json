@@ -1,0 +1,190 @@
+{
+  "commit": "d2b7205bcf996a07566ca74e87a6987a79b10845",
+  "dirty": false,
+  "launcher_sha256": "e9f56b1a0349a826822ef364a809e5ace94b6daec3a6971028bdf5f3b447e39c",
+  "framework_sha256": "6321601383dcc41bac3faa7ddd8d2dcc9272b2f7c892a1004df15e060853df2f",
+  "core_framework_sha256": "c2af613cb2d7b5fbcb2a11b7c28517fa2fb00945465e96cfcec39de0a89487c9",
+  "runtime_lock_sha256": "62d6f9fbb1e38a5a1b6e7c29978d4f3a9522aadec2dc8ac9bfa2b3ddb1a7cab8",
+  "model_manifest_sha256": "4eda685e3df9259679a9e1a330a797d47ef557b0aebe8ad573b199edc776ebcf",
+  "native_runtime_sha256": [
+    "4a05935e25c0d8497305b9ed7069adad4a1e18f06f50ecf6f853424b04169cfa"
+  ],
+  "fixture_sha256": "397d9e8964ffcc20bed51e495dff2e371973ea3ea33f26f36db4c0569b74c5d0",
+  "fixture_content_sha256": "95e4cd81eca5a9c9e0c4c93b85f18f1310e83be1153e1f04e25eeb2a3e07150f",
+  "hardware": "Apple M3 Max",
+  "physical_capture": false,
+  "summary": {
+    "cpu": {
+      "en_us-3s": {
+        "alone": {
+          "median_seconds": 0.7866006665863097,
+          "max_seconds": 0.7920909165404737,
+          "median_control_seconds": 3.604148514568806e-05,
+          "trials": 5
+        },
+        "preview": {
+          "median_seconds": 0.7915645001921803,
+          "max_seconds": 0.7922776665072888,
+          "median_control_seconds": 3.3250078558921814e-05,
+          "trials": 5
+        }
+      },
+      "en_us-8s": {
+        "alone": {
+          "median_seconds": 1.0163455833680928,
+          "max_seconds": 1.0177134999539703,
+          "median_control_seconds": 2.6291701942682266e-05,
+          "trials": 5
+        },
+        "preview": {
+          "median_seconds": 1.0172614583279938,
+          "max_seconds": 1.0189146667253226,
+          "median_control_seconds": 5.4791802540421486e-05,
+          "trials": 5
+        }
+      },
+      "en_us-20s": {
+        "alone": {
+          "median_seconds": 0.9909052499569952,
+          "max_seconds": 1.0087277917191386,
+          "median_control_seconds": 4.654168151319027e-05,
+          "trials": 5
+        },
+        "preview": {
+          "median_seconds": 0.9896455416455865,
+          "max_seconds": 0.9920726250857115,
+          "median_control_seconds": 4.437519237399101e-05,
+          "trials": 5
+        }
+      },
+      "sv_se-3s": {
+        "alone": {
+          "median_seconds": 0.791610958520323,
+          "max_seconds": 0.7919641665648669,
+          "median_control_seconds": 2.7125002816319466e-05,
+          "trials": 5
+        },
+        "preview": {
+          "median_seconds": 0.7907057916745543,
+          "max_seconds": 0.7925976666156203,
+          "median_control_seconds": 4.237517714500427e-05,
+          "trials": 5
+        }
+      },
+      "sv_se-8s": {
+        "alone": {
+          "median_seconds": 1.0134890000335872,
+          "max_seconds": 1.0150432917289436,
+          "median_control_seconds": 2.7416739612817764e-05,
+          "trials": 5
+        },
+        "preview": {
+          "median_seconds": 1.0140437916852534,
+          "max_seconds": 1.0168802083935589,
+          "median_control_seconds": 4.170835018157959e-05,
+          "trials": 5
+        }
+      },
+      "sv_se-20s": {
+        "alone": {
+          "median_seconds": 0.9902960832696408,
+          "max_seconds": 0.9950267500244081,
+          "median_control_seconds": 4.120822995901108e-05,
+          "trials": 5
+        },
+        "preview": {
+          "median_seconds": 0.9906529583968222,
+          "max_seconds": 0.9946397501043975,
+          "median_control_seconds": 3.266660496592522e-05,
+          "trials": 5
+        }
+      }
+    },
+    "automatic": {
+      "en_us-3s": {
+        "alone": {
+          "median_seconds": 0.7048968335147947,
+          "max_seconds": 0.7088568748440593,
+          "median_control_seconds": 2.3916829377412796e-05,
+          "trials": 5
+        },
+        "preview": {
+          "median_seconds": 0.7044477500021458,
+          "max_seconds": 0.7097036666236818,
+          "median_control_seconds": 2.5541521608829498e-05,
+          "trials": 5
+        }
+      },
+      "en_us-8s": {
+        "alone": {
+          "median_seconds": 0.7246535001322627,
+          "max_seconds": 0.732238958356902,
+          "median_control_seconds": 2.9250048100948334e-05,
+          "trials": 5
+        },
+        "preview": {
+          "median_seconds": 0.727612791582942,
+          "max_seconds": 0.741078875027597,
+          "median_control_seconds": 3.704149276018143e-05,
+          "trials": 5
+        }
+      },
+      "en_us-20s": {
+        "alone": {
+          "median_seconds": 0.722418624907732,
+          "max_seconds": 0.7350927914958447,
+          "median_control_seconds": 2.2791558876633644e-05,
+          "trials": 5
+        },
+        "preview": {
+          "median_seconds": 0.7241218334529549,
+          "max_seconds": 0.7262159998062998,
+          "median_control_seconds": 2.204161137342453e-05,
+          "trials": 5
+        }
+      },
+      "sv_se-3s": {
+        "alone": {
+          "median_seconds": 0.7054380001500249,
+          "max_seconds": 0.7122875831555575,
+          "median_control_seconds": 1.904158852994442e-05,
+          "trials": 5
+        },
+        "preview": {
+          "median_seconds": 0.698958458378911,
+          "max_seconds": 0.7043574585113674,
+          "median_control_seconds": 2.4791806936264038e-05,
+          "trials": 5
+        }
+      },
+      "sv_se-8s": {
+        "alone": {
+          "median_seconds": 0.7302514584735036,
+          "max_seconds": 0.7364190416410565,
+          "median_control_seconds": 2.5791581720113754e-05,
+          "trials": 5
+        },
+        "preview": {
+          "median_seconds": 0.7290782500058413,
+          "max_seconds": 0.7335334999952465,
+          "median_control_seconds": 3.0958326533436775e-05,
+          "trials": 5
+        }
+      },
+      "sv_se-20s": {
+        "alone": {
+          "median_seconds": 0.7330274167470634,
+          "max_seconds": 0.7349201249890029,
+          "median_control_seconds": 2.30416189879179e-05,
+          "trials": 5
+        },
+        "preview": {
+          "median_seconds": 0.7295848750509322,
+          "max_seconds": 0.7385416249744594,
+          "median_control_seconds": 2.2624852135777473e-05,
+          "trials": 5
+        }
+      }
+    }
+  }
+}

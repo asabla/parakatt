@@ -1,6 +1,6 @@
 //! Internal helpers shared across the core crate.
 
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Mutex, MutexGuard, TryLockError};
 
 use crate::CoreError;
 
@@ -31,6 +31,22 @@ pub(crate) fn lock_named<'a, T>(
         log::error!("{name} lock poisoned: {e}");
         ctor(format!("{name} lock poisoned: {e}"))
     })
+}
+
+/// Optional work must not queue behind required work on the same resource.
+pub(crate) fn try_lock_named<'a, T>(
+    m: &'a Mutex<T>,
+    name: &'static str,
+    ctor: fn(String) -> CoreError,
+) -> Result<Option<MutexGuard<'a, T>>, CoreError> {
+    match m.try_lock() {
+        Ok(guard) => Ok(Some(guard)),
+        Err(TryLockError::WouldBlock) => Ok(None),
+        Err(TryLockError::Poisoned(error)) => {
+            log::error!("{name} lock poisoned: {error}");
+            Err(ctor(format!("{name} lock poisoned: {error}")))
+        }
+    }
 }
 
 #[cfg(test)]

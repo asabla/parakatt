@@ -453,6 +453,39 @@ class AppState: ObservableObject {
 
     // MARK: - Recording
 
+    /// Opt-in replay uses the normal stop/final pipeline without opening a device.
+    func prepareRecordingLatencyFixture(samples: [Float], preview: Bool, incremental: Bool) throws {
+        guard ProcessInfo.processInfo.environment["PARAKATT_STOP_LATENCY"] != nil,
+              ProcessInfo.processInfo.environment["PARAKATT_DATA_ROOT"] != nil,
+              let bridge, bridge.isModelLoaded(), !isRecording, !isProcessing,
+              !isCaptureDraining, !isStreamTranscribing else {
+            throw NSError(domain: "ParakattLatencyFixture", code: 1)
+        }
+        autoPaste = false
+        activeMode = "dictation"
+        isModelLoaded = true
+        finalModelGate.update(.ready)
+        speechGeneration = UUID()
+        lastTranscription = nil
+        liveTranscription = nil
+        errorMessage = nil
+        pttSessionId = nil
+        pttChunkIndex = 0
+        pttAccumulatedText = nil
+        silentCallbackCount = 0
+        lastStreamingSampleCount = 0
+        audioBufferLock.lock()
+        audioBuffer.removeAll()
+        audioBuffer.append(contentsOf: samples)
+        audioBufferLock.unlock()
+        isRecording = true
+        if incremental { startIncrementalSession() }
+        if preview { updateLiveTranscription() }
+    }
+
+    var latencyFixtureDraining: Bool { isCaptureDraining }
+    var latencyFixturePreviewInFlight: Bool { isStreamTranscribing }
+
     /// Start a push-to-talk recording session via AVAudioEngine.
     func startRecording() {
         let controlSignpost = OSSignpostID(log: signpostLog)
@@ -592,6 +625,17 @@ class AppState: ObservableObject {
         currentAudioLevel = 0
         isCaptureDraining = true
 
+        // End optional model work at Stop, before the capture drain and final queue.
+        if let bpId = bufferedPreviewSessionId {
+            let final = (try? bridge?.bufferedPreviewFinish(sessionId: bpId)) ?? ""
+            bufferedPreviewSessionId = nil
+            if !final.isEmpty {
+                livePreviewCommitted = final
+                livePreviewTentative = ""
+                liveTranscription = final
+            }
+        }
+
         // Keep audio capture running briefly so the hardware buffer can drain,
         // then stop capture and process the tail.
         DispatchQueue.main.asyncAfter(deadline: .now() + captureDrainDelaySecs) { [weak self] in
@@ -626,18 +670,6 @@ class AppState: ObservableObject {
                 self.livePreviewCommitted = finalText
                 self.livePreviewTentative = ""
                 self.liveTranscription = finalText
-            }
-        }
-
-        // Also tear down the buffered preview LA-2 session if it
-        // was used (when no streaming model was loaded).
-        if let bpId = bufferedPreviewSessionId {
-            let final = (try? bridge?.bufferedPreviewFinish(sessionId: bpId)) ?? ""
-            bufferedPreviewSessionId = nil
-            if !final.isEmpty {
-                livePreviewCommitted = final
-                livePreviewTentative = ""
-                liveTranscription = final
             }
         }
 
@@ -2021,8 +2053,9 @@ class AppState: ObservableObject {
     /// stopRecording.
     private var bufferedPreviewSessionId: String?
 
-    private func updateLiveTranscription() {
-        guard isRecording, isModelLoaded, let bridge, !isStreamTranscribing else { return }
+    func updateLiveTranscription() {
+        guard isRecording, isModelLoaded, let bridge, !isStreamTranscribing,
+              !speechWork.hasPendingWork else { return }
 
         // If the cache-aware streaming preview is doing its thing
         // we don't need to also run the buffered preview — they
@@ -2080,6 +2113,7 @@ class AppState: ObservableObject {
         guard let bpSessionId = bufferedPreviewSessionId else { return }
 
         isStreamTranscribing = true
+        let generation = speechGeneration
 
         DispatchQueue.global(qos: .userInteractive).async { [weak self] in
             guard let self else { return }
@@ -2094,7 +2128,7 @@ class AppState: ObservableObject {
                     sampleRate: 16000
                 )
                 DispatchQueue.main.async {
-                    if self.isRecording {
+                    if self.isRecording && self.speechGeneration == generation && self.bufferedPreviewSessionId == bpSessionId {
                         // Compose the display text. Three sources:
                         //   1. pttAccumulatedText: text already
                         //      committed by the chunk pipeline
@@ -2132,7 +2166,12 @@ class AppState: ObservableObject {
                     }
                 }
             } catch {
-                // Silently ignore streaming errors
+                DispatchQueue.main.async {
+                    if self.isRecording && self.speechGeneration == generation && self.bufferedPreviewSessionId == bpSessionId {
+                        // A busy model is transient; retry this audio on the next tick.
+                        self.lastStreamingSampleCount = 0
+                    }
+                }
             }
         }
     }
@@ -2150,6 +2189,7 @@ class AppState: ObservableObject {
     }
 
     private func sendTranscriptionNotification(preview: String, source: String) {
+        guard ProcessInfo.processInfo.environment["PARAKATT_STOP_LATENCY"] == nil else { return }
         let content = UNMutableNotificationContent()
         content.title = source == "meeting" ? "Meeting transcription ready" : "Transcription complete"
         content.body = String(preview.prefix(100))

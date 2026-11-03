@@ -20,6 +20,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // stderr, which Console.app captures alongside our NSLog lines.
         ParakattCore.initLogging(defaultLevel: "info")
 
+        if runRecordingLatencyFixtureIfRequested() { return }
         if runMaintenanceSmokeIfRequested() { return }
         if runPerformanceFixtureIfRequested() { return }
 

@@ -112,3 +112,28 @@ For each required language, acceleration acceptance requires no higher word
 error rate, at least 10% lower median inference time, and no higher p95 time.
 Historical schema-1 reports remain evidence of their original runs; collect a
 fresh schema-2 baseline before using the current acceptance command.
+
+## App stop-to-final replay
+
+Build the app and use its stable launcher before running:
+
+```sh
+python3 scripts/measure-recording-latency.py /absolute/path/to/Parakatt.app \
+  --models "$HOME/Library/Application Support/Parakatt/models" \
+  --output target/recording-latency/baseline --trials 5
+```
+
+The opt-in app mode loads verified public English and Swedish fixtures into an
+isolated recording buffer and calls the normal Stop path. It measures the
+600 ms capture-drain period, processing queue, inference, history save, and final
+published state. It covers a three-second single-shot path, an eight-second
+incremental tail, and a preloaded twenty-second incremental backlog. Each shape
+and preview condition is warmed before measurements. CPU and automatic WebGPU
+run in separate app processes. Final text must remain identical with preview
+on and off. Outputs contain text hashes, not transcript text.
+
+This does not open a microphone, paste text, call an LLM, measure capture-device
+latency, or measure compositor frames. Preloading the backlog is a stress case,
+not a live twenty-second recording. State observation uses one-millisecond
+polling. Do not run competing builds or benchmarks while measuring. The report
+retains source, model, fixture, launcher, framework, and native-runtime hashes.
