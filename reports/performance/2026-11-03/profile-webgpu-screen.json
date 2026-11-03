@@ -1,0 +1,1861 @@
+{
+  "commit": "f6c7283ae7b8f2e2ef475ef012ff40d4f63688ef",
+  "dirty": false,
+  "binary_sha256": "e5f361cc6ececb707b5b793de4e270ad9844cc93853dcc5e3c9e66d3570009ca",
+  "os": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "hardware": "Apple M3 Max",
+  "runtime_lock_sha256": "62d6f9fbb1e38a5a1b6e7c29978d4f3a9522aadec2dc8ac9bfa2b3ddb1a7cab8",
+  "dataset_revision": "70bb2e84b976b7e960aa89f1c648e09c59f894dd",
+  "model_directory": "<verified model installation>",
+  "loads": [
+    {
+      "backend": "WebGpu",
+      "cpu_threads": 4,
+      "decoder_threads": 4,
+      "load_secs": 0.773527834,
+      "profile": true,
+      "peak_memory_bytes": 2715729920
+    }
+  ],
+  "summary": {
+    "en_us": {
+      "wer": 0.0625,
+      "median_secs": 0.0942932085,
+      "p95_secs": 0.134636625,
+      "real_time_factor": 0.012484052875082618
+    },
+    "sv_se": {
+      "wer": 0.11891891891891893,
+      "median_secs": 0.0939964375,
+      "p95_secs": 0.121857625,
+      "real_time_factor": 0.009565818344873063
+    }
+  },
+  "observations": [
+    {
+      "audio_secs": 10.68,
+      "backend": "WebGpu",
+      "inference_secs": 0.645194708,
+      "path": "target/fixtures/fleurs/en_us/12742373433258665797.wav",
+      "segments": [
+        {
+          "end_secs": 9.359999656677246,
+          "speaker": null,
+          "start_secs": 0.8799999952316284,
+          "text": "Romanticism had a large element of cultural determinism drawn from writers such as Goth, Pitt and Schlagel."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.024517709,
+        "encoder_secs": 0.618639709,
+        "frontend_secs": 0.001997459,
+        "lock_wait_secs": 4.17e-07,
+        "timestamps_secs": 1.4417e-05
+      },
+      "text": "Romanticism had a large element of cultural determinism drawn from writers such as Goth, Pitt and Schlagel.",
+      "id": "en_us:1660:12742373433258665797.wav",
+      "language": "en_us",
+      "errors": 3,
+      "words": 17,
+      "phase": "warm",
+      "run": 0
+    },
+    {
+      "audio_secs": 11.52,
+      "backend": "WebGpu",
+      "inference_secs": 0.121593417,
+      "path": "target/fixtures/fleurs/en_us/9327483361259434782.wav",
+      "segments": [
+        {
+          "end_secs": 9.920000076293945,
+          "speaker": null,
+          "start_secs": 1.1200000047683716,
+          "text": "Romanticism had a large element of cultural determinism drawn from writers such as Goth, Ficht, and Schlegel."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.0262195,
+        "encoder_secs": 0.09306475,
+        "frontend_secs": 0.002237458,
+        "lock_wait_secs": 3.75e-07,
+        "timestamps_secs": 2.3459e-05
+      },
+      "text": "Romanticism had a large element of cultural determinism drawn from writers such as Goth, Ficht, and Schlegel.",
+      "id": "en_us:1660:9327483361259434782.wav",
+      "language": "en_us",
+      "errors": 2,
+      "words": 17,
+      "phase": "warm",
+      "run": 0
+    },
+    {
+      "audio_secs": 6.36,
+      "backend": "WebGpu",
+      "inference_secs": 0.134636625,
+      "path": "target/fixtures/fleurs/en_us/6917907748364342404.wav",
+      "segments": [
+        {
+          "end_secs": 6.159999847412109,
+          "speaker": null,
+          "start_secs": 0.3199999928474426,
+          "text": "He did not set a figure for the cuts saying they will be made based on China's economic output."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.016463333,
+        "encoder_secs": 0.117052916,
+        "frontend_secs": 0.001095709,
+        "lock_wait_secs": 8.4e-08,
+        "timestamps_secs": 1.3709e-05
+      },
+      "text": "He did not set a figure for the cuts saying they will be made based on China's economic output.",
+      "id": "en_us:1661:6917907748364342404.wav",
+      "language": "en_us",
+      "errors": 0,
+      "words": 19,
+      "phase": "warm",
+      "run": 0
+    },
+    {
+      "audio_secs": 6.9,
+      "backend": "WebGpu",
+      "inference_secs": 0.082503625,
+      "path": "target/fixtures/fleurs/en_us/8546403500877190903.wav",
+      "segments": [
+        {
+          "end_secs": 6.559999942779541,
+          "speaker": null,
+          "start_secs": 0.3199999928474426,
+          "text": "He did not set a figure for the cuts saying they will be made based on China's economic output."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.016927792,
+        "encoder_secs": 0.06429525,
+        "frontend_secs": 0.001255167,
+        "lock_wait_secs": 8.3e-08,
+        "timestamps_secs": 1.3917e-05
+      },
+      "text": "He did not set a figure for the cuts saying they will be made based on China's economic output.",
+      "id": "en_us:1661:8546403500877190903.wav",
+      "language": "en_us",
+      "errors": 0,
+      "words": 19,
+      "phase": "warm",
+      "run": 0
+    },
+    {
+      "audio_secs": 8.38,
+      "backend": "WebGpu",
+      "inference_secs": 0.092854375,
+      "path": "target/fixtures/fleurs/en_us/10614481583312370701.wav",
+      "segments": [
+        {
+          "end_secs": 3.680000066757202,
+          "speaker": null,
+          "start_secs": 0.5600000023841858,
+          "text": "Alloys are basically a mixture of 2 or more metals."
+        },
+        {
+          "end_secs": 7.760000228881836,
+          "speaker": null,
+          "start_secs": 3.680000066757202,
+          "text": "Don't forget there are many elements on the PR table."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.022627375,
+        "encoder_secs": 0.068766334,
+        "frontend_secs": 0.001434708,
+        "lock_wait_secs": 8.3e-08,
+        "timestamps_secs": 1.4042e-05
+      },
+      "text": "Alloys are basically a mixture of 2 or more metals. Don't forget there are many elements on the PR table.",
+      "id": "en_us:1662:10614481583312370701.wav",
+      "language": "en_us",
+      "errors": 3,
+      "words": 21,
+      "phase": "warm",
+      "run": 0
+    },
+    {
+      "audio_secs": 11.16,
+      "backend": "WebGpu",
+      "inference_secs": 0.092727334,
+      "path": "target/fixtures/fleurs/en_us/7378917572989533960.wav",
+      "segments": [
+        {
+          "end_secs": 5.28000020980835,
+          "speaker": null,
+          "start_secs": 0.6399999856948853,
+          "text": "Alloys are basically a mixture of two or more metals."
+        },
+        {
+          "end_secs": 10.640000343322754,
+          "speaker": null,
+          "start_secs": 5.28000020980835,
+          "text": "Don't forget there are many elements on the periodic table."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.020940875,
+        "encoder_secs": 0.069444959,
+        "frontend_secs": 0.0023145,
+        "lock_wait_secs": 8.3e-08,
+        "timestamps_secs": 1.2833e-05
+      },
+      "text": "Alloys are basically a mixture of two or more metals. Don't forget there are many elements on the periodic table.",
+      "id": "en_us:1662:7378917572989533960.wav",
+      "language": "en_us",
+      "errors": 1,
+      "words": 21,
+      "phase": "warm",
+      "run": 0
+    },
+    {
+      "audio_secs": 12.12,
+      "backend": "WebGpu",
+      "inference_secs": 0.104090083,
+      "path": "target/fixtures/fleurs/en_us/3156459702070203007.wav",
+      "segments": [
+        {
+          "end_secs": 10.800000190734863,
+          "speaker": null,
+          "start_secs": 0.800000011920929,
+          "text": "Chokamo Valley Chile's premier climbing destination known as the Yosemite of South America, with a variety of granite big walls and crags."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.030254875,
+        "encoder_secs": 0.071711917,
+        "frontend_secs": 0.002089125,
+        "lock_wait_secs": 2.5e-07,
+        "timestamps_secs": 1.8083e-05
+      },
+      "text": "Chokamo Valley Chile's premier climbing destination known as the Yosemite of South America, with a variety of granite big walls and crags.",
+      "id": "en_us:1663:3156459702070203007.wav",
+      "language": "en_us",
+      "errors": 1,
+      "words": 22,
+      "phase": "warm",
+      "run": 0
+    },
+    {
+      "audio_secs": 9.9,
+      "backend": "WebGpu",
+      "inference_secs": 0.100829,
+      "path": "target/fixtures/fleurs/en_us/6603783905885843777.wav",
+      "segments": [
+        {
+          "end_secs": 9.279999732971191,
+          "speaker": null,
+          "start_secs": 0.23999999463558197,
+          "text": "Cacho Valley, Chile's premier climbing destination, known as the Yosemite of South America, with a variety of granite big walls and crags."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.028207875,
+        "encoder_secs": 0.070901459,
+        "frontend_secs": 0.001689583,
+        "lock_wait_secs": 2.09e-07,
+        "timestamps_secs": 1.6e-05
+      },
+      "text": "Cacho Valley, Chile's premier climbing destination, known as the Yosemite of South America, with a variety of granite big walls and crags.",
+      "id": "en_us:1663:6603783905885843777.wav",
+      "language": "en_us",
+      "errors": 1,
+      "words": 22,
+      "phase": "warm",
+      "run": 0
+    },
+    {
+      "audio_secs": 8.36,
+      "backend": "WebGpu",
+      "inference_secs": 0.094143625,
+      "path": "target/fixtures/fleurs/en_us/13031516147694203229.wav",
+      "segments": [
+        {
+          "end_secs": 6.960000038146973,
+          "speaker": null,
+          "start_secs": 0.5600000023841858,
+          "text": "Swirl the two dry powers together and then with clean wet hands squeeze them into a ball."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.022469416,
+        "encoder_secs": 0.070220667,
+        "frontend_secs": 0.001429542,
+        "lock_wait_secs": 1.25e-07,
+        "timestamps_secs": 1.325e-05
+      },
+      "text": "Swirl the two dry powers together and then with clean wet hands squeeze them into a ball.",
+      "id": "en_us:1664:13031516147694203229.wav",
+      "language": "en_us",
+      "errors": 1,
+      "words": 17,
+      "phase": "warm",
+      "run": 0
+    },
+    {
+      "audio_secs": 5.4,
+      "backend": "WebGpu",
+      "inference_secs": 0.081239333,
+      "path": "target/fixtures/fleurs/en_us/1944915261206096046.wav",
+      "segments": [
+        {
+          "end_secs": 5.360000133514404,
+          "speaker": null,
+          "start_secs": 0.1599999964237213,
+          "text": "Swirl the two dry powders together and then with clean wet hands squeeze them into a ball."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.01940375,
+        "encoder_secs": 0.060887167,
+        "frontend_secs": 0.000928208,
+        "lock_wait_secs": 8.3e-08,
+        "timestamps_secs": 1.1667e-05
+      },
+      "text": "Swirl the two dry powders together and then with clean wet hands squeeze them into a ball.",
+      "id": "en_us:1664:1944915261206096046.wav",
+      "language": "en_us",
+      "errors": 0,
+      "words": 17,
+      "phase": "warm",
+      "run": 0
+    },
+    {
+      "audio_secs": 8.46,
+      "backend": "WebGpu",
+      "inference_secs": 0.090698041,
+      "path": "target/fixtures/fleurs/sv_se/11017371815100260878.wav",
+      "segments": [
+        {
+          "end_secs": 8.239999771118164,
+          "speaker": null,
+          "start_secs": 0.1599999964237213,
+          "text": "Romantiken inneh\u00e5ller stort element av determinism med ursprung hos f\u00f6rfattare som g\u00e5et, fiste och slegel."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.022547041,
+        "encoder_secs": 0.066659291,
+        "frontend_secs": 0.001467333,
+        "lock_wait_secs": 1.25e-07,
+        "timestamps_secs": 1.2458e-05
+      },
+      "text": "Romantiken inneh\u00e5ller stort element av determinism med ursprung hos f\u00f6rfattare som g\u00e5et, fiste och slegel.",
+      "id": "sv_se:1660:11017371815100260878.wav",
+      "language": "sv_se",
+      "errors": 5,
+      "words": 16,
+      "phase": "warm",
+      "run": 0
+    },
+    {
+      "audio_secs": 9.36,
+      "backend": "WebGpu",
+      "inference_secs": 0.09332625,
+      "path": "target/fixtures/fleurs/sv_se/1010284889812064135.wav",
+      "segments": [
+        {
+          "end_secs": 8.239999771118164,
+          "speaker": null,
+          "start_secs": 0.6399999856948853,
+          "text": "Han sa att nedsk\u00e4rningarna skulle baseras p\u00e5 Kinas ekonomiska styrka och gav inte n\u00e5gra siffror f\u00f6r dem."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.021416208,
+        "encoder_secs": 0.070289667,
+        "frontend_secs": 0.0015955,
+        "lock_wait_secs": 4.2e-08,
+        "timestamps_secs": 1.275e-05
+      },
+      "text": "Han sa att nedsk\u00e4rningarna skulle baseras p\u00e5 Kinas ekonomiska styrka och gav inte n\u00e5gra siffror f\u00f6r dem.",
+      "id": "sv_se:1661:1010284889812064135.wav",
+      "language": "sv_se",
+      "errors": 0,
+      "words": 17,
+      "phase": "warm",
+      "run": 0
+    },
+    {
+      "audio_secs": 8.16,
+      "backend": "WebGpu",
+      "inference_secs": 0.087121459,
+      "path": "target/fixtures/fleurs/sv_se/10882455023026937910.wav",
+      "segments": [
+        {
+          "end_secs": 7.440000057220459,
+          "speaker": null,
+          "start_secs": 0.6399999856948853,
+          "text": "Han sa att nedsk\u00e4rningarna skulle baseras p\u00e5 Kinas ekonomiska styrka och gav inte n\u00e5gra siffror f\u00f6r den."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.019596916,
+        "encoder_secs": 0.066105667,
+        "frontend_secs": 0.001396625,
+        "lock_wait_secs": 0.0,
+        "timestamps_secs": 1.1708e-05
+      },
+      "text": "Han sa att nedsk\u00e4rningarna skulle baseras p\u00e5 Kinas ekonomiska styrka och gav inte n\u00e5gra siffror f\u00f6r den.",
+      "id": "sv_se:1661:10882455023026937910.wav",
+      "language": "sv_se",
+      "errors": 1,
+      "words": 17,
+      "phase": "warm",
+      "run": 0
+    },
+    {
+      "audio_secs": 10.5,
+      "backend": "WebGpu",
+      "inference_secs": 0.094491375,
+      "path": "target/fixtures/fleurs/sv_se/485880107959944598.wav",
+      "segments": [
+        {
+          "end_secs": 10.079999923706055,
+          "speaker": null,
+          "start_secs": 0.9599999785423279,
+          "text": "Han sa att nedsk\u00e4rningarna skulle baseras p\u00e5 Kinas ekonomiska styrka, och gav inte n\u00e5gra siffror f\u00f6r dem."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.021875416,
+        "encoder_secs": 0.070791333,
+        "frontend_secs": 0.001797167,
+        "lock_wait_secs": 4.2e-08,
+        "timestamps_secs": 1.3041e-05
+      },
+      "text": "Han sa att nedsk\u00e4rningarna skulle baseras p\u00e5 Kinas ekonomiska styrka, och gav inte n\u00e5gra siffror f\u00f6r dem.",
+      "id": "sv_se:1661:485880107959944598.wav",
+      "language": "sv_se",
+      "errors": 0,
+      "words": 17,
+      "phase": "warm",
+      "run": 0
+    },
+    {
+      "audio_secs": 11.52,
+      "backend": "WebGpu",
+      "inference_secs": 0.098276875,
+      "path": "target/fixtures/fleurs/sv_se/121725361684087135.wav",
+      "segments": [
+        {
+          "end_secs": 5.440000057220459,
+          "speaker": null,
+          "start_secs": 0.800000011920929,
+          "text": "Legeringar \u00e4r en blandning av tv\u00e5 eller flera metaller."
+        },
+        {
+          "end_secs": 11.199999809265137,
+          "speaker": null,
+          "start_secs": 5.440000057220459,
+          "text": "Kom ih\u00e5g att det finns m\u00e5nga olika grund\u00e4mnen i det periodiska systemet."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.023241958,
+        "encoder_secs": 0.073037625,
+        "frontend_secs": 0.00197025,
+        "lock_wait_secs": 0.0,
+        "timestamps_secs": 1.2292e-05
+      },
+      "text": "Legeringar \u00e4r en blandning av tv\u00e5 eller flera metaller. Kom ih\u00e5g att det finns m\u00e5nga olika grund\u00e4mnen i det periodiska systemet.",
+      "id": "sv_se:1662:121725361684087135.wav",
+      "language": "sv_se",
+      "errors": 0,
+      "words": 21,
+      "phase": "warm",
+      "run": 0
+    },
+    {
+      "audio_secs": 11.34,
+      "backend": "WebGpu",
+      "inference_secs": 0.098608875,
+      "path": "target/fixtures/fleurs/sv_se/2278899330194391527.wav",
+      "segments": [
+        {
+          "end_secs": 5.119999885559082,
+          "speaker": null,
+          "start_secs": 1.2799999713897705,
+          "text": "Legeringar \u00e4r en blandning av tv\u00e5 eller flera metaller."
+        },
+        {
+          "end_secs": 10.079999923706055,
+          "speaker": null,
+          "start_secs": 5.119999885559082,
+          "text": "Kom ih\u00e5g att det finns m\u00e5nga olika grund\u00e4mnen i det periodiska systemet."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.025351959,
+        "encoder_secs": 0.071262833,
+        "frontend_secs": 0.001964875,
+        "lock_wait_secs": 8.3e-08,
+        "timestamps_secs": 1.3583e-05
+      },
+      "text": "Legeringar \u00e4r en blandning av tv\u00e5 eller flera metaller. Kom ih\u00e5g att det finns m\u00e5nga olika grund\u00e4mnen i det periodiska systemet.",
+      "id": "sv_se:1662:2278899330194391527.wav",
+      "language": "sv_se",
+      "errors": 0,
+      "words": 21,
+      "phase": "warm",
+      "run": 0
+    },
+    {
+      "audio_secs": 15.0,
+      "backend": "WebGpu",
+      "inference_secs": 0.122436375,
+      "path": "target/fixtures/fleurs/sv_se/12688026512340699992.wav",
+      "segments": [
+        {
+          "end_secs": 12.5600004196167,
+          "speaker": null,
+          "start_secs": 1.2799999713897705,
+          "text": "Cockamodalen, Kiles fr\u00e4msta destination f\u00f6r kl\u00e4ttring, \u00e4r k\u00e4nd som Sydamerikas josemitte, och har ett antal stora klippor och v\u00e4ggar i granit."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.037417875,
+        "encoder_secs": 0.08236175,
+        "frontend_secs": 0.002616958,
+        "lock_wait_secs": 8.3e-08,
+        "timestamps_secs": 2.1333e-05
+      },
+      "text": "Cockamodalen, Kiles fr\u00e4msta destination f\u00f6r kl\u00e4ttring, \u00e4r k\u00e4nd som Sydamerikas josemitte, och har ett antal stora klippor och v\u00e4ggar i granit.",
+      "id": "sv_se:1663:12688026512340699992.wav",
+      "language": "sv_se",
+      "errors": 4,
+      "words": 22,
+      "phase": "warm",
+      "run": 0
+    },
+    {
+      "audio_secs": 12.96,
+      "backend": "WebGpu",
+      "inference_secs": 0.11483775,
+      "path": "target/fixtures/fleurs/sv_se/16339275641865603551.wav",
+      "segments": [
+        {
+          "end_secs": 11.4399995803833,
+          "speaker": null,
+          "start_secs": 0.8799999952316284,
+          "text": "Cookamodalen, Kiles fr\u00e4msta destination f\u00f6r kl\u00e4ttring, \u00e4r k\u00e4nd som Sydamerikas Josemite och har ett antal stora klippor och v\u00e4ggar i granit."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.033338709,
+        "encoder_secs": 0.078920083,
+        "frontend_secs": 0.002528375,
+        "lock_wait_secs": 5.42e-07,
+        "timestamps_secs": 2.45e-05
+      },
+      "text": "Cookamodalen, Kiles fr\u00e4msta destination f\u00f6r kl\u00e4ttring, \u00e4r k\u00e4nd som Sydamerikas Josemite och har ett antal stora klippor och v\u00e4ggar i granit.",
+      "id": "sv_se:1663:16339275641865603551.wav",
+      "language": "sv_se",
+      "errors": 4,
+      "words": 22,
+      "phase": "warm",
+      "run": 0
+    },
+    {
+      "audio_secs": 8.64,
+      "backend": "WebGpu",
+      "inference_secs": 0.093238666,
+      "path": "target/fixtures/fleurs/sv_se/11569046426682372641.wav",
+      "segments": [
+        {
+          "end_secs": 8.479999542236328,
+          "speaker": null,
+          "start_secs": 1.2000000476837158,
+          "text": "R\u00f6r ihop de tv\u00e5 t\u00e5ra polbren formade sedan till en boll med rena bl\u00f6da h\u00e4nder."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.021229625,
+        "encoder_secs": 0.070466083,
+        "frontend_secs": 0.00151525,
+        "lock_wait_secs": 1.25e-07,
+        "timestamps_secs": 1.5167e-05
+      },
+      "text": "R\u00f6r ihop de tv\u00e5 t\u00e5ra polbren formade sedan till en boll med rena bl\u00f6da h\u00e4nder.",
+      "id": "sv_se:1664:11569046426682372641.wav",
+      "language": "sv_se",
+      "errors": 5,
+      "words": 16,
+      "phase": "warm",
+      "run": 0
+    },
+    {
+      "audio_secs": 5.16,
+      "backend": "WebGpu",
+      "inference_secs": 0.076660542,
+      "path": "target/fixtures/fleurs/sv_se/18430281348165445219.wav",
+      "segments": [
+        {
+          "end_secs": 5.039999961853027,
+          "speaker": null,
+          "start_secs": 0.07999999821186066,
+          "text": "R\u00f6r ihop de tv\u00e5 torra pulvren formar den sedan till en boll med rena bl\u00f6ta \u00e4nder."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.018170333,
+        "encoder_secs": 0.057549458,
+        "frontend_secs": 0.000918458,
+        "lock_wait_secs": 4.1e-08,
+        "timestamps_secs": 1.3208e-05
+      },
+      "text": "R\u00f6r ihop de tv\u00e5 torra pulvren formar den sedan till en boll med rena bl\u00f6ta \u00e4nder.",
+      "id": "sv_se:1664:18430281348165445219.wav",
+      "language": "sv_se",
+      "errors": 3,
+      "words": 16,
+      "phase": "warm",
+      "run": 0
+    },
+    {
+      "audio_secs": 10.68,
+      "backend": "WebGpu",
+      "inference_secs": 0.097127084,
+      "path": "target/fixtures/fleurs/en_us/12742373433258665797.wav",
+      "segments": [
+        {
+          "end_secs": 9.359999656677246,
+          "speaker": null,
+          "start_secs": 0.8799999952316284,
+          "text": "Romanticism had a large element of cultural determinism drawn from writers such as Goth, Pitt and Schlagel."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.02383425,
+        "encoder_secs": 0.071441458,
+        "frontend_secs": 0.001820209,
+        "lock_wait_secs": 4.1e-08,
+        "timestamps_secs": 1.3875e-05
+      },
+      "text": "Romanticism had a large element of cultural determinism drawn from writers such as Goth, Pitt and Schlagel.",
+      "id": "en_us:1660:12742373433258665797.wav",
+      "language": "en_us",
+      "errors": 3,
+      "words": 17,
+      "phase": "warm",
+      "run": 1
+    },
+    {
+      "audio_secs": 11.52,
+      "backend": "WebGpu",
+      "inference_secs": 0.100811083,
+      "path": "target/fixtures/fleurs/en_us/9327483361259434782.wav",
+      "segments": [
+        {
+          "end_secs": 9.920000076293945,
+          "speaker": null,
+          "start_secs": 1.1200000047683716,
+          "text": "Romanticism had a large element of cultural determinism drawn from writers such as Goth, Ficht, and Schlegel."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.0258265,
+        "encoder_secs": 0.073001542,
+        "frontend_secs": 0.001951875,
+        "lock_wait_secs": 4.1e-08,
+        "timestamps_secs": 1.575e-05
+      },
+      "text": "Romanticism had a large element of cultural determinism drawn from writers such as Goth, Ficht, and Schlegel.",
+      "id": "en_us:1660:9327483361259434782.wav",
+      "language": "en_us",
+      "errors": 2,
+      "words": 17,
+      "phase": "warm",
+      "run": 1
+    },
+    {
+      "audio_secs": 6.36,
+      "backend": "WebGpu",
+      "inference_secs": 0.079175791,
+      "path": "target/fixtures/fleurs/en_us/6917907748364342404.wav",
+      "segments": [
+        {
+          "end_secs": 6.159999847412109,
+          "speaker": null,
+          "start_secs": 0.3199999928474426,
+          "text": "He did not set a figure for the cuts saying they will be made based on China's economic output."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.016273333,
+        "encoder_secs": 0.061785834,
+        "frontend_secs": 0.001096708,
+        "lock_wait_secs": 8.4e-08,
+        "timestamps_secs": 1e-05
+      },
+      "text": "He did not set a figure for the cuts saying they will be made based on China's economic output.",
+      "id": "en_us:1661:6917907748364342404.wav",
+      "language": "en_us",
+      "errors": 0,
+      "words": 19,
+      "phase": "warm",
+      "run": 1
+    },
+    {
+      "audio_secs": 6.9,
+      "backend": "WebGpu",
+      "inference_secs": 0.081058375,
+      "path": "target/fixtures/fleurs/en_us/8546403500877190903.wav",
+      "segments": [
+        {
+          "end_secs": 6.559999942779541,
+          "speaker": null,
+          "start_secs": 0.3199999928474426,
+          "text": "He did not set a figure for the cuts saying they will be made based on China's economic output."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.016717291,
+        "encoder_secs": 0.063091541,
+        "frontend_secs": 0.001228958,
+        "lock_wait_secs": 1.67e-07,
+        "timestamps_secs": 1.0625e-05
+      },
+      "text": "He did not set a figure for the cuts saying they will be made based on China's economic output.",
+      "id": "en_us:1661:8546403500877190903.wav",
+      "language": "en_us",
+      "errors": 0,
+      "words": 19,
+      "phase": "warm",
+      "run": 1
+    },
+    {
+      "audio_secs": 8.38,
+      "backend": "WebGpu",
+      "inference_secs": 0.090472916,
+      "path": "target/fixtures/fleurs/en_us/10614481583312370701.wav",
+      "segments": [
+        {
+          "end_secs": 3.680000066757202,
+          "speaker": null,
+          "start_secs": 0.5600000023841858,
+          "text": "Alloys are basically a mixture of 2 or more metals."
+        },
+        {
+          "end_secs": 7.760000228881836,
+          "speaker": null,
+          "start_secs": 3.680000066757202,
+          "text": "Don't forget there are many elements on the PR table."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.022574958,
+        "encoder_secs": 0.0664165,
+        "frontend_secs": 0.00145625,
+        "lock_wait_secs": 8.4e-08,
+        "timestamps_secs": 1.3208e-05
+      },
+      "text": "Alloys are basically a mixture of 2 or more metals. Don't forget there are many elements on the PR table.",
+      "id": "en_us:1662:10614481583312370701.wav",
+      "language": "en_us",
+      "errors": 3,
+      "words": 21,
+      "phase": "warm",
+      "run": 1
+    },
+    {
+      "audio_secs": 11.16,
+      "backend": "WebGpu",
+      "inference_secs": 0.094854083,
+      "path": "target/fixtures/fleurs/en_us/7378917572989533960.wav",
+      "segments": [
+        {
+          "end_secs": 5.28000020980835,
+          "speaker": null,
+          "start_secs": 0.6399999856948853,
+          "text": "Alloys are basically a mixture of two or more metals."
+        },
+        {
+          "end_secs": 10.640000343322754,
+          "speaker": null,
+          "start_secs": 5.28000020980835,
+          "text": "Don't forget there are many elements on the periodic table."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.020915083,
+        "encoder_secs": 0.071604375,
+        "frontend_secs": 0.002308625,
+        "lock_wait_secs": 1.25e-07,
+        "timestamps_secs": 1.1916e-05
+      },
+      "text": "Alloys are basically a mixture of two or more metals. Don't forget there are many elements on the periodic table.",
+      "id": "en_us:1662:7378917572989533960.wav",
+      "language": "en_us",
+      "errors": 1,
+      "words": 21,
+      "phase": "warm",
+      "run": 1
+    },
+    {
+      "audio_secs": 12.12,
+      "backend": "WebGpu",
+      "inference_secs": 0.105296,
+      "path": "target/fixtures/fleurs/en_us/3156459702070203007.wav",
+      "segments": [
+        {
+          "end_secs": 10.800000190734863,
+          "speaker": null,
+          "start_secs": 0.800000011920929,
+          "text": "Chokamo Valley Chile's premier climbing destination known as the Yosemite of South America, with a variety of granite big walls and crags."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.029661291,
+        "encoder_secs": 0.073535125,
+        "frontend_secs": 0.002071125,
+        "lock_wait_secs": 4.2e-08,
+        "timestamps_secs": 1.3792e-05
+      },
+      "text": "Chokamo Valley Chile's premier climbing destination known as the Yosemite of South America, with a variety of granite big walls and crags.",
+      "id": "en_us:1663:3156459702070203007.wav",
+      "language": "en_us",
+      "errors": 1,
+      "words": 22,
+      "phase": "warm",
+      "run": 1
+    },
+    {
+      "audio_secs": 9.9,
+      "backend": "WebGpu",
+      "inference_secs": 0.102548209,
+      "path": "target/fixtures/fleurs/en_us/6603783905885843777.wav",
+      "segments": [
+        {
+          "end_secs": 9.279999732971191,
+          "speaker": null,
+          "start_secs": 0.23999999463558197,
+          "text": "Cacho Valley, Chile's premier climbing destination, known as the Yosemite of South America, with a variety of granite big walls and crags."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.029170333,
+        "encoder_secs": 0.071635541,
+        "frontend_secs": 0.00170275,
+        "lock_wait_secs": 5.5e-06,
+        "timestamps_secs": 1.8875e-05
+      },
+      "text": "Cacho Valley, Chile's premier climbing destination, known as the Yosemite of South America, with a variety of granite big walls and crags.",
+      "id": "en_us:1663:6603783905885843777.wav",
+      "language": "en_us",
+      "errors": 1,
+      "words": 22,
+      "phase": "warm",
+      "run": 1
+    },
+    {
+      "audio_secs": 8.36,
+      "backend": "WebGpu",
+      "inference_secs": 0.093336959,
+      "path": "target/fixtures/fleurs/en_us/13031516147694203229.wav",
+      "segments": [
+        {
+          "end_secs": 6.960000038146973,
+          "speaker": null,
+          "start_secs": 0.5600000023841858,
+          "text": "Swirl the two dry powers together and then with clean wet hands squeeze them into a ball."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.022598125,
+        "encoder_secs": 0.069256166,
+        "frontend_secs": 0.001456333,
+        "lock_wait_secs": 1.67e-07,
+        "timestamps_secs": 1.4959e-05
+      },
+      "text": "Swirl the two dry powers together and then with clean wet hands squeeze them into a ball.",
+      "id": "en_us:1664:13031516147694203229.wav",
+      "language": "en_us",
+      "errors": 1,
+      "words": 17,
+      "phase": "warm",
+      "run": 1
+    },
+    {
+      "audio_secs": 5.4,
+      "backend": "WebGpu",
+      "inference_secs": 0.0817395,
+      "path": "target/fixtures/fleurs/en_us/1944915261206096046.wav",
+      "segments": [
+        {
+          "end_secs": 5.360000133514404,
+          "speaker": null,
+          "start_secs": 0.1599999964237213,
+          "text": "Swirl the two dry powders together and then with clean wet hands squeeze them into a ball."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.019772209,
+        "encoder_secs": 0.061001,
+        "frontend_secs": 0.000945916,
+        "lock_wait_secs": 2.5e-07,
+        "timestamps_secs": 1.175e-05
+      },
+      "text": "Swirl the two dry powders together and then with clean wet hands squeeze them into a ball.",
+      "id": "en_us:1664:1944915261206096046.wav",
+      "language": "en_us",
+      "errors": 0,
+      "words": 17,
+      "phase": "warm",
+      "run": 1
+    },
+    {
+      "audio_secs": 8.46,
+      "backend": "WebGpu",
+      "inference_secs": 0.090648083,
+      "path": "target/fixtures/fleurs/sv_se/11017371815100260878.wav",
+      "segments": [
+        {
+          "end_secs": 8.239999771118164,
+          "speaker": null,
+          "start_secs": 0.1599999964237213,
+          "text": "Romantiken inneh\u00e5ller stort element av determinism med ursprung hos f\u00f6rfattare som g\u00e5et, fiste och slegel."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.022479792,
+        "encoder_secs": 0.066676791,
+        "frontend_secs": 0.001465709,
+        "lock_wait_secs": 8.4e-08,
+        "timestamps_secs": 1.4959e-05
+      },
+      "text": "Romantiken inneh\u00e5ller stort element av determinism med ursprung hos f\u00f6rfattare som g\u00e5et, fiste och slegel.",
+      "id": "sv_se:1660:11017371815100260878.wav",
+      "language": "sv_se",
+      "errors": 5,
+      "words": 16,
+      "phase": "warm",
+      "run": 1
+    },
+    {
+      "audio_secs": 9.36,
+      "backend": "WebGpu",
+      "inference_secs": 0.092217083,
+      "path": "target/fixtures/fleurs/sv_se/1010284889812064135.wav",
+      "segments": [
+        {
+          "end_secs": 8.239999771118164,
+          "speaker": null,
+          "start_secs": 0.6399999856948853,
+          "text": "Han sa att nedsk\u00e4rningarna skulle baseras p\u00e5 Kinas ekonomiska styrka och gav inte n\u00e5gra siffror f\u00f6r dem."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.021316334,
+        "encoder_secs": 0.069268542,
+        "frontend_secs": 0.001600291,
+        "lock_wait_secs": 8.3e-08,
+        "timestamps_secs": 1.5167e-05
+      },
+      "text": "Han sa att nedsk\u00e4rningarna skulle baseras p\u00e5 Kinas ekonomiska styrka och gav inte n\u00e5gra siffror f\u00f6r dem.",
+      "id": "sv_se:1661:1010284889812064135.wav",
+      "language": "sv_se",
+      "errors": 0,
+      "words": 17,
+      "phase": "warm",
+      "run": 1
+    },
+    {
+      "audio_secs": 8.16,
+      "backend": "WebGpu",
+      "inference_secs": 0.089095084,
+      "path": "target/fixtures/fleurs/sv_se/10882455023026937910.wav",
+      "segments": [
+        {
+          "end_secs": 7.440000057220459,
+          "speaker": null,
+          "start_secs": 0.6399999856948853,
+          "text": "Han sa att nedsk\u00e4rningarna skulle baseras p\u00e5 Kinas ekonomiska styrka och gav inte n\u00e5gra siffror f\u00f6r den."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.019675625,
+        "encoder_secs": 0.068004542,
+        "frontend_secs": 0.001390875,
+        "lock_wait_secs": 8.4e-08,
+        "timestamps_secs": 1.3584e-05
+      },
+      "text": "Han sa att nedsk\u00e4rningarna skulle baseras p\u00e5 Kinas ekonomiska styrka och gav inte n\u00e5gra siffror f\u00f6r den.",
+      "id": "sv_se:1661:10882455023026937910.wav",
+      "language": "sv_se",
+      "errors": 1,
+      "words": 17,
+      "phase": "warm",
+      "run": 1
+    },
+    {
+      "audio_secs": 10.5,
+      "backend": "WebGpu",
+      "inference_secs": 0.094657375,
+      "path": "target/fixtures/fleurs/sv_se/485880107959944598.wav",
+      "segments": [
+        {
+          "end_secs": 10.079999923706055,
+          "speaker": null,
+          "start_secs": 0.9599999785423279,
+          "text": "Han sa att nedsk\u00e4rningarna skulle baseras p\u00e5 Kinas ekonomiska styrka, och gav inte n\u00e5gra siffror f\u00f6r dem."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.021927291,
+        "encoder_secs": 0.070912917,
+        "frontend_secs": 0.00179275,
+        "lock_wait_secs": 8.3e-08,
+        "timestamps_secs": 1.025e-05
+      },
+      "text": "Han sa att nedsk\u00e4rningarna skulle baseras p\u00e5 Kinas ekonomiska styrka, och gav inte n\u00e5gra siffror f\u00f6r dem.",
+      "id": "sv_se:1661:485880107959944598.wav",
+      "language": "sv_se",
+      "errors": 0,
+      "words": 17,
+      "phase": "warm",
+      "run": 1
+    },
+    {
+      "audio_secs": 11.52,
+      "backend": "WebGpu",
+      "inference_secs": 0.098228,
+      "path": "target/fixtures/fleurs/sv_se/121725361684087135.wav",
+      "segments": [
+        {
+          "end_secs": 5.440000057220459,
+          "speaker": null,
+          "start_secs": 0.800000011920929,
+          "text": "Legeringar \u00e4r en blandning av tv\u00e5 eller flera metaller."
+        },
+        {
+          "end_secs": 11.199999809265137,
+          "speaker": null,
+          "start_secs": 5.440000057220459,
+          "text": "Kom ih\u00e5g att det finns m\u00e5nga olika grund\u00e4mnen i det periodiska systemet."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.023241375,
+        "encoder_secs": 0.073001833,
+        "frontend_secs": 0.001953708,
+        "lock_wait_secs": 8.3e-08,
+        "timestamps_secs": 1.65e-05
+      },
+      "text": "Legeringar \u00e4r en blandning av tv\u00e5 eller flera metaller. Kom ih\u00e5g att det finns m\u00e5nga olika grund\u00e4mnen i det periodiska systemet.",
+      "id": "sv_se:1662:121725361684087135.wav",
+      "language": "sv_se",
+      "errors": 0,
+      "words": 21,
+      "phase": "warm",
+      "run": 1
+    },
+    {
+      "audio_secs": 11.34,
+      "backend": "WebGpu",
+      "inference_secs": 0.097595583,
+      "path": "target/fixtures/fleurs/sv_se/2278899330194391527.wav",
+      "segments": [
+        {
+          "end_secs": 5.119999885559082,
+          "speaker": null,
+          "start_secs": 1.2799999713897705,
+          "text": "Legeringar \u00e4r en blandning av tv\u00e5 eller flera metaller."
+        },
+        {
+          "end_secs": 10.079999923706055,
+          "speaker": null,
+          "start_secs": 5.119999885559082,
+          "text": "Kom ih\u00e5g att det finns m\u00e5nga olika grund\u00e4mnen i det periodiska systemet."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.025416542,
+        "encoder_secs": 0.070223667,
+        "frontend_secs": 0.001926625,
+        "lock_wait_secs": 8.3e-08,
+        "timestamps_secs": 1.3875e-05
+      },
+      "text": "Legeringar \u00e4r en blandning av tv\u00e5 eller flera metaller. Kom ih\u00e5g att det finns m\u00e5nga olika grund\u00e4mnen i det periodiska systemet.",
+      "id": "sv_se:1662:2278899330194391527.wav",
+      "language": "sv_se",
+      "errors": 0,
+      "words": 21,
+      "phase": "warm",
+      "run": 1
+    },
+    {
+      "audio_secs": 15.0,
+      "backend": "WebGpu",
+      "inference_secs": 0.121857625,
+      "path": "target/fixtures/fleurs/sv_se/12688026512340699992.wav",
+      "segments": [
+        {
+          "end_secs": 12.5600004196167,
+          "speaker": null,
+          "start_secs": 1.2799999713897705,
+          "text": "Cockamodalen, Kiles fr\u00e4msta destination f\u00f6r kl\u00e4ttring, \u00e4r k\u00e4nd som Sydamerikas josemitte, och har ett antal stora klippor och v\u00e4ggar i granit."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.03580675,
+        "encoder_secs": 0.083443458,
+        "frontend_secs": 0.002571334,
+        "lock_wait_secs": 4.1e-08,
+        "timestamps_secs": 1.8583e-05
+      },
+      "text": "Cockamodalen, Kiles fr\u00e4msta destination f\u00f6r kl\u00e4ttring, \u00e4r k\u00e4nd som Sydamerikas josemitte, och har ett antal stora klippor och v\u00e4ggar i granit.",
+      "id": "sv_se:1663:12688026512340699992.wav",
+      "language": "sv_se",
+      "errors": 4,
+      "words": 22,
+      "phase": "warm",
+      "run": 1
+    },
+    {
+      "audio_secs": 12.96,
+      "backend": "WebGpu",
+      "inference_secs": 0.11778225,
+      "path": "target/fixtures/fleurs/sv_se/16339275641865603551.wav",
+      "segments": [
+        {
+          "end_secs": 11.4399995803833,
+          "speaker": null,
+          "start_secs": 0.8799999952316284,
+          "text": "Cookamodalen, Kiles fr\u00e4msta destination f\u00f6r kl\u00e4ttring, \u00e4r k\u00e4nd som Sydamerikas Josemite och har ett antal stora klippor och v\u00e4ggar i granit."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.033839291,
+        "encoder_secs": 0.081656791,
+        "frontend_secs": 0.002250334,
+        "lock_wait_secs": 1.25e-07,
+        "timestamps_secs": 2.0292e-05
+      },
+      "text": "Cookamodalen, Kiles fr\u00e4msta destination f\u00f6r kl\u00e4ttring, \u00e4r k\u00e4nd som Sydamerikas Josemite och har ett antal stora klippor och v\u00e4ggar i granit.",
+      "id": "sv_se:1663:16339275641865603551.wav",
+      "language": "sv_se",
+      "errors": 4,
+      "words": 22,
+      "phase": "warm",
+      "run": 1
+    },
+    {
+      "audio_secs": 8.64,
+      "backend": "WebGpu",
+      "inference_secs": 0.092254833,
+      "path": "target/fixtures/fleurs/sv_se/11569046426682372641.wav",
+      "segments": [
+        {
+          "end_secs": 8.479999542236328,
+          "speaker": null,
+          "start_secs": 1.2000000476837158,
+          "text": "R\u00f6r ihop de tv\u00e5 t\u00e5ra polbren formade sedan till en boll med rena bl\u00f6da h\u00e4nder."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.02040675,
+        "encoder_secs": 0.070344416,
+        "frontend_secs": 0.001476209,
+        "lock_wait_secs": 8.3e-08,
+        "timestamps_secs": 1.5583e-05
+      },
+      "text": "R\u00f6r ihop de tv\u00e5 t\u00e5ra polbren formade sedan till en boll med rena bl\u00f6da h\u00e4nder.",
+      "id": "sv_se:1664:11569046426682372641.wav",
+      "language": "sv_se",
+      "errors": 5,
+      "words": 16,
+      "phase": "warm",
+      "run": 1
+    },
+    {
+      "audio_secs": 5.16,
+      "backend": "WebGpu",
+      "inference_secs": 0.074036458,
+      "path": "target/fixtures/fleurs/sv_se/18430281348165445219.wav",
+      "segments": [
+        {
+          "end_secs": 5.039999961853027,
+          "speaker": null,
+          "start_secs": 0.07999999821186066,
+          "text": "R\u00f6r ihop de tv\u00e5 torra pulvren formar den sedan till en boll med rena bl\u00f6ta \u00e4nder."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.017477208,
+        "encoder_secs": 0.055642167,
+        "frontend_secs": 0.000891542,
+        "lock_wait_secs": 8.4e-08,
+        "timestamps_secs": 1.3333e-05
+      },
+      "text": "R\u00f6r ihop de tv\u00e5 torra pulvren formar den sedan till en boll med rena bl\u00f6ta \u00e4nder.",
+      "id": "sv_se:1664:18430281348165445219.wav",
+      "language": "sv_se",
+      "errors": 3,
+      "words": 16,
+      "phase": "warm",
+      "run": 1
+    },
+    {
+      "audio_secs": 10.68,
+      "backend": "WebGpu",
+      "inference_secs": 0.096029417,
+      "path": "target/fixtures/fleurs/en_us/12742373433258665797.wav",
+      "segments": [
+        {
+          "end_secs": 9.359999656677246,
+          "speaker": null,
+          "start_secs": 0.8799999952316284,
+          "text": "Romanticism had a large element of cultural determinism drawn from writers such as Goth, Pitt and Schlagel."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.024178625,
+        "encoder_secs": 0.069939292,
+        "frontend_secs": 0.001878708,
+        "lock_wait_secs": 5e-07,
+        "timestamps_secs": 1.375e-05
+      },
+      "text": "Romanticism had a large element of cultural determinism drawn from writers such as Goth, Pitt and Schlagel.",
+      "id": "en_us:1660:12742373433258665797.wav",
+      "language": "en_us",
+      "errors": 3,
+      "words": 17,
+      "phase": "warm",
+      "run": 2
+    },
+    {
+      "audio_secs": 11.52,
+      "backend": "WebGpu",
+      "inference_secs": 0.1007085,
+      "path": "target/fixtures/fleurs/en_us/9327483361259434782.wav",
+      "segments": [
+        {
+          "end_secs": 9.920000076293945,
+          "speaker": null,
+          "start_secs": 1.1200000047683716,
+          "text": "Romanticism had a large element of cultural determinism drawn from writers such as Goth, Ficht, and Schlegel."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.025849583,
+        "encoder_secs": 0.072857125,
+        "frontend_secs": 0.001971959,
+        "lock_wait_secs": 1.66e-07,
+        "timestamps_secs": 1.4709e-05
+      },
+      "text": "Romanticism had a large element of cultural determinism drawn from writers such as Goth, Ficht, and Schlegel.",
+      "id": "en_us:1660:9327483361259434782.wav",
+      "language": "en_us",
+      "errors": 2,
+      "words": 17,
+      "phase": "warm",
+      "run": 2
+    },
+    {
+      "audio_secs": 6.36,
+      "backend": "WebGpu",
+      "inference_secs": 0.079151417,
+      "path": "target/fixtures/fleurs/en_us/6917907748364342404.wav",
+      "segments": [
+        {
+          "end_secs": 6.159999847412109,
+          "speaker": null,
+          "start_secs": 0.3199999928474426,
+          "text": "He did not set a figure for the cuts saying they will be made based on China's economic output."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.016157,
+        "encoder_secs": 0.06184175,
+        "frontend_secs": 0.001131375,
+        "lock_wait_secs": 8.3e-08,
+        "timestamps_secs": 1.175e-05
+      },
+      "text": "He did not set a figure for the cuts saying they will be made based on China's economic output.",
+      "id": "en_us:1661:6917907748364342404.wav",
+      "language": "en_us",
+      "errors": 0,
+      "words": 19,
+      "phase": "warm",
+      "run": 2
+    },
+    {
+      "audio_secs": 6.9,
+      "backend": "WebGpu",
+      "inference_secs": 0.082850875,
+      "path": "target/fixtures/fleurs/en_us/8546403500877190903.wav",
+      "segments": [
+        {
+          "end_secs": 6.559999942779541,
+          "speaker": null,
+          "start_secs": 0.3199999928474426,
+          "text": "He did not set a figure for the cuts saying they will be made based on China's economic output."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.016732708,
+        "encoder_secs": 0.064868083,
+        "frontend_secs": 0.001227333,
+        "lock_wait_secs": 8.3e-08,
+        "timestamps_secs": 1.3209e-05
+      },
+      "text": "He did not set a figure for the cuts saying they will be made based on China's economic output.",
+      "id": "en_us:1661:8546403500877190903.wav",
+      "language": "en_us",
+      "errors": 0,
+      "words": 19,
+      "phase": "warm",
+      "run": 2
+    },
+    {
+      "audio_secs": 8.38,
+      "backend": "WebGpu",
+      "inference_secs": 0.090541292,
+      "path": "target/fixtures/fleurs/en_us/10614481583312370701.wav",
+      "segments": [
+        {
+          "end_secs": 3.680000066757202,
+          "speaker": null,
+          "start_secs": 0.5600000023841858,
+          "text": "Alloys are basically a mixture of 2 or more metals."
+        },
+        {
+          "end_secs": 7.760000228881836,
+          "speaker": null,
+          "start_secs": 3.680000066757202,
+          "text": "Don't forget there are many elements on the PR table."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.022344625,
+        "encoder_secs": 0.066738,
+        "frontend_secs": 0.001429792,
+        "lock_wait_secs": 8.4e-08,
+        "timestamps_secs": 1.825e-05
+      },
+      "text": "Alloys are basically a mixture of 2 or more metals. Don't forget there are many elements on the PR table.",
+      "id": "en_us:1662:10614481583312370701.wav",
+      "language": "en_us",
+      "errors": 3,
+      "words": 21,
+      "phase": "warm",
+      "run": 2
+    },
+    {
+      "audio_secs": 11.16,
+      "backend": "WebGpu",
+      "inference_secs": 0.0942805,
+      "path": "target/fixtures/fleurs/en_us/7378917572989533960.wav",
+      "segments": [
+        {
+          "end_secs": 5.28000020980835,
+          "speaker": null,
+          "start_secs": 0.6399999856948853,
+          "text": "Alloys are basically a mixture of two or more metals."
+        },
+        {
+          "end_secs": 10.640000343322754,
+          "speaker": null,
+          "start_secs": 5.28000020980835,
+          "text": "Don't forget there are many elements on the periodic table."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.020766291,
+        "encoder_secs": 0.071157916,
+        "frontend_secs": 0.002329709,
+        "lock_wait_secs": 0.0,
+        "timestamps_secs": 1.2708e-05
+      },
+      "text": "Alloys are basically a mixture of two or more metals. Don't forget there are many elements on the periodic table.",
+      "id": "en_us:1662:7378917572989533960.wav",
+      "language": "en_us",
+      "errors": 1,
+      "words": 21,
+      "phase": "warm",
+      "run": 2
+    },
+    {
+      "audio_secs": 12.12,
+      "backend": "WebGpu",
+      "inference_secs": 0.103962333,
+      "path": "target/fixtures/fleurs/en_us/3156459702070203007.wav",
+      "segments": [
+        {
+          "end_secs": 10.800000190734863,
+          "speaker": null,
+          "start_secs": 0.800000011920929,
+          "text": "Chokamo Valley Chile's premier climbing destination known as the Yosemite of South America, with a variety of granite big walls and crags."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.030073333,
+        "encoder_secs": 0.071774834,
+        "frontend_secs": 0.002084666,
+        "lock_wait_secs": 8.4e-08,
+        "timestamps_secs": 1.3959e-05
+      },
+      "text": "Chokamo Valley Chile's premier climbing destination known as the Yosemite of South America, with a variety of granite big walls and crags.",
+      "id": "en_us:1663:3156459702070203007.wav",
+      "language": "en_us",
+      "errors": 1,
+      "words": 22,
+      "phase": "warm",
+      "run": 2
+    },
+    {
+      "audio_secs": 9.9,
+      "backend": "WebGpu",
+      "inference_secs": 0.100316542,
+      "path": "target/fixtures/fleurs/en_us/6603783905885843777.wav",
+      "segments": [
+        {
+          "end_secs": 9.279999732971191,
+          "speaker": null,
+          "start_secs": 0.23999999463558197,
+          "text": "Cacho Valley, Chile's premier climbing destination, known as the Yosemite of South America, with a variety of granite big walls and crags."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.028295041,
+        "encoder_secs": 0.070300667,
+        "frontend_secs": 0.001693,
+        "lock_wait_secs": 1.66e-07,
+        "timestamps_secs": 1.425e-05
+      },
+      "text": "Cacho Valley, Chile's premier climbing destination, known as the Yosemite of South America, with a variety of granite big walls and crags.",
+      "id": "en_us:1663:6603783905885843777.wav",
+      "language": "en_us",
+      "errors": 1,
+      "words": 22,
+      "phase": "warm",
+      "run": 2
+    },
+    {
+      "audio_secs": 8.36,
+      "backend": "WebGpu",
+      "inference_secs": 0.094305917,
+      "path": "target/fixtures/fleurs/en_us/13031516147694203229.wav",
+      "segments": [
+        {
+          "end_secs": 6.960000038146973,
+          "speaker": null,
+          "start_secs": 0.5600000023841858,
+          "text": "Swirl the two dry powers together and then with clean wet hands squeeze them into a ball."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.022409792,
+        "encoder_secs": 0.070435959,
+        "frontend_secs": 0.00143725,
+        "lock_wait_secs": 8.3e-08,
+        "timestamps_secs": 1.2042e-05
+      },
+      "text": "Swirl the two dry powers together and then with clean wet hands squeeze them into a ball.",
+      "id": "en_us:1664:13031516147694203229.wav",
+      "language": "en_us",
+      "errors": 1,
+      "words": 17,
+      "phase": "warm",
+      "run": 2
+    },
+    {
+      "audio_secs": 5.4,
+      "backend": "WebGpu",
+      "inference_secs": 0.081528042,
+      "path": "target/fixtures/fleurs/en_us/1944915261206096046.wav",
+      "segments": [
+        {
+          "end_secs": 5.360000133514404,
+          "speaker": null,
+          "start_secs": 0.1599999964237213,
+          "text": "Swirl the two dry powders together and then with clean wet hands squeeze them into a ball."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.01942025,
+        "encoder_secs": 0.061153125,
+        "frontend_secs": 0.000933041,
+        "lock_wait_secs": 8.3e-08,
+        "timestamps_secs": 1.2959e-05
+      },
+      "text": "Swirl the two dry powders together and then with clean wet hands squeeze them into a ball.",
+      "id": "en_us:1664:1944915261206096046.wav",
+      "language": "en_us",
+      "errors": 0,
+      "words": 17,
+      "phase": "warm",
+      "run": 2
+    },
+    {
+      "audio_secs": 8.46,
+      "backend": "WebGpu",
+      "inference_secs": 0.090223416,
+      "path": "target/fixtures/fleurs/sv_se/11017371815100260878.wav",
+      "segments": [
+        {
+          "end_secs": 8.239999771118164,
+          "speaker": null,
+          "start_secs": 0.1599999964237213,
+          "text": "Romantiken inneh\u00e5ller stort element av determinism med ursprung hos f\u00f6rfattare som g\u00e5et, fiste och slegel."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.022392708,
+        "encoder_secs": 0.066340333,
+        "frontend_secs": 0.001462292,
+        "lock_wait_secs": 8.3e-08,
+        "timestamps_secs": 1.65e-05
+      },
+      "text": "Romantiken inneh\u00e5ller stort element av determinism med ursprung hos f\u00f6rfattare som g\u00e5et, fiste och slegel.",
+      "id": "sv_se:1660:11017371815100260878.wav",
+      "language": "sv_se",
+      "errors": 5,
+      "words": 16,
+      "phase": "warm",
+      "run": 2
+    },
+    {
+      "audio_secs": 9.36,
+      "backend": "WebGpu",
+      "inference_secs": 0.0935015,
+      "path": "target/fixtures/fleurs/sv_se/1010284889812064135.wav",
+      "segments": [
+        {
+          "end_secs": 8.239999771118164,
+          "speaker": null,
+          "start_secs": 0.6399999856948853,
+          "text": "Han sa att nedsk\u00e4rningarna skulle baseras p\u00e5 Kinas ekonomiska styrka och gav inte n\u00e5gra siffror f\u00f6r dem."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.021433083,
+        "encoder_secs": 0.07042275,
+        "frontend_secs": 0.001617792,
+        "lock_wait_secs": 8.3e-08,
+        "timestamps_secs": 1.3083e-05
+      },
+      "text": "Han sa att nedsk\u00e4rningarna skulle baseras p\u00e5 Kinas ekonomiska styrka och gav inte n\u00e5gra siffror f\u00f6r dem.",
+      "id": "sv_se:1661:1010284889812064135.wav",
+      "language": "sv_se",
+      "errors": 0,
+      "words": 17,
+      "phase": "warm",
+      "run": 2
+    },
+    {
+      "audio_secs": 8.16,
+      "backend": "WebGpu",
+      "inference_secs": 0.087544791,
+      "path": "target/fixtures/fleurs/sv_se/10882455023026937910.wav",
+      "segments": [
+        {
+          "end_secs": 7.440000057220459,
+          "speaker": null,
+          "start_secs": 0.6399999856948853,
+          "text": "Han sa att nedsk\u00e4rningarna skulle baseras p\u00e5 Kinas ekonomiska styrka och gav inte n\u00e5gra siffror f\u00f6r den."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.019678459,
+        "encoder_secs": 0.066440667,
+        "frontend_secs": 0.0013985,
+        "lock_wait_secs": 8.3e-08,
+        "timestamps_secs": 1.5917e-05
+      },
+      "text": "Han sa att nedsk\u00e4rningarna skulle baseras p\u00e5 Kinas ekonomiska styrka och gav inte n\u00e5gra siffror f\u00f6r den.",
+      "id": "sv_se:1661:10882455023026937910.wav",
+      "language": "sv_se",
+      "errors": 1,
+      "words": 17,
+      "phase": "warm",
+      "run": 2
+    },
+    {
+      "audio_secs": 10.5,
+      "backend": "WebGpu",
+      "inference_secs": 0.094555334,
+      "path": "target/fixtures/fleurs/sv_se/485880107959944598.wav",
+      "segments": [
+        {
+          "end_secs": 10.079999923706055,
+          "speaker": null,
+          "start_secs": 0.9599999785423279,
+          "text": "Han sa att nedsk\u00e4rningarna skulle baseras p\u00e5 Kinas ekonomiska styrka, och gav inte n\u00e5gra siffror f\u00f6r dem."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.021857542,
+        "encoder_secs": 0.070869584,
+        "frontend_secs": 0.001802792,
+        "lock_wait_secs": 0.0,
+        "timestamps_secs": 1.2042e-05
+      },
+      "text": "Han sa att nedsk\u00e4rningarna skulle baseras p\u00e5 Kinas ekonomiska styrka, och gav inte n\u00e5gra siffror f\u00f6r dem.",
+      "id": "sv_se:1661:485880107959944598.wav",
+      "language": "sv_se",
+      "errors": 0,
+      "words": 17,
+      "phase": "warm",
+      "run": 2
+    },
+    {
+      "audio_secs": 11.52,
+      "backend": "WebGpu",
+      "inference_secs": 0.096316625,
+      "path": "target/fixtures/fleurs/sv_se/121725361684087135.wav",
+      "segments": [
+        {
+          "end_secs": 5.440000057220459,
+          "speaker": null,
+          "start_secs": 0.800000011920929,
+          "text": "Legeringar \u00e4r en blandning av tv\u00e5 eller flera metaller."
+        },
+        {
+          "end_secs": 11.199999809265137,
+          "speaker": null,
+          "start_secs": 5.440000057220459,
+          "text": "Kom ih\u00e5g att det finns m\u00e5nga olika grund\u00e4mnen i det periodiska systemet."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.023165625,
+        "encoder_secs": 0.071165959,
+        "frontend_secs": 0.00195475,
+        "lock_wait_secs": 8.3e-08,
+        "timestamps_secs": 1.5333e-05
+      },
+      "text": "Legeringar \u00e4r en blandning av tv\u00e5 eller flera metaller. Kom ih\u00e5g att det finns m\u00e5nga olika grund\u00e4mnen i det periodiska systemet.",
+      "id": "sv_se:1662:121725361684087135.wav",
+      "language": "sv_se",
+      "errors": 0,
+      "words": 21,
+      "phase": "warm",
+      "run": 2
+    },
+    {
+      "audio_secs": 11.34,
+      "backend": "WebGpu",
+      "inference_secs": 0.098373666,
+      "path": "target/fixtures/fleurs/sv_se/2278899330194391527.wav",
+      "segments": [
+        {
+          "end_secs": 5.119999885559082,
+          "speaker": null,
+          "start_secs": 1.2799999713897705,
+          "text": "Legeringar \u00e4r en blandning av tv\u00e5 eller flera metaller."
+        },
+        {
+          "end_secs": 10.079999923706055,
+          "speaker": null,
+          "start_secs": 5.119999885559082,
+          "text": "Kom ih\u00e5g att det finns m\u00e5nga olika grund\u00e4mnen i det periodiska systemet."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.0252515,
+        "encoder_secs": 0.071143125,
+        "frontend_secs": 0.001950959,
+        "lock_wait_secs": 1.25e-07,
+        "timestamps_secs": 1.3208e-05
+      },
+      "text": "Legeringar \u00e4r en blandning av tv\u00e5 eller flera metaller. Kom ih\u00e5g att det finns m\u00e5nga olika grund\u00e4mnen i det periodiska systemet.",
+      "id": "sv_se:1662:2278899330194391527.wav",
+      "language": "sv_se",
+      "errors": 0,
+      "words": 21,
+      "phase": "warm",
+      "run": 2
+    },
+    {
+      "audio_secs": 15.0,
+      "backend": "WebGpu",
+      "inference_secs": 0.120424291,
+      "path": "target/fixtures/fleurs/sv_se/12688026512340699992.wav",
+      "segments": [
+        {
+          "end_secs": 12.5600004196167,
+          "speaker": null,
+          "start_secs": 1.2799999713897705,
+          "text": "Cockamodalen, Kiles fr\u00e4msta destination f\u00f6r kl\u00e4ttring, \u00e4r k\u00e4nd som Sydamerikas josemitte, och har ett antal stora klippor och v\u00e4ggar i granit."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.035347375,
+        "encoder_secs": 0.08250425,
+        "frontend_secs": 0.00254075,
+        "lock_wait_secs": 1.67e-07,
+        "timestamps_secs": 1.475e-05
+      },
+      "text": "Cockamodalen, Kiles fr\u00e4msta destination f\u00f6r kl\u00e4ttring, \u00e4r k\u00e4nd som Sydamerikas josemitte, och har ett antal stora klippor och v\u00e4ggar i granit.",
+      "id": "sv_se:1663:12688026512340699992.wav",
+      "language": "sv_se",
+      "errors": 4,
+      "words": 22,
+      "phase": "warm",
+      "run": 2
+    },
+    {
+      "audio_secs": 12.96,
+      "backend": "WebGpu",
+      "inference_secs": 0.116996458,
+      "path": "target/fixtures/fleurs/sv_se/16339275641865603551.wav",
+      "segments": [
+        {
+          "end_secs": 11.4399995803833,
+          "speaker": null,
+          "start_secs": 0.8799999952316284,
+          "text": "Cookamodalen, Kiles fr\u00e4msta destination f\u00f6r kl\u00e4ttring, \u00e4r k\u00e4nd som Sydamerikas Josemite och har ett antal stora klippor och v\u00e4ggar i granit."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.033090334,
+        "encoder_secs": 0.081666958,
+        "frontend_secs": 0.002205833,
+        "lock_wait_secs": 4.2e-08,
+        "timestamps_secs": 1.6917e-05
+      },
+      "text": "Cookamodalen, Kiles fr\u00e4msta destination f\u00f6r kl\u00e4ttring, \u00e4r k\u00e4nd som Sydamerikas Josemite och har ett antal stora klippor och v\u00e4ggar i granit.",
+      "id": "sv_se:1663:16339275641865603551.wav",
+      "language": "sv_se",
+      "errors": 4,
+      "words": 22,
+      "phase": "warm",
+      "run": 2
+    },
+    {
+      "audio_secs": 8.64,
+      "backend": "WebGpu",
+      "inference_secs": 0.091467166,
+      "path": "target/fixtures/fleurs/sv_se/11569046426682372641.wav",
+      "segments": [
+        {
+          "end_secs": 8.479999542236328,
+          "speaker": null,
+          "start_secs": 1.2000000476837158,
+          "text": "R\u00f6r ihop de tv\u00e5 t\u00e5ra polbren formade sedan till en boll med rena bl\u00f6da h\u00e4nder."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.02146675,
+        "encoder_secs": 0.068491375,
+        "frontend_secs": 0.0014845,
+        "lock_wait_secs": 1.25e-07,
+        "timestamps_secs": 1.1917e-05
+      },
+      "text": "R\u00f6r ihop de tv\u00e5 t\u00e5ra polbren formade sedan till en boll med rena bl\u00f6da h\u00e4nder.",
+      "id": "sv_se:1664:11569046426682372641.wav",
+      "language": "sv_se",
+      "errors": 5,
+      "words": 16,
+      "phase": "warm",
+      "run": 2
+    },
+    {
+      "audio_secs": 5.16,
+      "backend": "WebGpu",
+      "inference_secs": 0.073840875,
+      "path": "target/fixtures/fleurs/sv_se/18430281348165445219.wav",
+      "segments": [
+        {
+          "end_secs": 5.039999961853027,
+          "speaker": null,
+          "start_secs": 0.07999999821186066,
+          "text": "R\u00f6r ihop de tv\u00e5 torra pulvren formar den sedan till en boll med rena bl\u00f6ta \u00e4nder."
+        }
+      ],
+      "stages": {
+        "decoder_secs": 0.018280458,
+        "encoder_secs": 0.054599041,
+        "frontend_secs": 0.00093625,
+        "lock_wait_secs": 4.2e-08,
+        "timestamps_secs": 1.5709e-05
+      },
+      "text": "R\u00f6r ihop de tv\u00e5 torra pulvren formar den sedan till en boll med rena bl\u00f6ta \u00e4nder.",
+      "id": "sv_se:1664:18430281348165445219.wav",
+      "language": "sv_se",
+      "errors": 3,
+      "words": 16,
+      "phase": "warm",
+      "run": 2
+    }
+  ],
+  "schema_version": 2,
+  "fixture_manifest_sha256": "8a7a481fcf51a264718926d154eb89cd10224a98a234db7e352f4181253e9720",
+  "runtime_files": {},
+  "requested_backend": "webgpu",
+  "model_manifest": {
+    "id": "parakeet-tdt-0.6b-v3",
+    "display_name": "Parakeet TDT 0.6B v3",
+    "provider_type": "parakeet",
+    "repo": "istupakov/parakeet-tdt-0.6b-v3-onnx",
+    "revision": "8f23f0c03c8761650bdb5b40aaf3e40d2c15f1ce",
+    "subdirectory": "",
+    "precision": "fp32",
+    "languages": [
+      "en",
+      "es",
+      "fr",
+      "de",
+      "bg",
+      "hr",
+      "cs",
+      "da",
+      "nl",
+      "et",
+      "fi",
+      "el",
+      "hu",
+      "it",
+      "lv",
+      "lt",
+      "mt",
+      "pl",
+      "pt",
+      "ro",
+      "sk",
+      "sl",
+      "sv",
+      "ru",
+      "uk"
+    ],
+    "files": [
+      {
+        "name": "vocab.txt",
+        "size": 93939,
+        "sha256": "d58544679ea4bc6ac563d1f545eb7d474bd6cfa467f0a6e2c1dc1c7d37e3c35d"
+      },
+      {
+        "name": "encoder-model.onnx",
+        "size": 41770866,
+        "sha256": "98a74b21b4cc0017c1e7030319a4a96f4a9506e50f0708f3a516d02a77c96bb1"
+      },
+      {
+        "name": "encoder-model.onnx.data",
+        "size": 2435420160,
+        "sha256": "9a22d372c51455c34f13405da2520baefb7125bd16981397561423ed32d24f36"
+      },
+      {
+        "name": "decoder_joint-model.onnx",
+        "size": 72520893,
+        "sha256": "e978ddf6688527182c10fde2eb4b83068421648985ef23f7a86be732be8706c1"
+      }
+    ]
+  },
+  "model_files_verified": true,
+  "model_manifest_sha256": "68b75e04061724cd5b93043f0a484e562e19d2146f6042563868cf762e77261e",
+  "cold_runs": 0,
+  "warm_runs": 3,
+  "screening": true,
+  "streaming": false,
+  "cpu_threads": 4,
+  "decoder_threads": null,
+  "profiled": true,
+  "os_build": "26A434",
+  "worker_source_commit": "f6c7283ae7b8f2e2ef475ef012ff40d4f63688ef"
+}

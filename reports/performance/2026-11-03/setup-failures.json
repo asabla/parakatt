@@ -1,0 +1,26 @@
+[
+  {
+    "case": "original-cpu",
+    "kind": "benchmark relocation setup failure",
+    "log": "dyld[73413]: Library not loaded: @rpath/libwebgpu_dawn.dylib\n  Referenced from: <D1E96643-A753-3FB5-8B51-F1142B9F8C3A> target/performance/2026-11-03/baseline-worker\n  Reason: tried: 'target/performance/2026-11-03/libwebgpu_dawn.dylib' (no such file), 'target/performance/2026-11-03/libwebgpu_dawn.dylib' (no such file)\ntime: command terminated abnormally\nTraceback (most recent call last):\n  File \"scripts/benchmark.py\", line 152, in <module>\n    main()\n    ~~~~^^\n  File \"scripts/benchmark.py\", line 106, in main\n    if not line: raise RuntimeError(\"Benchmark worker failed before model readiness; see its stderr\")\n                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nRuntimeError: Benchmark worker failed before model readiness; see its stderr\n",
+    "corrected_attempt": "original-cpu-screen.json"
+  },
+  {
+    "case": "profile-cpu",
+    "kind": "benchmark relocation setup failure",
+    "log": "dyld[73427]: Library not loaded: @rpath/libwebgpu_dawn.dylib\n  Referenced from: <8D55735E-F5E6-31E3-BD03-D6D11D17212E> target/performance/2026-11-03/profile-worker\n  Reason: tried: 'target/performance/2026-11-03/libwebgpu_dawn.dylib' (no such file), 'target/performance/2026-11-03/libwebgpu_dawn.dylib' (no such file)\ntime: command terminated abnormally\nTraceback (most recent call last):\n  File \"scripts/benchmark.py\", line 152, in <module>\n    main()\n    ~~~~^^\n  File \"scripts/benchmark.py\", line 106, in main\n    if not line: raise RuntimeError(\"Benchmark worker failed before model readiness; see its stderr\")\n                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nRuntimeError: Benchmark worker failed before model readiness; see its stderr\n",
+    "corrected_attempt": "profile-cpu-screen.json"
+  },
+  {
+    "case": "profile-webgpu",
+    "kind": "benchmark relocation setup failure",
+    "log": "dyld[73436]: Library not loaded: @rpath/libwebgpu_dawn.dylib\n  Referenced from: <8D55735E-F5E6-31E3-BD03-D6D11D17212E> target/performance/2026-11-03/profile-worker\n  Reason: tried: 'target/performance/2026-11-03/libwebgpu_dawn.dylib' (no such file), 'target/performance/2026-11-03/libwebgpu_dawn.dylib' (no such file)\ntime: command terminated abnormally\nTraceback (most recent call last):\n  File \"scripts/benchmark.py\", line 152, in <module>\n    main()\n    ~~~~^^\n  File \"scripts/benchmark.py\", line 106, in main\n    if not line: raise RuntimeError(\"Benchmark worker failed before model readiness; see its stderr\")\n                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nRuntimeError: Benchmark worker failed before model readiness; see its stderr\n",
+    "corrected_attempt": "profile-webgpu-screen.json"
+  },
+  {
+    "case": "profile-webgpu-decoder1",
+    "kind": "benchmark relocation setup failure",
+    "log": "dyld[73443]: Library not loaded: @rpath/libwebgpu_dawn.dylib\n  Referenced from: <8D55735E-F5E6-31E3-BD03-D6D11D17212E> target/performance/2026-11-03/profile-worker\n  Reason: tried: 'target/performance/2026-11-03/libwebgpu_dawn.dylib' (no such file), 'target/performance/2026-11-03/libwebgpu_dawn.dylib' (no such file)\ntime: command terminated abnormally\nTraceback (most recent call last):\n  File \"scripts/benchmark.py\", line 152, in <module>\n    main()\n    ~~~~^^\n  File \"scripts/benchmark.py\", line 106, in main\n    if not line: raise RuntimeError(\"Benchmark worker failed before model readiness; see its stderr\")\n                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nRuntimeError: Benchmark worker failed before model readiness; see its stderr\n",
+    "corrected_attempt": "profile-webgpu-decoder1-screen.json"
+  }
+]

@@ -1,0 +1,21 @@
+{
+  "passed": true,
+  "acceleration": true,
+  "languages": {
+    "en_us": {
+      "no_accuracy_regression": true,
+      "median_improvement": 0.7859777255021801,
+      "p95_no_regression": true
+    },
+    "sv_se": {
+      "no_accuracy_regression": true,
+      "median_improvement": 0.7810401713672589,
+      "p95_no_regression": true
+    }
+  },
+  "failures": [],
+  "baseline_binary": "e5f361cc6ececb707b5b793de4e270ad9844cc93853dcc5e3c9e66d3570009ca",
+  "candidate_binary": "e5f361cc6ececb707b5b793de4e270ad9844cc93853dcc5e3c9e66d3570009ca",
+  "expected_backend": "webgpu",
+  "allow_model_change": false
+}

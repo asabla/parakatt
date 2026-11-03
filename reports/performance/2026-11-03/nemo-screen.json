@@ -1,0 +1,6514 @@
+{
+  "commit": "f6c7283ae7b8f2e2ef475ef012ff40d4f63688ef",
+  "dirty": false,
+  "binary_sha256": "fe96398f2fb199b2f1c23a033076315c9cee43d565af468cdfa15d74dff46f58",
+  "os": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "hardware": "Apple M3 Max",
+  "runtime_lock_sha256": "f44d48c9c92b123e57e6a115396b0b5a91d07490d532a144f284e136ea092f9d",
+  "dataset_revision": "70bb2e84b976b7e960aa89f1c648e09c59f894dd",
+  "model_directory": "<verified model installation>",
+  "loads": [
+    {
+      "backend": "nemometal",
+      "load_secs": 16.617423291,
+      "thread_policy": "native default: min(8, hardware threads)",
+      "peak_memory_bytes": 288210944
+    }
+  ],
+  "summary": {
+    "en_us": {
+      "wer": 0.0625,
+      "median_secs": 0.0811369585,
+      "p95_secs": 0.099277208,
+      "real_time_factor": 0.01034494213115958
+    },
+    "sv_se": {
+      "wer": 0.14054054054054055,
+      "median_secs": 0.077894417,
+      "p95_secs": 0.110783583,
+      "real_time_factor": 0.008091562406857896
+    }
+  },
+  "observations": [
+    {
+      "audio_secs": 10.68,
+      "backend": "nemometal",
+      "inference_secs": 0.584690208,
+      "path": "target/fixtures/fleurs/en_us/12742373433258665797.wav",
+      "segments": [
+        {
+          "end_secs": 2.08,
+          "start_secs": 0.88,
+          "text": "Romanticism"
+        },
+        {
+          "end_secs": 2.24,
+          "start_secs": 2.08,
+          "text": "had"
+        },
+        {
+          "end_secs": 2.4,
+          "start_secs": 2.24,
+          "text": "a"
+        },
+        {
+          "end_secs": 2.8,
+          "start_secs": 2.4,
+          "text": "large"
+        },
+        {
+          "end_secs": 3.12,
+          "start_secs": 2.8,
+          "text": "element"
+        },
+        {
+          "end_secs": 3.36,
+          "start_secs": 3.12,
+          "text": "of"
+        },
+        {
+          "end_secs": 3.92,
+          "start_secs": 3.36,
+          "text": "cultural"
+        },
+        {
+          "end_secs": 4.8,
+          "start_secs": 3.92,
+          "text": "determinism"
+        },
+        {
+          "end_secs": 5.28,
+          "start_secs": 4.8,
+          "text": "drawn"
+        },
+        {
+          "end_secs": 5.44,
+          "start_secs": 5.28,
+          "text": "from"
+        },
+        {
+          "end_secs": 5.92,
+          "start_secs": 5.44,
+          "text": "writers"
+        },
+        {
+          "end_secs": 6.08,
+          "start_secs": 5.92,
+          "text": "such"
+        },
+        {
+          "end_secs": 6.32,
+          "start_secs": 6.08,
+          "text": "as"
+        },
+        {
+          "end_secs": 7.12,
+          "start_secs": 6.32,
+          "text": "Goth,"
+        },
+        {
+          "end_secs": 7.6,
+          "start_secs": 7.12,
+          "text": "Pitt"
+        },
+        {
+          "end_secs": 8.0,
+          "start_secs": 7.84,
+          "text": "and"
+        },
+        {
+          "end_secs": 9.36,
+          "start_secs": 8.0,
+          "text": "Schlagel."
+        }
+      ],
+      "text": "Romanticism had a large element of cultural determinism drawn from writers such as Goth, Pitt and Schlagel.",
+      "id": "en_us:1660:12742373433258665797.wav",
+      "language": "en_us",
+      "errors": 3,
+      "words": 17,
+      "phase": "warm",
+      "run": 0
+    },
+    {
+      "audio_secs": 11.52,
+      "backend": "nemometal",
+      "inference_secs": 0.090926666,
+      "path": "target/fixtures/fleurs/en_us/9327483361259434782.wav",
+      "segments": [
+        {
+          "end_secs": 2.32,
+          "start_secs": 1.12,
+          "text": "Romanticism"
+        },
+        {
+          "end_secs": 2.48,
+          "start_secs": 2.32,
+          "text": "had"
+        },
+        {
+          "end_secs": 2.64,
+          "start_secs": 2.48,
+          "text": "a"
+        },
+        {
+          "end_secs": 2.96,
+          "start_secs": 2.64,
+          "text": "large"
+        },
+        {
+          "end_secs": 3.28,
+          "start_secs": 2.96,
+          "text": "element"
+        },
+        {
+          "end_secs": 3.44,
+          "start_secs": 3.28,
+          "text": "of"
+        },
+        {
+          "end_secs": 4.0,
+          "start_secs": 3.44,
+          "text": "cultural"
+        },
+        {
+          "end_secs": 4.96,
+          "start_secs": 4.0,
+          "text": "determinism"
+        },
+        {
+          "end_secs": 5.36,
+          "start_secs": 4.96,
+          "text": "drawn"
+        },
+        {
+          "end_secs": 5.52,
+          "start_secs": 5.36,
+          "text": "from"
+        },
+        {
+          "end_secs": 6.0,
+          "start_secs": 5.52,
+          "text": "writers"
+        },
+        {
+          "end_secs": 6.16,
+          "start_secs": 6.0,
+          "text": "such"
+        },
+        {
+          "end_secs": 6.32,
+          "start_secs": 6.16,
+          "text": "as"
+        },
+        {
+          "end_secs": 7.2,
+          "start_secs": 6.32,
+          "text": "Goth,"
+        },
+        {
+          "end_secs": 8.08,
+          "start_secs": 7.2,
+          "text": "Ficht,"
+        },
+        {
+          "end_secs": 8.4,
+          "start_secs": 8.08,
+          "text": "and"
+        },
+        {
+          "end_secs": 9.92,
+          "start_secs": 8.4,
+          "text": "Schlegel."
+        }
+      ],
+      "text": "Romanticism had a large element of cultural determinism drawn from writers such as Goth, Ficht, and Schlegel.",
+      "id": "en_us:1660:9327483361259434782.wav",
+      "language": "en_us",
+      "errors": 2,
+      "words": 17,
+      "phase": "warm",
+      "run": 0
+    },
+    {
+      "audio_secs": 6.36,
+      "backend": "nemometal",
+      "inference_secs": 0.079739417,
+      "path": "target/fixtures/fleurs/en_us/6917907748364342404.wav",
+      "segments": [
+        {
+          "end_secs": 0.64,
+          "start_secs": 0.32,
+          "text": "He"
+        },
+        {
+          "end_secs": 0.96,
+          "start_secs": 0.64,
+          "text": "did"
+        },
+        {
+          "end_secs": 1.2,
+          "start_secs": 0.96,
+          "text": "not"
+        },
+        {
+          "end_secs": 1.36,
+          "start_secs": 1.2,
+          "text": "set"
+        },
+        {
+          "end_secs": 1.52,
+          "start_secs": 1.36,
+          "text": "a"
+        },
+        {
+          "end_secs": 1.76,
+          "start_secs": 1.52,
+          "text": "figure"
+        },
+        {
+          "end_secs": 1.92,
+          "start_secs": 1.76,
+          "text": "for"
+        },
+        {
+          "end_secs": 2.0,
+          "start_secs": 1.92,
+          "text": "the"
+        },
+        {
+          "end_secs": 2.32,
+          "start_secs": 2.0,
+          "text": "cuts"
+        },
+        {
+          "end_secs": 2.72,
+          "start_secs": 2.4,
+          "text": "saying"
+        },
+        {
+          "end_secs": 2.88,
+          "start_secs": 2.72,
+          "text": "they"
+        },
+        {
+          "end_secs": 3.04,
+          "start_secs": 2.88,
+          "text": "will"
+        },
+        {
+          "end_secs": 3.12,
+          "start_secs": 3.04,
+          "text": "be"
+        },
+        {
+          "end_secs": 3.36,
+          "start_secs": 3.12,
+          "text": "made"
+        },
+        {
+          "end_secs": 3.6,
+          "start_secs": 3.36,
+          "text": "based"
+        },
+        {
+          "end_secs": 3.76,
+          "start_secs": 3.6,
+          "text": "on"
+        },
+        {
+          "end_secs": 4.4,
+          "start_secs": 3.76,
+          "text": "China's"
+        },
+        {
+          "end_secs": 4.96,
+          "start_secs": 4.4,
+          "text": "economic"
+        },
+        {
+          "end_secs": 6.16,
+          "start_secs": 4.96,
+          "text": "output."
+        }
+      ],
+      "text": "He did not set a figure for the cuts saying they will be made based on China's economic output.",
+      "id": "en_us:1661:6917907748364342404.wav",
+      "language": "en_us",
+      "errors": 0,
+      "words": 19,
+      "phase": "warm",
+      "run": 0
+    },
+    {
+      "audio_secs": 6.9,
+      "backend": "nemometal",
+      "inference_secs": 0.062413916,
+      "path": "target/fixtures/fleurs/en_us/8546403500877190903.wav",
+      "segments": [
+        {
+          "end_secs": 0.64,
+          "start_secs": 0.32,
+          "text": "He"
+        },
+        {
+          "end_secs": 0.96,
+          "start_secs": 0.64,
+          "text": "did"
+        },
+        {
+          "end_secs": 1.28,
+          "start_secs": 0.96,
+          "text": "not"
+        },
+        {
+          "end_secs": 1.52,
+          "start_secs": 1.28,
+          "text": "set"
+        },
+        {
+          "end_secs": 1.68,
+          "start_secs": 1.52,
+          "text": "a"
+        },
+        {
+          "end_secs": 2.0,
+          "start_secs": 1.68,
+          "text": "figure"
+        },
+        {
+          "end_secs": 2.16,
+          "start_secs": 2.0,
+          "text": "for"
+        },
+        {
+          "end_secs": 2.32,
+          "start_secs": 2.16,
+          "text": "the"
+        },
+        {
+          "end_secs": 2.64,
+          "start_secs": 2.32,
+          "text": "cuts"
+        },
+        {
+          "end_secs": 3.12,
+          "start_secs": 2.8,
+          "text": "saying"
+        },
+        {
+          "end_secs": 3.28,
+          "start_secs": 3.12,
+          "text": "they"
+        },
+        {
+          "end_secs": 3.44,
+          "start_secs": 3.28,
+          "text": "will"
+        },
+        {
+          "end_secs": 3.6,
+          "start_secs": 3.44,
+          "text": "be"
+        },
+        {
+          "end_secs": 3.84,
+          "start_secs": 3.6,
+          "text": "made"
+        },
+        {
+          "end_secs": 4.08,
+          "start_secs": 3.84,
+          "text": "based"
+        },
+        {
+          "end_secs": 4.24,
+          "start_secs": 4.08,
+          "text": "on"
+        },
+        {
+          "end_secs": 4.8,
+          "start_secs": 4.24,
+          "text": "China's"
+        },
+        {
+          "end_secs": 5.36,
+          "start_secs": 4.8,
+          "text": "economic"
+        },
+        {
+          "end_secs": 6.56,
+          "start_secs": 5.36,
+          "text": "output."
+        }
+      ],
+      "text": "He did not set a figure for the cuts saying they will be made based on China's economic output.",
+      "id": "en_us:1661:8546403500877190903.wav",
+      "language": "en_us",
+      "errors": 0,
+      "words": 19,
+      "phase": "warm",
+      "run": 0
+    },
+    {
+      "audio_secs": 8.38,
+      "backend": "nemometal",
+      "inference_secs": 0.072966459,
+      "path": "target/fixtures/fleurs/en_us/10614481583312370701.wav",
+      "segments": [
+        {
+          "end_secs": 1.28,
+          "start_secs": 0.56,
+          "text": "Alloys"
+        },
+        {
+          "end_secs": 1.44,
+          "start_secs": 1.28,
+          "text": "are"
+        },
+        {
+          "end_secs": 1.84,
+          "start_secs": 1.44,
+          "text": "basically"
+        },
+        {
+          "end_secs": 1.92,
+          "start_secs": 1.84,
+          "text": "a"
+        },
+        {
+          "end_secs": 2.24,
+          "start_secs": 1.92,
+          "text": "mixture"
+        },
+        {
+          "end_secs": 2.32,
+          "start_secs": 2.24,
+          "text": "of"
+        },
+        {
+          "end_secs": 2.48,
+          "start_secs": 2.32,
+          "text": "2"
+        },
+        {
+          "end_secs": 2.8,
+          "start_secs": 2.56,
+          "text": "or"
+        },
+        {
+          "end_secs": 3.04,
+          "start_secs": 2.8,
+          "text": "more"
+        },
+        {
+          "end_secs": 3.68,
+          "start_secs": 3.04,
+          "text": "metals."
+        },
+        {
+          "end_secs": 4.0,
+          "start_secs": 3.68,
+          "text": "Don't"
+        },
+        {
+          "end_secs": 4.4,
+          "start_secs": 4.0,
+          "text": "forget"
+        },
+        {
+          "end_secs": 4.56,
+          "start_secs": 4.4,
+          "text": "there"
+        },
+        {
+          "end_secs": 4.72,
+          "start_secs": 4.56,
+          "text": "are"
+        },
+        {
+          "end_secs": 5.04,
+          "start_secs": 4.72,
+          "text": "many"
+        },
+        {
+          "end_secs": 5.52,
+          "start_secs": 5.04,
+          "text": "elements"
+        },
+        {
+          "end_secs": 5.68,
+          "start_secs": 5.52,
+          "text": "on"
+        },
+        {
+          "end_secs": 5.92,
+          "start_secs": 5.68,
+          "text": "the"
+        },
+        {
+          "end_secs": 6.48,
+          "start_secs": 5.92,
+          "text": "PRI"
+        },
+        {
+          "end_secs": 7.76,
+          "start_secs": 6.8,
+          "text": "table."
+        }
+      ],
+      "text": "Alloys are basically a mixture of 2 or more metals. Don't forget there are many elements on the PRI table.",
+      "id": "en_us:1662:10614481583312370701.wav",
+      "language": "en_us",
+      "errors": 3,
+      "words": 21,
+      "phase": "warm",
+      "run": 0
+    },
+    {
+      "audio_secs": 11.16,
+      "backend": "nemometal",
+      "inference_secs": 0.082868125,
+      "path": "target/fixtures/fleurs/en_us/7378917572989533960.wav",
+      "segments": [
+        {
+          "end_secs": 1.52,
+          "start_secs": 0.64,
+          "text": "Alloys"
+        },
+        {
+          "end_secs": 1.76,
+          "start_secs": 1.52,
+          "text": "are"
+        },
+        {
+          "end_secs": 2.32,
+          "start_secs": 1.76,
+          "text": "basically"
+        },
+        {
+          "end_secs": 2.56,
+          "start_secs": 2.32,
+          "text": "a"
+        },
+        {
+          "end_secs": 3.12,
+          "start_secs": 2.56,
+          "text": "mixture"
+        },
+        {
+          "end_secs": 3.36,
+          "start_secs": 3.12,
+          "text": "of"
+        },
+        {
+          "end_secs": 3.68,
+          "start_secs": 3.36,
+          "text": "two"
+        },
+        {
+          "end_secs": 4.0,
+          "start_secs": 3.68,
+          "text": "or"
+        },
+        {
+          "end_secs": 4.32,
+          "start_secs": 4.0,
+          "text": "more"
+        },
+        {
+          "end_secs": 5.28,
+          "start_secs": 4.32,
+          "text": "metals."
+        },
+        {
+          "end_secs": 5.76,
+          "start_secs": 5.28,
+          "text": "Don't"
+        },
+        {
+          "end_secs": 6.32,
+          "start_secs": 5.68,
+          "text": "forget"
+        },
+        {
+          "end_secs": 6.48,
+          "start_secs": 6.32,
+          "text": "there"
+        },
+        {
+          "end_secs": 6.72,
+          "start_secs": 6.48,
+          "text": "are"
+        },
+        {
+          "end_secs": 7.2,
+          "start_secs": 6.72,
+          "text": "many"
+        },
+        {
+          "end_secs": 7.84,
+          "start_secs": 7.2,
+          "text": "elements"
+        },
+        {
+          "end_secs": 8.08,
+          "start_secs": 7.84,
+          "text": "on"
+        },
+        {
+          "end_secs": 8.16,
+          "start_secs": 8.08,
+          "text": "the"
+        },
+        {
+          "end_secs": 9.36,
+          "start_secs": 8.4,
+          "text": "periodic"
+        },
+        {
+          "end_secs": 10.64,
+          "start_secs": 9.68,
+          "text": "table."
+        }
+      ],
+      "text": "Alloys are basically a mixture of two or more metals. Don't forget there are many elements on the periodic table.",
+      "id": "en_us:1662:7378917572989533960.wav",
+      "language": "en_us",
+      "errors": 1,
+      "words": 21,
+      "phase": "warm",
+      "run": 0
+    },
+    {
+      "audio_secs": 12.12,
+      "backend": "nemometal",
+      "inference_secs": 0.099277208,
+      "path": "target/fixtures/fleurs/en_us/3156459702070203007.wav",
+      "segments": [
+        {
+          "end_secs": 1.68,
+          "start_secs": 0.8,
+          "text": "Chokamo"
+        },
+        {
+          "end_secs": 2.24,
+          "start_secs": 1.84,
+          "text": "Valley"
+        },
+        {
+          "end_secs": 3.12,
+          "start_secs": 2.48,
+          "text": "Chile's"
+        },
+        {
+          "end_secs": 3.44,
+          "start_secs": 3.12,
+          "text": "premier"
+        },
+        {
+          "end_secs": 4.0,
+          "start_secs": 3.44,
+          "text": "climbing"
+        },
+        {
+          "end_secs": 4.64,
+          "start_secs": 4.0,
+          "text": "destination"
+        },
+        {
+          "end_secs": 5.04,
+          "start_secs": 4.8,
+          "text": "known"
+        },
+        {
+          "end_secs": 5.2,
+          "start_secs": 5.04,
+          "text": "as"
+        },
+        {
+          "end_secs": 5.36,
+          "start_secs": 5.2,
+          "text": "the"
+        },
+        {
+          "end_secs": 6.16,
+          "start_secs": 5.36,
+          "text": "Yosemite"
+        },
+        {
+          "end_secs": 6.24,
+          "start_secs": 6.16,
+          "text": "of"
+        },
+        {
+          "end_secs": 6.56,
+          "start_secs": 6.24,
+          "text": "South"
+        },
+        {
+          "end_secs": 7.12,
+          "start_secs": 6.56,
+          "text": "America,"
+        },
+        {
+          "end_secs": 7.36,
+          "start_secs": 7.12,
+          "text": "with"
+        },
+        {
+          "end_secs": 7.44,
+          "start_secs": 7.36,
+          "text": "a"
+        },
+        {
+          "end_secs": 7.92,
+          "start_secs": 7.44,
+          "text": "variety"
+        },
+        {
+          "end_secs": 8.16,
+          "start_secs": 7.92,
+          "text": "of"
+        },
+        {
+          "end_secs": 8.64,
+          "start_secs": 8.16,
+          "text": "granite"
+        },
+        {
+          "end_secs": 9.04,
+          "start_secs": 8.64,
+          "text": "big"
+        },
+        {
+          "end_secs": 9.44,
+          "start_secs": 9.04,
+          "text": "walls"
+        },
+        {
+          "end_secs": 9.76,
+          "start_secs": 9.44,
+          "text": "and"
+        },
+        {
+          "end_secs": 10.8,
+          "start_secs": 9.76,
+          "text": "crags."
+        }
+      ],
+      "text": "Chokamo Valley Chile's premier climbing destination known as the Yosemite of South America, with a variety of granite big walls and crags.",
+      "id": "en_us:1663:3156459702070203007.wav",
+      "language": "en_us",
+      "errors": 1,
+      "words": 22,
+      "phase": "warm",
+      "run": 0
+    },
+    {
+      "audio_secs": 9.9,
+      "backend": "nemometal",
+      "inference_secs": 0.084714125,
+      "path": "target/fixtures/fleurs/en_us/6603783905885843777.wav",
+      "segments": [
+        {
+          "end_secs": 1.04,
+          "start_secs": 0.24,
+          "text": "Cacho"
+        },
+        {
+          "end_secs": 1.44,
+          "start_secs": 1.04,
+          "text": "Valley,"
+        },
+        {
+          "end_secs": 1.92,
+          "start_secs": 1.44,
+          "text": "Chile's"
+        },
+        {
+          "end_secs": 2.24,
+          "start_secs": 1.92,
+          "text": "premier"
+        },
+        {
+          "end_secs": 2.64,
+          "start_secs": 2.24,
+          "text": "climbing"
+        },
+        {
+          "end_secs": 3.2,
+          "start_secs": 2.64,
+          "text": "destination,"
+        },
+        {
+          "end_secs": 3.44,
+          "start_secs": 3.2,
+          "text": "known"
+        },
+        {
+          "end_secs": 3.52,
+          "start_secs": 3.44,
+          "text": "as"
+        },
+        {
+          "end_secs": 3.76,
+          "start_secs": 3.52,
+          "text": "the"
+        },
+        {
+          "end_secs": 4.48,
+          "start_secs": 3.76,
+          "text": "Yosemite"
+        },
+        {
+          "end_secs": 4.8,
+          "start_secs": 4.64,
+          "text": "of"
+        },
+        {
+          "end_secs": 5.04,
+          "start_secs": 4.8,
+          "text": "South"
+        },
+        {
+          "end_secs": 5.6,
+          "start_secs": 5.04,
+          "text": "America,"
+        },
+        {
+          "end_secs": 5.84,
+          "start_secs": 5.6,
+          "text": "with"
+        },
+        {
+          "end_secs": 6.0,
+          "start_secs": 5.84,
+          "text": "a"
+        },
+        {
+          "end_secs": 6.4,
+          "start_secs": 6.0,
+          "text": "variety"
+        },
+        {
+          "end_secs": 6.64,
+          "start_secs": 6.4,
+          "text": "of"
+        },
+        {
+          "end_secs": 7.2,
+          "start_secs": 6.64,
+          "text": "granite"
+        },
+        {
+          "end_secs": 7.76,
+          "start_secs": 7.44,
+          "text": "big"
+        },
+        {
+          "end_secs": 8.08,
+          "start_secs": 7.76,
+          "text": "walls"
+        },
+        {
+          "end_secs": 8.32,
+          "start_secs": 8.08,
+          "text": "and"
+        },
+        {
+          "end_secs": 9.28,
+          "start_secs": 8.32,
+          "text": "crags."
+        }
+      ],
+      "text": "Cacho Valley, Chile's premier climbing destination, known as the Yosemite of South America, with a variety of granite big walls and crags.",
+      "id": "en_us:1663:6603783905885843777.wav",
+      "language": "en_us",
+      "errors": 1,
+      "words": 22,
+      "phase": "warm",
+      "run": 0
+    },
+    {
+      "audio_secs": 8.36,
+      "backend": "nemometal",
+      "inference_secs": 0.072865833,
+      "path": "target/fixtures/fleurs/en_us/13031516147694203229.wav",
+      "segments": [
+        {
+          "end_secs": 1.28,
+          "start_secs": 0.56,
+          "text": "Swirl"
+        },
+        {
+          "end_secs": 1.36,
+          "start_secs": 1.28,
+          "text": "the"
+        },
+        {
+          "end_secs": 1.6,
+          "start_secs": 1.36,
+          "text": "two"
+        },
+        {
+          "end_secs": 1.92,
+          "start_secs": 1.6,
+          "text": "dry"
+        },
+        {
+          "end_secs": 2.48,
+          "start_secs": 1.92,
+          "text": "powers"
+        },
+        {
+          "end_secs": 2.72,
+          "start_secs": 2.48,
+          "text": "together"
+        },
+        {
+          "end_secs": 2.96,
+          "start_secs": 2.8,
+          "text": "and"
+        },
+        {
+          "end_secs": 3.2,
+          "start_secs": 2.96,
+          "text": "then"
+        },
+        {
+          "end_secs": 3.52,
+          "start_secs": 3.2,
+          "text": "with"
+        },
+        {
+          "end_secs": 3.92,
+          "start_secs": 3.52,
+          "text": "clean"
+        },
+        {
+          "end_secs": 4.56,
+          "start_secs": 4.08,
+          "text": "wet"
+        },
+        {
+          "end_secs": 4.96,
+          "start_secs": 4.56,
+          "text": "hands"
+        },
+        {
+          "end_secs": 5.84,
+          "start_secs": 5.2,
+          "text": "squeeze"
+        },
+        {
+          "end_secs": 6.08,
+          "start_secs": 5.84,
+          "text": "them"
+        },
+        {
+          "end_secs": 6.24,
+          "start_secs": 6.08,
+          "text": "into"
+        },
+        {
+          "end_secs": 6.48,
+          "start_secs": 6.24,
+          "text": "a"
+        },
+        {
+          "end_secs": 6.96,
+          "start_secs": 6.48,
+          "text": "ball."
+        }
+      ],
+      "text": "Swirl the two dry powers together and then with clean wet hands squeeze them into a ball.",
+      "id": "en_us:1664:13031516147694203229.wav",
+      "language": "en_us",
+      "errors": 1,
+      "words": 17,
+      "phase": "warm",
+      "run": 0
+    },
+    {
+      "audio_secs": 5.4,
+      "backend": "nemometal",
+      "inference_secs": 0.060389833,
+      "path": "target/fixtures/fleurs/en_us/1944915261206096046.wav",
+      "segments": [
+        {
+          "end_secs": 0.8,
+          "start_secs": 0.16,
+          "text": "Swirl"
+        },
+        {
+          "end_secs": 0.88,
+          "start_secs": 0.8,
+          "text": "the"
+        },
+        {
+          "end_secs": 1.2,
+          "start_secs": 0.88,
+          "text": "two"
+        },
+        {
+          "end_secs": 1.52,
+          "start_secs": 1.2,
+          "text": "dry"
+        },
+        {
+          "end_secs": 2.0,
+          "start_secs": 1.52,
+          "text": "powders"
+        },
+        {
+          "end_secs": 2.24,
+          "start_secs": 2.0,
+          "text": "together"
+        },
+        {
+          "end_secs": 2.4,
+          "start_secs": 2.32,
+          "text": "and"
+        },
+        {
+          "end_secs": 2.56,
+          "start_secs": 2.4,
+          "text": "then"
+        },
+        {
+          "end_secs": 2.88,
+          "start_secs": 2.64,
+          "text": "with"
+        },
+        {
+          "end_secs": 3.12,
+          "start_secs": 2.88,
+          "text": "clean"
+        },
+        {
+          "end_secs": 3.44,
+          "start_secs": 3.2,
+          "text": "wet"
+        },
+        {
+          "end_secs": 3.68,
+          "start_secs": 3.44,
+          "text": "hands"
+        },
+        {
+          "end_secs": 4.24,
+          "start_secs": 3.84,
+          "text": "squeeze"
+        },
+        {
+          "end_secs": 4.4,
+          "start_secs": 4.24,
+          "text": "them"
+        },
+        {
+          "end_secs": 4.56,
+          "start_secs": 4.4,
+          "text": "into"
+        },
+        {
+          "end_secs": 4.64,
+          "start_secs": 4.56,
+          "text": "a"
+        },
+        {
+          "end_secs": 5.36,
+          "start_secs": 4.64,
+          "text": "ball."
+        }
+      ],
+      "text": "Swirl the two dry powders together and then with clean wet hands squeeze them into a ball.",
+      "id": "en_us:1664:1944915261206096046.wav",
+      "language": "en_us",
+      "errors": 0,
+      "words": 17,
+      "phase": "warm",
+      "run": 0
+    },
+    {
+      "audio_secs": 8.46,
+      "backend": "nemometal",
+      "inference_secs": 0.074093625,
+      "path": "target/fixtures/fleurs/sv_se/11017371815100260878.wav",
+      "segments": [
+        {
+          "end_secs": 1.04,
+          "start_secs": 0.16,
+          "text": "Romantiken"
+        },
+        {
+          "end_secs": 1.68,
+          "start_secs": 1.04,
+          "text": "inneh\u00e5ller"
+        },
+        {
+          "end_secs": 2.08,
+          "start_secs": 1.76,
+          "text": "stort"
+        },
+        {
+          "end_secs": 2.4,
+          "start_secs": 2.08,
+          "text": "element"
+        },
+        {
+          "end_secs": 2.72,
+          "start_secs": 2.48,
+          "text": "av"
+        },
+        {
+          "end_secs": 3.44,
+          "start_secs": 2.72,
+          "text": "determinism"
+        },
+        {
+          "end_secs": 3.92,
+          "start_secs": 3.68,
+          "text": "med"
+        },
+        {
+          "end_secs": 4.56,
+          "start_secs": 3.92,
+          "text": "ursprung"
+        },
+        {
+          "end_secs": 4.8,
+          "start_secs": 4.64,
+          "text": "hos"
+        },
+        {
+          "end_secs": 5.36,
+          "start_secs": 4.8,
+          "text": "f\u00f6rfattare"
+        },
+        {
+          "end_secs": 5.6,
+          "start_secs": 5.36,
+          "text": "som"
+        },
+        {
+          "end_secs": 6.24,
+          "start_secs": 5.6,
+          "text": "g\u00e5et,"
+        },
+        {
+          "end_secs": 6.64,
+          "start_secs": 6.24,
+          "text": "fiste"
+        },
+        {
+          "end_secs": 7.12,
+          "start_secs": 6.88,
+          "text": "och"
+        },
+        {
+          "end_secs": 8.24,
+          "start_secs": 7.12,
+          "text": "slegel."
+        }
+      ],
+      "text": "Romantiken inneh\u00e5ller stort element av determinism med ursprung hos f\u00f6rfattare som g\u00e5et, fiste och slegel.",
+      "id": "sv_se:1660:11017371815100260878.wav",
+      "language": "sv_se",
+      "errors": 5,
+      "words": 16,
+      "phase": "warm",
+      "run": 0
+    },
+    {
+      "audio_secs": 9.36,
+      "backend": "nemometal",
+      "inference_secs": 0.074253125,
+      "path": "target/fixtures/fleurs/sv_se/1010284889812064135.wav",
+      "segments": [
+        {
+          "end_secs": 0.96,
+          "start_secs": 0.64,
+          "text": "Han"
+        },
+        {
+          "end_secs": 1.2,
+          "start_secs": 0.96,
+          "text": "sa"
+        },
+        {
+          "end_secs": 1.68,
+          "start_secs": 1.36,
+          "text": "att"
+        },
+        {
+          "end_secs": 2.64,
+          "start_secs": 1.68,
+          "text": "nedsk\u00e4rningarna"
+        },
+        {
+          "end_secs": 2.96,
+          "start_secs": 2.72,
+          "text": "skulle"
+        },
+        {
+          "end_secs": 3.44,
+          "start_secs": 2.96,
+          "text": "baseras"
+        },
+        {
+          "end_secs": 3.6,
+          "start_secs": 3.44,
+          "text": "p\u00e5"
+        },
+        {
+          "end_secs": 3.84,
+          "start_secs": 3.6,
+          "text": "Kinas"
+        },
+        {
+          "end_secs": 4.64,
+          "start_secs": 4.0,
+          "text": "ekonomiska"
+        },
+        {
+          "end_secs": 5.28,
+          "start_secs": 4.64,
+          "text": "styrka"
+        },
+        {
+          "end_secs": 5.52,
+          "start_secs": 5.28,
+          "text": "och"
+        },
+        {
+          "end_secs": 5.92,
+          "start_secs": 5.52,
+          "text": "gav"
+        },
+        {
+          "end_secs": 6.24,
+          "start_secs": 5.92,
+          "text": "inte"
+        },
+        {
+          "end_secs": 6.56,
+          "start_secs": 6.24,
+          "text": "n\u00e5gra"
+        },
+        {
+          "end_secs": 6.96,
+          "start_secs": 6.56,
+          "text": "siffror"
+        },
+        {
+          "end_secs": 7.28,
+          "start_secs": 7.12,
+          "text": "f\u00f6r"
+        },
+        {
+          "end_secs": 8.24,
+          "start_secs": 7.28,
+          "text": "dem."
+        }
+      ],
+      "text": "Han sa att nedsk\u00e4rningarna skulle baseras p\u00e5 Kinas ekonomiska styrka och gav inte n\u00e5gra siffror f\u00f6r dem.",
+      "id": "sv_se:1661:1010284889812064135.wav",
+      "language": "sv_se",
+      "errors": 0,
+      "words": 17,
+      "phase": "warm",
+      "run": 0
+    },
+    {
+      "audio_secs": 8.16,
+      "backend": "nemometal",
+      "inference_secs": 0.069794541,
+      "path": "target/fixtures/fleurs/sv_se/10882455023026937910.wav",
+      "segments": [
+        {
+          "end_secs": 0.96,
+          "start_secs": 0.64,
+          "text": "Han"
+        },
+        {
+          "end_secs": 1.36,
+          "start_secs": 1.12,
+          "text": "sa"
+        },
+        {
+          "end_secs": 1.6,
+          "start_secs": 1.36,
+          "text": "att"
+        },
+        {
+          "end_secs": 2.48,
+          "start_secs": 1.6,
+          "text": "nedf\u00f6rj\u00e4rningarna"
+        },
+        {
+          "end_secs": 2.8,
+          "start_secs": 2.56,
+          "text": "skulle"
+        },
+        {
+          "end_secs": 3.28,
+          "start_secs": 2.8,
+          "text": "baseras"
+        },
+        {
+          "end_secs": 3.36,
+          "start_secs": 3.28,
+          "text": "p\u00e5"
+        },
+        {
+          "end_secs": 3.68,
+          "start_secs": 3.36,
+          "text": "Kinas"
+        },
+        {
+          "end_secs": 4.48,
+          "start_secs": 3.84,
+          "text": "ekonomiska"
+        },
+        {
+          "end_secs": 5.04,
+          "start_secs": 4.48,
+          "text": "styrka"
+        },
+        {
+          "end_secs": 5.2,
+          "start_secs": 5.04,
+          "text": "och"
+        },
+        {
+          "end_secs": 5.44,
+          "start_secs": 5.2,
+          "text": "gav"
+        },
+        {
+          "end_secs": 5.68,
+          "start_secs": 5.44,
+          "text": "inte"
+        },
+        {
+          "end_secs": 6.0,
+          "start_secs": 5.68,
+          "text": "n\u00e5gra"
+        },
+        {
+          "end_secs": 6.48,
+          "start_secs": 6.0,
+          "text": "siffror"
+        },
+        {
+          "end_secs": 6.8,
+          "start_secs": 6.48,
+          "text": "f\u00f6r"
+        },
+        {
+          "end_secs": 7.44,
+          "start_secs": 6.8,
+          "text": "den."
+        }
+      ],
+      "text": "Han sa att nedf\u00f6rj\u00e4rningarna skulle baseras p\u00e5 Kinas ekonomiska styrka och gav inte n\u00e5gra siffror f\u00f6r den.",
+      "id": "sv_se:1661:10882455023026937910.wav",
+      "language": "sv_se",
+      "errors": 2,
+      "words": 17,
+      "phase": "warm",
+      "run": 0
+    },
+    {
+      "audio_secs": 10.5,
+      "backend": "nemometal",
+      "inference_secs": 0.081953834,
+      "path": "target/fixtures/fleurs/sv_se/485880107959944598.wav",
+      "segments": [
+        {
+          "end_secs": 1.28,
+          "start_secs": 0.96,
+          "text": "Han"
+        },
+        {
+          "end_secs": 1.52,
+          "start_secs": 1.28,
+          "text": "sa"
+        },
+        {
+          "end_secs": 1.92,
+          "start_secs": 1.68,
+          "text": "att"
+        },
+        {
+          "end_secs": 3.2,
+          "start_secs": 1.92,
+          "text": "nedsk\u00e4rningarna"
+        },
+        {
+          "end_secs": 3.68,
+          "start_secs": 3.36,
+          "text": "skulle"
+        },
+        {
+          "end_secs": 4.32,
+          "start_secs": 3.68,
+          "text": "baseras"
+        },
+        {
+          "end_secs": 4.48,
+          "start_secs": 4.32,
+          "text": "p\u00e5"
+        },
+        {
+          "end_secs": 4.96,
+          "start_secs": 4.48,
+          "text": "Kina"
+        },
+        {
+          "end_secs": 6.0,
+          "start_secs": 5.12,
+          "text": "ekonomiska"
+        },
+        {
+          "end_secs": 6.96,
+          "start_secs": 6.0,
+          "text": "styrka,"
+        },
+        {
+          "end_secs": 7.2,
+          "start_secs": 6.96,
+          "text": "och"
+        },
+        {
+          "end_secs": 7.68,
+          "start_secs": 7.2,
+          "text": "gav"
+        },
+        {
+          "end_secs": 8.0,
+          "start_secs": 7.68,
+          "text": "inte"
+        },
+        {
+          "end_secs": 8.32,
+          "start_secs": 8.0,
+          "text": "n\u00e5gra"
+        },
+        {
+          "end_secs": 8.96,
+          "start_secs": 8.4,
+          "text": "siffror"
+        },
+        {
+          "end_secs": 9.28,
+          "start_secs": 8.96,
+          "text": "f\u00f6r"
+        },
+        {
+          "end_secs": 10.16,
+          "start_secs": 9.28,
+          "text": "dem."
+        }
+      ],
+      "text": "Han sa att nedsk\u00e4rningarna skulle baseras p\u00e5 Kina ekonomiska styrka, och gav inte n\u00e5gra siffror f\u00f6r dem.",
+      "id": "sv_se:1661:485880107959944598.wav",
+      "language": "sv_se",
+      "errors": 1,
+      "words": 17,
+      "phase": "warm",
+      "run": 0
+    },
+    {
+      "audio_secs": 11.52,
+      "backend": "nemometal",
+      "inference_secs": 0.08791925,
+      "path": "target/fixtures/fleurs/sv_se/121725361684087135.wav",
+      "segments": [
+        {
+          "end_secs": 2.0,
+          "start_secs": 0.8,
+          "text": "Legeringar"
+        },
+        {
+          "end_secs": 2.24,
+          "start_secs": 2.0,
+          "text": "\u00e4r"
+        },
+        {
+          "end_secs": 2.4,
+          "start_secs": 2.24,
+          "text": "en"
+        },
+        {
+          "end_secs": 3.12,
+          "start_secs": 2.4,
+          "text": "blandning"
+        },
+        {
+          "end_secs": 3.36,
+          "start_secs": 3.12,
+          "text": "av"
+        },
+        {
+          "end_secs": 3.68,
+          "start_secs": 3.36,
+          "text": "tv\u00e5"
+        },
+        {
+          "end_secs": 4.0,
+          "start_secs": 3.68,
+          "text": "eller"
+        },
+        {
+          "end_secs": 4.56,
+          "start_secs": 4.0,
+          "text": "flera"
+        },
+        {
+          "end_secs": 5.44,
+          "start_secs": 4.56,
+          "text": "metaller."
+        },
+        {
+          "end_secs": 5.6,
+          "start_secs": 5.44,
+          "text": "Kom"
+        },
+        {
+          "end_secs": 6.24,
+          "start_secs": 5.84,
+          "text": "ih\u00e5g"
+        },
+        {
+          "end_secs": 6.4,
+          "start_secs": 6.24,
+          "text": "att"
+        },
+        {
+          "end_secs": 6.56,
+          "start_secs": 6.4,
+          "text": "det"
+        },
+        {
+          "end_secs": 6.88,
+          "start_secs": 6.56,
+          "text": "finns"
+        },
+        {
+          "end_secs": 7.12,
+          "start_secs": 6.88,
+          "text": "m\u00e5nga"
+        },
+        {
+          "end_secs": 7.76,
+          "start_secs": 7.28,
+          "text": "olika"
+        },
+        {
+          "end_secs": 8.8,
+          "start_secs": 7.76,
+          "text": "grund\u00e4mnen"
+        },
+        {
+          "end_secs": 8.96,
+          "start_secs": 8.8,
+          "text": "i"
+        },
+        {
+          "end_secs": 9.12,
+          "start_secs": 8.96,
+          "text": "det"
+        },
+        {
+          "end_secs": 10.08,
+          "start_secs": 9.12,
+          "text": "periodiska"
+        },
+        {
+          "end_secs": 11.2,
+          "start_secs": 10.08,
+          "text": "systemet."
+        }
+      ],
+      "text": "Legeringar \u00e4r en blandning av tv\u00e5 eller flera metaller. Kom ih\u00e5g att det finns m\u00e5nga olika grund\u00e4mnen i det periodiska systemet.",
+      "id": "sv_se:1662:121725361684087135.wav",
+      "language": "sv_se",
+      "errors": 0,
+      "words": 21,
+      "phase": "warm",
+      "run": 0
+    },
+    {
+      "audio_secs": 11.34,
+      "backend": "nemometal",
+      "inference_secs": 0.088112458,
+      "path": "target/fixtures/fleurs/sv_se/2278899330194391527.wav",
+      "segments": [
+        {
+          "end_secs": 2.32,
+          "start_secs": 1.28,
+          "text": "Legeringar"
+        },
+        {
+          "end_secs": 2.48,
+          "start_secs": 2.32,
+          "text": "\u00e4r"
+        },
+        {
+          "end_secs": 2.64,
+          "start_secs": 2.48,
+          "text": "en"
+        },
+        {
+          "end_secs": 3.12,
+          "start_secs": 2.64,
+          "text": "blandning"
+        },
+        {
+          "end_secs": 3.28,
+          "start_secs": 3.12,
+          "text": "av"
+        },
+        {
+          "end_secs": 3.6,
+          "start_secs": 3.28,
+          "text": "tv\u00e5"
+        },
+        {
+          "end_secs": 3.84,
+          "start_secs": 3.6,
+          "text": "eller"
+        },
+        {
+          "end_secs": 4.24,
+          "start_secs": 3.84,
+          "text": "flera"
+        },
+        {
+          "end_secs": 5.12,
+          "start_secs": 4.24,
+          "text": "metaller."
+        },
+        {
+          "end_secs": 5.28,
+          "start_secs": 5.12,
+          "text": "Kom"
+        },
+        {
+          "end_secs": 5.84,
+          "start_secs": 5.44,
+          "text": "ih\u00e5g"
+        },
+        {
+          "end_secs": 5.92,
+          "start_secs": 5.84,
+          "text": "att"
+        },
+        {
+          "end_secs": 6.08,
+          "start_secs": 6.0,
+          "text": "det"
+        },
+        {
+          "end_secs": 6.32,
+          "start_secs": 6.08,
+          "text": "finns"
+        },
+        {
+          "end_secs": 6.64,
+          "start_secs": 6.32,
+          "text": "m\u00e5nga"
+        },
+        {
+          "end_secs": 7.04,
+          "start_secs": 6.64,
+          "text": "olika"
+        },
+        {
+          "end_secs": 7.76,
+          "start_secs": 7.04,
+          "text": "grund\u00e4mnen"
+        },
+        {
+          "end_secs": 7.92,
+          "start_secs": 7.76,
+          "text": "i"
+        },
+        {
+          "end_secs": 8.0,
+          "start_secs": 7.92,
+          "text": "det"
+        },
+        {
+          "end_secs": 8.88,
+          "start_secs": 8.0,
+          "text": "periodiska"
+        },
+        {
+          "end_secs": 10.08,
+          "start_secs": 8.88,
+          "text": "systemet."
+        }
+      ],
+      "text": "Legeringar \u00e4r en blandning av tv\u00e5 eller flera metaller. Kom ih\u00e5g att det finns m\u00e5nga olika grund\u00e4mnen i det periodiska systemet.",
+      "id": "sv_se:1662:2278899330194391527.wav",
+      "language": "sv_se",
+      "errors": 0,
+      "words": 21,
+      "phase": "warm",
+      "run": 0
+    },
+    {
+      "audio_secs": 15.0,
+      "backend": "nemometal",
+      "inference_secs": 0.114772792,
+      "path": "target/fixtures/fleurs/sv_se/12688026512340699992.wav",
+      "segments": [
+        {
+          "end_secs": 2.88,
+          "start_secs": 1.28,
+          "text": "Cockamodalen,"
+        },
+        {
+          "end_secs": 3.28,
+          "start_secs": 2.88,
+          "text": "Kiles"
+        },
+        {
+          "end_secs": 3.92,
+          "start_secs": 3.36,
+          "text": "fr\u00e4msta"
+        },
+        {
+          "end_secs": 4.48,
+          "start_secs": 3.92,
+          "text": "destination"
+        },
+        {
+          "end_secs": 4.64,
+          "start_secs": 4.48,
+          "text": "f\u00f6r"
+        },
+        {
+          "end_secs": 5.6,
+          "start_secs": 4.64,
+          "text": "kl\u00e4ttring,"
+        },
+        {
+          "end_secs": 5.84,
+          "start_secs": 5.6,
+          "text": "\u00e4r"
+        },
+        {
+          "end_secs": 6.16,
+          "start_secs": 5.84,
+          "text": "k\u00e4nd"
+        },
+        {
+          "end_secs": 6.4,
+          "start_secs": 6.24,
+          "text": "som"
+        },
+        {
+          "end_secs": 7.12,
+          "start_secs": 6.4,
+          "text": "Sydamerikas"
+        },
+        {
+          "end_secs": 8.56,
+          "start_secs": 7.28,
+          "text": "josemitte,"
+        },
+        {
+          "end_secs": 8.8,
+          "start_secs": 8.56,
+          "text": "och"
+        },
+        {
+          "end_secs": 9.04,
+          "start_secs": 8.8,
+          "text": "har"
+        },
+        {
+          "end_secs": 9.2,
+          "start_secs": 9.04,
+          "text": "ett"
+        },
+        {
+          "end_secs": 9.68,
+          "start_secs": 9.2,
+          "text": "antal"
+        },
+        {
+          "end_secs": 10.08,
+          "start_secs": 9.68,
+          "text": "stora"
+        },
+        {
+          "end_secs": 10.64,
+          "start_secs": 10.08,
+          "text": "klippor"
+        },
+        {
+          "end_secs": 10.8,
+          "start_secs": 10.64,
+          "text": "och"
+        },
+        {
+          "end_secs": 11.28,
+          "start_secs": 10.8,
+          "text": "v\u00e4ggar"
+        },
+        {
+          "end_secs": 11.6,
+          "start_secs": 11.36,
+          "text": "i"
+        },
+        {
+          "end_secs": 12.56,
+          "start_secs": 11.6,
+          "text": "granit."
+        }
+      ],
+      "text": "Cockamodalen, Kiles fr\u00e4msta destination f\u00f6r kl\u00e4ttring, \u00e4r k\u00e4nd som Sydamerikas josemitte, och har ett antal stora klippor och v\u00e4ggar i granit.",
+      "id": "sv_se:1663:12688026512340699992.wav",
+      "language": "sv_se",
+      "errors": 4,
+      "words": 22,
+      "phase": "warm",
+      "run": 0
+    },
+    {
+      "audio_secs": 12.96,
+      "backend": "nemometal",
+      "inference_secs": 0.102371584,
+      "path": "target/fixtures/fleurs/sv_se/16339275641865603551.wav",
+      "segments": [
+        {
+          "end_secs": 2.24,
+          "start_secs": 0.88,
+          "text": "Cookamodalen,"
+        },
+        {
+          "end_secs": 2.72,
+          "start_secs": 2.24,
+          "text": "Kiles"
+        },
+        {
+          "end_secs": 3.2,
+          "start_secs": 2.8,
+          "text": "fr\u00e4msta"
+        },
+        {
+          "end_secs": 3.76,
+          "start_secs": 3.2,
+          "text": "destination"
+        },
+        {
+          "end_secs": 3.92,
+          "start_secs": 3.76,
+          "text": "f\u00f6r"
+        },
+        {
+          "end_secs": 4.8,
+          "start_secs": 3.92,
+          "text": "kl\u00e4ttring,"
+        },
+        {
+          "end_secs": 5.04,
+          "start_secs": 4.8,
+          "text": "\u00e4r"
+        },
+        {
+          "end_secs": 5.36,
+          "start_secs": 5.04,
+          "text": "k\u00e4nd"
+        },
+        {
+          "end_secs": 5.6,
+          "start_secs": 5.44,
+          "text": "som"
+        },
+        {
+          "end_secs": 6.48,
+          "start_secs": 5.6,
+          "text": "Sydamerikas"
+        },
+        {
+          "end_secs": 7.44,
+          "start_secs": 6.48,
+          "text": "Josemite"
+        },
+        {
+          "end_secs": 7.92,
+          "start_secs": 7.6,
+          "text": "och"
+        },
+        {
+          "end_secs": 8.16,
+          "start_secs": 7.92,
+          "text": "har"
+        },
+        {
+          "end_secs": 8.32,
+          "start_secs": 8.16,
+          "text": "ett"
+        },
+        {
+          "end_secs": 8.72,
+          "start_secs": 8.32,
+          "text": "antal"
+        },
+        {
+          "end_secs": 9.04,
+          "start_secs": 8.72,
+          "text": "stora"
+        },
+        {
+          "end_secs": 9.6,
+          "start_secs": 9.04,
+          "text": "klippor"
+        },
+        {
+          "end_secs": 9.76,
+          "start_secs": 9.6,
+          "text": "och"
+        },
+        {
+          "end_secs": 10.16,
+          "start_secs": 9.76,
+          "text": "v\u00e4ggar"
+        },
+        {
+          "end_secs": 10.48,
+          "start_secs": 10.24,
+          "text": "i"
+        },
+        {
+          "end_secs": 11.44,
+          "start_secs": 10.48,
+          "text": "granit."
+        }
+      ],
+      "text": "Cookamodalen, Kiles fr\u00e4msta destination f\u00f6r kl\u00e4ttring, \u00e4r k\u00e4nd som Sydamerikas Josemite och har ett antal stora klippor och v\u00e4ggar i granit.",
+      "id": "sv_se:1663:16339275641865603551.wav",
+      "language": "sv_se",
+      "errors": 4,
+      "words": 22,
+      "phase": "warm",
+      "run": 0
+    },
+    {
+      "audio_secs": 8.64,
+      "backend": "nemometal",
+      "inference_secs": 0.071082917,
+      "path": "target/fixtures/fleurs/sv_se/11569046426682372641.wav",
+      "segments": [
+        {
+          "end_secs": 1.68,
+          "start_secs": 1.2,
+          "text": "R\u00f6r"
+        },
+        {
+          "end_secs": 2.32,
+          "start_secs": 1.84,
+          "text": "ihop"
+        },
+        {
+          "end_secs": 2.48,
+          "start_secs": 2.32,
+          "text": "de"
+        },
+        {
+          "end_secs": 2.8,
+          "start_secs": 2.48,
+          "text": "tv\u00e5"
+        },
+        {
+          "end_secs": 3.28,
+          "start_secs": 2.8,
+          "text": "t\u00e5ra"
+        },
+        {
+          "end_secs": 4.08,
+          "start_secs": 3.28,
+          "text": "polbren"
+        },
+        {
+          "end_secs": 4.88,
+          "start_secs": 4.32,
+          "text": "formade"
+        },
+        {
+          "end_secs": 5.44,
+          "start_secs": 5.12,
+          "text": "sedan"
+        },
+        {
+          "end_secs": 5.92,
+          "start_secs": 5.68,
+          "text": "till"
+        },
+        {
+          "end_secs": 6.08,
+          "start_secs": 5.92,
+          "text": "en"
+        },
+        {
+          "end_secs": 6.32,
+          "start_secs": 6.08,
+          "text": "boll"
+        },
+        {
+          "end_secs": 6.56,
+          "start_secs": 6.4,
+          "text": "med"
+        },
+        {
+          "end_secs": 6.88,
+          "start_secs": 6.56,
+          "text": "rena"
+        },
+        {
+          "end_secs": 7.52,
+          "start_secs": 6.96,
+          "text": "bl\u00f6da"
+        },
+        {
+          "end_secs": 8.48,
+          "start_secs": 7.52,
+          "text": "h\u00e4nder."
+        }
+      ],
+      "text": "R\u00f6r ihop de tv\u00e5 t\u00e5ra polbren formade sedan till en boll med rena bl\u00f6da h\u00e4nder.",
+      "id": "sv_se:1664:11569046426682372641.wav",
+      "language": "sv_se",
+      "errors": 5,
+      "words": 16,
+      "phase": "warm",
+      "run": 0
+    },
+    {
+      "audio_secs": 5.16,
+      "backend": "nemometal",
+      "inference_secs": 0.058127417,
+      "path": "target/fixtures/fleurs/sv_se/18430281348165445219.wav",
+      "segments": [
+        {
+          "end_secs": 0.48,
+          "start_secs": 0.0,
+          "text": "R\u00f6r"
+        },
+        {
+          "end_secs": 0.8,
+          "start_secs": 0.48,
+          "text": "ihop"
+        },
+        {
+          "end_secs": 0.96,
+          "start_secs": 0.8,
+          "text": "de"
+        },
+        {
+          "end_secs": 1.44,
+          "start_secs": 0.96,
+          "text": "tv\u00e5torra"
+        },
+        {
+          "end_secs": 1.92,
+          "start_secs": 1.44,
+          "text": "pulvren."
+        },
+        {
+          "end_secs": 2.24,
+          "start_secs": 1.92,
+          "text": "Formar"
+        },
+        {
+          "end_secs": 2.48,
+          "start_secs": 2.32,
+          "text": "den"
+        },
+        {
+          "end_secs": 2.72,
+          "start_secs": 2.48,
+          "text": "sedan"
+        },
+        {
+          "end_secs": 3.04,
+          "start_secs": 2.88,
+          "text": "till"
+        },
+        {
+          "end_secs": 3.12,
+          "start_secs": 3.04,
+          "text": "en"
+        },
+        {
+          "end_secs": 3.28,
+          "start_secs": 3.12,
+          "text": "boll"
+        },
+        {
+          "end_secs": 3.52,
+          "start_secs": 3.36,
+          "text": "med"
+        },
+        {
+          "end_secs": 3.84,
+          "start_secs": 3.52,
+          "text": "rena"
+        },
+        {
+          "end_secs": 4.4,
+          "start_secs": 3.92,
+          "text": "bl\u00f6ta"
+        },
+        {
+          "end_secs": 5.04,
+          "start_secs": 4.4,
+          "text": "\u00e4nder."
+        }
+      ],
+      "text": "R\u00f6r ihop de tv\u00e5torra pulvren. Formar den sedan till en boll med rena bl\u00f6ta \u00e4nder.",
+      "id": "sv_se:1664:18430281348165445219.wav",
+      "language": "sv_se",
+      "errors": 5,
+      "words": 16,
+      "phase": "warm",
+      "run": 0
+    },
+    {
+      "audio_secs": 10.68,
+      "backend": "nemometal",
+      "inference_secs": 0.08534125,
+      "path": "target/fixtures/fleurs/en_us/12742373433258665797.wav",
+      "segments": [
+        {
+          "end_secs": 2.08,
+          "start_secs": 0.88,
+          "text": "Romanticism"
+        },
+        {
+          "end_secs": 2.24,
+          "start_secs": 2.08,
+          "text": "had"
+        },
+        {
+          "end_secs": 2.4,
+          "start_secs": 2.24,
+          "text": "a"
+        },
+        {
+          "end_secs": 2.8,
+          "start_secs": 2.4,
+          "text": "large"
+        },
+        {
+          "end_secs": 3.12,
+          "start_secs": 2.8,
+          "text": "element"
+        },
+        {
+          "end_secs": 3.36,
+          "start_secs": 3.12,
+          "text": "of"
+        },
+        {
+          "end_secs": 3.92,
+          "start_secs": 3.36,
+          "text": "cultural"
+        },
+        {
+          "end_secs": 4.8,
+          "start_secs": 3.92,
+          "text": "determinism"
+        },
+        {
+          "end_secs": 5.28,
+          "start_secs": 4.8,
+          "text": "drawn"
+        },
+        {
+          "end_secs": 5.44,
+          "start_secs": 5.28,
+          "text": "from"
+        },
+        {
+          "end_secs": 5.92,
+          "start_secs": 5.44,
+          "text": "writers"
+        },
+        {
+          "end_secs": 6.08,
+          "start_secs": 5.92,
+          "text": "such"
+        },
+        {
+          "end_secs": 6.32,
+          "start_secs": 6.08,
+          "text": "as"
+        },
+        {
+          "end_secs": 7.12,
+          "start_secs": 6.32,
+          "text": "Goth,"
+        },
+        {
+          "end_secs": 7.6,
+          "start_secs": 7.12,
+          "text": "Pitt"
+        },
+        {
+          "end_secs": 8.0,
+          "start_secs": 7.84,
+          "text": "and"
+        },
+        {
+          "end_secs": 9.36,
+          "start_secs": 8.0,
+          "text": "Schlagel."
+        }
+      ],
+      "text": "Romanticism had a large element of cultural determinism drawn from writers such as Goth, Pitt and Schlagel.",
+      "id": "en_us:1660:12742373433258665797.wav",
+      "language": "en_us",
+      "errors": 3,
+      "words": 17,
+      "phase": "warm",
+      "run": 1
+    },
+    {
+      "audio_secs": 11.52,
+      "backend": "nemometal",
+      "inference_secs": 0.089715792,
+      "path": "target/fixtures/fleurs/en_us/9327483361259434782.wav",
+      "segments": [
+        {
+          "end_secs": 2.32,
+          "start_secs": 1.12,
+          "text": "Romanticism"
+        },
+        {
+          "end_secs": 2.48,
+          "start_secs": 2.32,
+          "text": "had"
+        },
+        {
+          "end_secs": 2.64,
+          "start_secs": 2.48,
+          "text": "a"
+        },
+        {
+          "end_secs": 2.96,
+          "start_secs": 2.64,
+          "text": "large"
+        },
+        {
+          "end_secs": 3.28,
+          "start_secs": 2.96,
+          "text": "element"
+        },
+        {
+          "end_secs": 3.44,
+          "start_secs": 3.28,
+          "text": "of"
+        },
+        {
+          "end_secs": 4.0,
+          "start_secs": 3.44,
+          "text": "cultural"
+        },
+        {
+          "end_secs": 4.96,
+          "start_secs": 4.0,
+          "text": "determinism"
+        },
+        {
+          "end_secs": 5.36,
+          "start_secs": 4.96,
+          "text": "drawn"
+        },
+        {
+          "end_secs": 5.52,
+          "start_secs": 5.36,
+          "text": "from"
+        },
+        {
+          "end_secs": 6.0,
+          "start_secs": 5.52,
+          "text": "writers"
+        },
+        {
+          "end_secs": 6.16,
+          "start_secs": 6.0,
+          "text": "such"
+        },
+        {
+          "end_secs": 6.32,
+          "start_secs": 6.16,
+          "text": "as"
+        },
+        {
+          "end_secs": 7.2,
+          "start_secs": 6.32,
+          "text": "Goth,"
+        },
+        {
+          "end_secs": 8.08,
+          "start_secs": 7.2,
+          "text": "Ficht,"
+        },
+        {
+          "end_secs": 8.4,
+          "start_secs": 8.08,
+          "text": "and"
+        },
+        {
+          "end_secs": 9.92,
+          "start_secs": 8.4,
+          "text": "Schlegel."
+        }
+      ],
+      "text": "Romanticism had a large element of cultural determinism drawn from writers such as Goth, Ficht, and Schlegel.",
+      "id": "en_us:1660:9327483361259434782.wav",
+      "language": "en_us",
+      "errors": 2,
+      "words": 17,
+      "phase": "warm",
+      "run": 1
+    },
+    {
+      "audio_secs": 6.36,
+      "backend": "nemometal",
+      "inference_secs": 0.060119,
+      "path": "target/fixtures/fleurs/en_us/6917907748364342404.wav",
+      "segments": [
+        {
+          "end_secs": 0.64,
+          "start_secs": 0.32,
+          "text": "He"
+        },
+        {
+          "end_secs": 0.96,
+          "start_secs": 0.64,
+          "text": "did"
+        },
+        {
+          "end_secs": 1.2,
+          "start_secs": 0.96,
+          "text": "not"
+        },
+        {
+          "end_secs": 1.36,
+          "start_secs": 1.2,
+          "text": "set"
+        },
+        {
+          "end_secs": 1.52,
+          "start_secs": 1.36,
+          "text": "a"
+        },
+        {
+          "end_secs": 1.76,
+          "start_secs": 1.52,
+          "text": "figure"
+        },
+        {
+          "end_secs": 1.92,
+          "start_secs": 1.76,
+          "text": "for"
+        },
+        {
+          "end_secs": 2.0,
+          "start_secs": 1.92,
+          "text": "the"
+        },
+        {
+          "end_secs": 2.32,
+          "start_secs": 2.0,
+          "text": "cuts"
+        },
+        {
+          "end_secs": 2.72,
+          "start_secs": 2.4,
+          "text": "saying"
+        },
+        {
+          "end_secs": 2.88,
+          "start_secs": 2.72,
+          "text": "they"
+        },
+        {
+          "end_secs": 3.04,
+          "start_secs": 2.88,
+          "text": "will"
+        },
+        {
+          "end_secs": 3.12,
+          "start_secs": 3.04,
+          "text": "be"
+        },
+        {
+          "end_secs": 3.36,
+          "start_secs": 3.12,
+          "text": "made"
+        },
+        {
+          "end_secs": 3.6,
+          "start_secs": 3.36,
+          "text": "based"
+        },
+        {
+          "end_secs": 3.76,
+          "start_secs": 3.6,
+          "text": "on"
+        },
+        {
+          "end_secs": 4.4,
+          "start_secs": 3.76,
+          "text": "China's"
+        },
+        {
+          "end_secs": 4.96,
+          "start_secs": 4.4,
+          "text": "economic"
+        },
+        {
+          "end_secs": 6.16,
+          "start_secs": 4.96,
+          "text": "output."
+        }
+      ],
+      "text": "He did not set a figure for the cuts saying they will be made based on China's economic output.",
+      "id": "en_us:1661:6917907748364342404.wav",
+      "language": "en_us",
+      "errors": 0,
+      "words": 19,
+      "phase": "warm",
+      "run": 1
+    },
+    {
+      "audio_secs": 6.9,
+      "backend": "nemometal",
+      "inference_secs": 0.062724708,
+      "path": "target/fixtures/fleurs/en_us/8546403500877190903.wav",
+      "segments": [
+        {
+          "end_secs": 0.64,
+          "start_secs": 0.32,
+          "text": "He"
+        },
+        {
+          "end_secs": 0.96,
+          "start_secs": 0.64,
+          "text": "did"
+        },
+        {
+          "end_secs": 1.28,
+          "start_secs": 0.96,
+          "text": "not"
+        },
+        {
+          "end_secs": 1.52,
+          "start_secs": 1.28,
+          "text": "set"
+        },
+        {
+          "end_secs": 1.68,
+          "start_secs": 1.52,
+          "text": "a"
+        },
+        {
+          "end_secs": 2.0,
+          "start_secs": 1.68,
+          "text": "figure"
+        },
+        {
+          "end_secs": 2.16,
+          "start_secs": 2.0,
+          "text": "for"
+        },
+        {
+          "end_secs": 2.32,
+          "start_secs": 2.16,
+          "text": "the"
+        },
+        {
+          "end_secs": 2.64,
+          "start_secs": 2.32,
+          "text": "cuts"
+        },
+        {
+          "end_secs": 3.12,
+          "start_secs": 2.8,
+          "text": "saying"
+        },
+        {
+          "end_secs": 3.28,
+          "start_secs": 3.12,
+          "text": "they"
+        },
+        {
+          "end_secs": 3.44,
+          "start_secs": 3.28,
+          "text": "will"
+        },
+        {
+          "end_secs": 3.6,
+          "start_secs": 3.44,
+          "text": "be"
+        },
+        {
+          "end_secs": 3.84,
+          "start_secs": 3.6,
+          "text": "made"
+        },
+        {
+          "end_secs": 4.08,
+          "start_secs": 3.84,
+          "text": "based"
+        },
+        {
+          "end_secs": 4.24,
+          "start_secs": 4.08,
+          "text": "on"
+        },
+        {
+          "end_secs": 4.8,
+          "start_secs": 4.24,
+          "text": "China's"
+        },
+        {
+          "end_secs": 5.36,
+          "start_secs": 4.8,
+          "text": "economic"
+        },
+        {
+          "end_secs": 6.56,
+          "start_secs": 5.36,
+          "text": "output."
+        }
+      ],
+      "text": "He did not set a figure for the cuts saying they will be made based on China's economic output.",
+      "id": "en_us:1661:8546403500877190903.wav",
+      "language": "en_us",
+      "errors": 0,
+      "words": 19,
+      "phase": "warm",
+      "run": 1
+    },
+    {
+      "audio_secs": 8.38,
+      "backend": "nemometal",
+      "inference_secs": 0.074231167,
+      "path": "target/fixtures/fleurs/en_us/10614481583312370701.wav",
+      "segments": [
+        {
+          "end_secs": 1.28,
+          "start_secs": 0.56,
+          "text": "Alloys"
+        },
+        {
+          "end_secs": 1.44,
+          "start_secs": 1.28,
+          "text": "are"
+        },
+        {
+          "end_secs": 1.84,
+          "start_secs": 1.44,
+          "text": "basically"
+        },
+        {
+          "end_secs": 1.92,
+          "start_secs": 1.84,
+          "text": "a"
+        },
+        {
+          "end_secs": 2.24,
+          "start_secs": 1.92,
+          "text": "mixture"
+        },
+        {
+          "end_secs": 2.32,
+          "start_secs": 2.24,
+          "text": "of"
+        },
+        {
+          "end_secs": 2.48,
+          "start_secs": 2.32,
+          "text": "2"
+        },
+        {
+          "end_secs": 2.8,
+          "start_secs": 2.56,
+          "text": "or"
+        },
+        {
+          "end_secs": 3.04,
+          "start_secs": 2.8,
+          "text": "more"
+        },
+        {
+          "end_secs": 3.68,
+          "start_secs": 3.04,
+          "text": "metals."
+        },
+        {
+          "end_secs": 4.0,
+          "start_secs": 3.68,
+          "text": "Don't"
+        },
+        {
+          "end_secs": 4.4,
+          "start_secs": 4.0,
+          "text": "forget"
+        },
+        {
+          "end_secs": 4.56,
+          "start_secs": 4.4,
+          "text": "there"
+        },
+        {
+          "end_secs": 4.72,
+          "start_secs": 4.56,
+          "text": "are"
+        },
+        {
+          "end_secs": 5.04,
+          "start_secs": 4.72,
+          "text": "many"
+        },
+        {
+          "end_secs": 5.52,
+          "start_secs": 5.04,
+          "text": "elements"
+        },
+        {
+          "end_secs": 5.68,
+          "start_secs": 5.52,
+          "text": "on"
+        },
+        {
+          "end_secs": 5.92,
+          "start_secs": 5.68,
+          "text": "the"
+        },
+        {
+          "end_secs": 6.48,
+          "start_secs": 5.92,
+          "text": "PRI"
+        },
+        {
+          "end_secs": 7.76,
+          "start_secs": 6.8,
+          "text": "table."
+        }
+      ],
+      "text": "Alloys are basically a mixture of 2 or more metals. Don't forget there are many elements on the PRI table.",
+      "id": "en_us:1662:10614481583312370701.wav",
+      "language": "en_us",
+      "errors": 3,
+      "words": 21,
+      "phase": "warm",
+      "run": 1
+    },
+    {
+      "audio_secs": 11.16,
+      "backend": "nemometal",
+      "inference_secs": 0.083940625,
+      "path": "target/fixtures/fleurs/en_us/7378917572989533960.wav",
+      "segments": [
+        {
+          "end_secs": 1.52,
+          "start_secs": 0.64,
+          "text": "Alloys"
+        },
+        {
+          "end_secs": 1.76,
+          "start_secs": 1.52,
+          "text": "are"
+        },
+        {
+          "end_secs": 2.32,
+          "start_secs": 1.76,
+          "text": "basically"
+        },
+        {
+          "end_secs": 2.56,
+          "start_secs": 2.32,
+          "text": "a"
+        },
+        {
+          "end_secs": 3.12,
+          "start_secs": 2.56,
+          "text": "mixture"
+        },
+        {
+          "end_secs": 3.36,
+          "start_secs": 3.12,
+          "text": "of"
+        },
+        {
+          "end_secs": 3.68,
+          "start_secs": 3.36,
+          "text": "two"
+        },
+        {
+          "end_secs": 4.0,
+          "start_secs": 3.68,
+          "text": "or"
+        },
+        {
+          "end_secs": 4.32,
+          "start_secs": 4.0,
+          "text": "more"
+        },
+        {
+          "end_secs": 5.28,
+          "start_secs": 4.32,
+          "text": "metals."
+        },
+        {
+          "end_secs": 5.76,
+          "start_secs": 5.28,
+          "text": "Don't"
+        },
+        {
+          "end_secs": 6.32,
+          "start_secs": 5.68,
+          "text": "forget"
+        },
+        {
+          "end_secs": 6.48,
+          "start_secs": 6.32,
+          "text": "there"
+        },
+        {
+          "end_secs": 6.72,
+          "start_secs": 6.48,
+          "text": "are"
+        },
+        {
+          "end_secs": 7.2,
+          "start_secs": 6.72,
+          "text": "many"
+        },
+        {
+          "end_secs": 7.84,
+          "start_secs": 7.2,
+          "text": "elements"
+        },
+        {
+          "end_secs": 8.08,
+          "start_secs": 7.84,
+          "text": "on"
+        },
+        {
+          "end_secs": 8.16,
+          "start_secs": 8.08,
+          "text": "the"
+        },
+        {
+          "end_secs": 9.36,
+          "start_secs": 8.4,
+          "text": "periodic"
+        },
+        {
+          "end_secs": 10.64,
+          "start_secs": 9.68,
+          "text": "table."
+        }
+      ],
+      "text": "Alloys are basically a mixture of two or more metals. Don't forget there are many elements on the periodic table.",
+      "id": "en_us:1662:7378917572989533960.wav",
+      "language": "en_us",
+      "errors": 1,
+      "words": 21,
+      "phase": "warm",
+      "run": 1
+    },
+    {
+      "audio_secs": 12.12,
+      "backend": "nemometal",
+      "inference_secs": 0.0931595,
+      "path": "target/fixtures/fleurs/en_us/3156459702070203007.wav",
+      "segments": [
+        {
+          "end_secs": 1.68,
+          "start_secs": 0.8,
+          "text": "Chokamo"
+        },
+        {
+          "end_secs": 2.24,
+          "start_secs": 1.84,
+          "text": "Valley"
+        },
+        {
+          "end_secs": 3.12,
+          "start_secs": 2.48,
+          "text": "Chile's"
+        },
+        {
+          "end_secs": 3.44,
+          "start_secs": 3.12,
+          "text": "premier"
+        },
+        {
+          "end_secs": 4.0,
+          "start_secs": 3.44,
+          "text": "climbing"
+        },
+        {
+          "end_secs": 4.64,
+          "start_secs": 4.0,
+          "text": "destination"
+        },
+        {
+          "end_secs": 5.04,
+          "start_secs": 4.8,
+          "text": "known"
+        },
+        {
+          "end_secs": 5.2,
+          "start_secs": 5.04,
+          "text": "as"
+        },
+        {
+          "end_secs": 5.36,
+          "start_secs": 5.2,
+          "text": "the"
+        },
+        {
+          "end_secs": 6.16,
+          "start_secs": 5.36,
+          "text": "Yosemite"
+        },
+        {
+          "end_secs": 6.24,
+          "start_secs": 6.16,
+          "text": "of"
+        },
+        {
+          "end_secs": 6.56,
+          "start_secs": 6.24,
+          "text": "South"
+        },
+        {
+          "end_secs": 7.12,
+          "start_secs": 6.56,
+          "text": "America,"
+        },
+        {
+          "end_secs": 7.36,
+          "start_secs": 7.12,
+          "text": "with"
+        },
+        {
+          "end_secs": 7.44,
+          "start_secs": 7.36,
+          "text": "a"
+        },
+        {
+          "end_secs": 7.92,
+          "start_secs": 7.44,
+          "text": "variety"
+        },
+        {
+          "end_secs": 8.16,
+          "start_secs": 7.92,
+          "text": "of"
+        },
+        {
+          "end_secs": 8.64,
+          "start_secs": 8.16,
+          "text": "granite"
+        },
+        {
+          "end_secs": 9.04,
+          "start_secs": 8.64,
+          "text": "big"
+        },
+        {
+          "end_secs": 9.44,
+          "start_secs": 9.04,
+          "text": "walls"
+        },
+        {
+          "end_secs": 9.76,
+          "start_secs": 9.44,
+          "text": "and"
+        },
+        {
+          "end_secs": 10.8,
+          "start_secs": 9.76,
+          "text": "crags."
+        }
+      ],
+      "text": "Chokamo Valley Chile's premier climbing destination known as the Yosemite of South America, with a variety of granite big walls and crags.",
+      "id": "en_us:1663:3156459702070203007.wav",
+      "language": "en_us",
+      "errors": 1,
+      "words": 22,
+      "phase": "warm",
+      "run": 1
+    },
+    {
+      "audio_secs": 9.9,
+      "backend": "nemometal",
+      "inference_secs": 0.083682708,
+      "path": "target/fixtures/fleurs/en_us/6603783905885843777.wav",
+      "segments": [
+        {
+          "end_secs": 1.04,
+          "start_secs": 0.24,
+          "text": "Cacho"
+        },
+        {
+          "end_secs": 1.44,
+          "start_secs": 1.04,
+          "text": "Valley,"
+        },
+        {
+          "end_secs": 1.92,
+          "start_secs": 1.44,
+          "text": "Chile's"
+        },
+        {
+          "end_secs": 2.24,
+          "start_secs": 1.92,
+          "text": "premier"
+        },
+        {
+          "end_secs": 2.64,
+          "start_secs": 2.24,
+          "text": "climbing"
+        },
+        {
+          "end_secs": 3.2,
+          "start_secs": 2.64,
+          "text": "destination,"
+        },
+        {
+          "end_secs": 3.44,
+          "start_secs": 3.2,
+          "text": "known"
+        },
+        {
+          "end_secs": 3.52,
+          "start_secs": 3.44,
+          "text": "as"
+        },
+        {
+          "end_secs": 3.76,
+          "start_secs": 3.52,
+          "text": "the"
+        },
+        {
+          "end_secs": 4.48,
+          "start_secs": 3.76,
+          "text": "Yosemite"
+        },
+        {
+          "end_secs": 4.8,
+          "start_secs": 4.64,
+          "text": "of"
+        },
+        {
+          "end_secs": 5.04,
+          "start_secs": 4.8,
+          "text": "South"
+        },
+        {
+          "end_secs": 5.6,
+          "start_secs": 5.04,
+          "text": "America,"
+        },
+        {
+          "end_secs": 5.84,
+          "start_secs": 5.6,
+          "text": "with"
+        },
+        {
+          "end_secs": 6.0,
+          "start_secs": 5.84,
+          "text": "a"
+        },
+        {
+          "end_secs": 6.4,
+          "start_secs": 6.0,
+          "text": "variety"
+        },
+        {
+          "end_secs": 6.64,
+          "start_secs": 6.4,
+          "text": "of"
+        },
+        {
+          "end_secs": 7.2,
+          "start_secs": 6.64,
+          "text": "granite"
+        },
+        {
+          "end_secs": 7.76,
+          "start_secs": 7.44,
+          "text": "big"
+        },
+        {
+          "end_secs": 8.08,
+          "start_secs": 7.76,
+          "text": "walls"
+        },
+        {
+          "end_secs": 8.32,
+          "start_secs": 8.08,
+          "text": "and"
+        },
+        {
+          "end_secs": 9.28,
+          "start_secs": 8.32,
+          "text": "crags."
+        }
+      ],
+      "text": "Cacho Valley, Chile's premier climbing destination, known as the Yosemite of South America, with a variety of granite big walls and crags.",
+      "id": "en_us:1663:6603783905885843777.wav",
+      "language": "en_us",
+      "errors": 1,
+      "words": 22,
+      "phase": "warm",
+      "run": 1
+    },
+    {
+      "audio_secs": 8.36,
+      "backend": "nemometal",
+      "inference_secs": 0.07232525,
+      "path": "target/fixtures/fleurs/en_us/13031516147694203229.wav",
+      "segments": [
+        {
+          "end_secs": 1.28,
+          "start_secs": 0.56,
+          "text": "Swirl"
+        },
+        {
+          "end_secs": 1.36,
+          "start_secs": 1.28,
+          "text": "the"
+        },
+        {
+          "end_secs": 1.6,
+          "start_secs": 1.36,
+          "text": "two"
+        },
+        {
+          "end_secs": 1.92,
+          "start_secs": 1.6,
+          "text": "dry"
+        },
+        {
+          "end_secs": 2.48,
+          "start_secs": 1.92,
+          "text": "powers"
+        },
+        {
+          "end_secs": 2.72,
+          "start_secs": 2.48,
+          "text": "together"
+        },
+        {
+          "end_secs": 2.96,
+          "start_secs": 2.8,
+          "text": "and"
+        },
+        {
+          "end_secs": 3.2,
+          "start_secs": 2.96,
+          "text": "then"
+        },
+        {
+          "end_secs": 3.52,
+          "start_secs": 3.2,
+          "text": "with"
+        },
+        {
+          "end_secs": 3.92,
+          "start_secs": 3.52,
+          "text": "clean"
+        },
+        {
+          "end_secs": 4.56,
+          "start_secs": 4.08,
+          "text": "wet"
+        },
+        {
+          "end_secs": 4.96,
+          "start_secs": 4.56,
+          "text": "hands"
+        },
+        {
+          "end_secs": 5.84,
+          "start_secs": 5.2,
+          "text": "squeeze"
+        },
+        {
+          "end_secs": 6.08,
+          "start_secs": 5.84,
+          "text": "them"
+        },
+        {
+          "end_secs": 6.24,
+          "start_secs": 6.08,
+          "text": "into"
+        },
+        {
+          "end_secs": 6.48,
+          "start_secs": 6.24,
+          "text": "a"
+        },
+        {
+          "end_secs": 6.96,
+          "start_secs": 6.48,
+          "text": "ball."
+        }
+      ],
+      "text": "Swirl the two dry powers together and then with clean wet hands squeeze them into a ball.",
+      "id": "en_us:1664:13031516147694203229.wav",
+      "language": "en_us",
+      "errors": 1,
+      "words": 17,
+      "phase": "warm",
+      "run": 1
+    },
+    {
+      "audio_secs": 5.4,
+      "backend": "nemometal",
+      "inference_secs": 0.060091167,
+      "path": "target/fixtures/fleurs/en_us/1944915261206096046.wav",
+      "segments": [
+        {
+          "end_secs": 0.8,
+          "start_secs": 0.16,
+          "text": "Swirl"
+        },
+        {
+          "end_secs": 0.88,
+          "start_secs": 0.8,
+          "text": "the"
+        },
+        {
+          "end_secs": 1.2,
+          "start_secs": 0.88,
+          "text": "two"
+        },
+        {
+          "end_secs": 1.52,
+          "start_secs": 1.2,
+          "text": "dry"
+        },
+        {
+          "end_secs": 2.0,
+          "start_secs": 1.52,
+          "text": "powders"
+        },
+        {
+          "end_secs": 2.24,
+          "start_secs": 2.0,
+          "text": "together"
+        },
+        {
+          "end_secs": 2.4,
+          "start_secs": 2.32,
+          "text": "and"
+        },
+        {
+          "end_secs": 2.56,
+          "start_secs": 2.4,
+          "text": "then"
+        },
+        {
+          "end_secs": 2.88,
+          "start_secs": 2.64,
+          "text": "with"
+        },
+        {
+          "end_secs": 3.12,
+          "start_secs": 2.88,
+          "text": "clean"
+        },
+        {
+          "end_secs": 3.44,
+          "start_secs": 3.2,
+          "text": "wet"
+        },
+        {
+          "end_secs": 3.68,
+          "start_secs": 3.44,
+          "text": "hands"
+        },
+        {
+          "end_secs": 4.24,
+          "start_secs": 3.84,
+          "text": "squeeze"
+        },
+        {
+          "end_secs": 4.4,
+          "start_secs": 4.24,
+          "text": "them"
+        },
+        {
+          "end_secs": 4.56,
+          "start_secs": 4.4,
+          "text": "into"
+        },
+        {
+          "end_secs": 4.64,
+          "start_secs": 4.56,
+          "text": "a"
+        },
+        {
+          "end_secs": 5.36,
+          "start_secs": 4.64,
+          "text": "ball."
+        }
+      ],
+      "text": "Swirl the two dry powders together and then with clean wet hands squeeze them into a ball.",
+      "id": "en_us:1664:1944915261206096046.wav",
+      "language": "en_us",
+      "errors": 0,
+      "words": 17,
+      "phase": "warm",
+      "run": 1
+    },
+    {
+      "audio_secs": 8.46,
+      "backend": "nemometal",
+      "inference_secs": 0.073793333,
+      "path": "target/fixtures/fleurs/sv_se/11017371815100260878.wav",
+      "segments": [
+        {
+          "end_secs": 1.04,
+          "start_secs": 0.16,
+          "text": "Romantiken"
+        },
+        {
+          "end_secs": 1.68,
+          "start_secs": 1.04,
+          "text": "inneh\u00e5ller"
+        },
+        {
+          "end_secs": 2.08,
+          "start_secs": 1.76,
+          "text": "stort"
+        },
+        {
+          "end_secs": 2.4,
+          "start_secs": 2.08,
+          "text": "element"
+        },
+        {
+          "end_secs": 2.72,
+          "start_secs": 2.48,
+          "text": "av"
+        },
+        {
+          "end_secs": 3.44,
+          "start_secs": 2.72,
+          "text": "determinism"
+        },
+        {
+          "end_secs": 3.92,
+          "start_secs": 3.68,
+          "text": "med"
+        },
+        {
+          "end_secs": 4.56,
+          "start_secs": 3.92,
+          "text": "ursprung"
+        },
+        {
+          "end_secs": 4.8,
+          "start_secs": 4.64,
+          "text": "hos"
+        },
+        {
+          "end_secs": 5.36,
+          "start_secs": 4.8,
+          "text": "f\u00f6rfattare"
+        },
+        {
+          "end_secs": 5.6,
+          "start_secs": 5.36,
+          "text": "som"
+        },
+        {
+          "end_secs": 6.24,
+          "start_secs": 5.6,
+          "text": "g\u00e5et,"
+        },
+        {
+          "end_secs": 6.64,
+          "start_secs": 6.24,
+          "text": "fiste"
+        },
+        {
+          "end_secs": 7.12,
+          "start_secs": 6.88,
+          "text": "och"
+        },
+        {
+          "end_secs": 8.24,
+          "start_secs": 7.12,
+          "text": "slegel."
+        }
+      ],
+      "text": "Romantiken inneh\u00e5ller stort element av determinism med ursprung hos f\u00f6rfattare som g\u00e5et, fiste och slegel.",
+      "id": "sv_se:1660:11017371815100260878.wav",
+      "language": "sv_se",
+      "errors": 5,
+      "words": 16,
+      "phase": "warm",
+      "run": 1
+    },
+    {
+      "audio_secs": 9.36,
+      "backend": "nemometal",
+      "inference_secs": 0.074009,
+      "path": "target/fixtures/fleurs/sv_se/1010284889812064135.wav",
+      "segments": [
+        {
+          "end_secs": 0.96,
+          "start_secs": 0.64,
+          "text": "Han"
+        },
+        {
+          "end_secs": 1.2,
+          "start_secs": 0.96,
+          "text": "sa"
+        },
+        {
+          "end_secs": 1.68,
+          "start_secs": 1.36,
+          "text": "att"
+        },
+        {
+          "end_secs": 2.64,
+          "start_secs": 1.68,
+          "text": "nedsk\u00e4rningarna"
+        },
+        {
+          "end_secs": 2.96,
+          "start_secs": 2.72,
+          "text": "skulle"
+        },
+        {
+          "end_secs": 3.44,
+          "start_secs": 2.96,
+          "text": "baseras"
+        },
+        {
+          "end_secs": 3.6,
+          "start_secs": 3.44,
+          "text": "p\u00e5"
+        },
+        {
+          "end_secs": 3.84,
+          "start_secs": 3.6,
+          "text": "Kinas"
+        },
+        {
+          "end_secs": 4.64,
+          "start_secs": 4.0,
+          "text": "ekonomiska"
+        },
+        {
+          "end_secs": 5.28,
+          "start_secs": 4.64,
+          "text": "styrka"
+        },
+        {
+          "end_secs": 5.52,
+          "start_secs": 5.28,
+          "text": "och"
+        },
+        {
+          "end_secs": 5.92,
+          "start_secs": 5.52,
+          "text": "gav"
+        },
+        {
+          "end_secs": 6.24,
+          "start_secs": 5.92,
+          "text": "inte"
+        },
+        {
+          "end_secs": 6.56,
+          "start_secs": 6.24,
+          "text": "n\u00e5gra"
+        },
+        {
+          "end_secs": 6.96,
+          "start_secs": 6.56,
+          "text": "siffror"
+        },
+        {
+          "end_secs": 7.28,
+          "start_secs": 7.12,
+          "text": "f\u00f6r"
+        },
+        {
+          "end_secs": 8.24,
+          "start_secs": 7.28,
+          "text": "dem."
+        }
+      ],
+      "text": "Han sa att nedsk\u00e4rningarna skulle baseras p\u00e5 Kinas ekonomiska styrka och gav inte n\u00e5gra siffror f\u00f6r dem.",
+      "id": "sv_se:1661:1010284889812064135.wav",
+      "language": "sv_se",
+      "errors": 0,
+      "words": 17,
+      "phase": "warm",
+      "run": 1
+    },
+    {
+      "audio_secs": 8.16,
+      "backend": "nemometal",
+      "inference_secs": 0.069881084,
+      "path": "target/fixtures/fleurs/sv_se/10882455023026937910.wav",
+      "segments": [
+        {
+          "end_secs": 0.96,
+          "start_secs": 0.64,
+          "text": "Han"
+        },
+        {
+          "end_secs": 1.36,
+          "start_secs": 1.12,
+          "text": "sa"
+        },
+        {
+          "end_secs": 1.6,
+          "start_secs": 1.36,
+          "text": "att"
+        },
+        {
+          "end_secs": 2.48,
+          "start_secs": 1.6,
+          "text": "nedf\u00f6rj\u00e4rningarna"
+        },
+        {
+          "end_secs": 2.8,
+          "start_secs": 2.56,
+          "text": "skulle"
+        },
+        {
+          "end_secs": 3.28,
+          "start_secs": 2.8,
+          "text": "baseras"
+        },
+        {
+          "end_secs": 3.36,
+          "start_secs": 3.28,
+          "text": "p\u00e5"
+        },
+        {
+          "end_secs": 3.68,
+          "start_secs": 3.36,
+          "text": "Kinas"
+        },
+        {
+          "end_secs": 4.48,
+          "start_secs": 3.84,
+          "text": "ekonomiska"
+        },
+        {
+          "end_secs": 5.04,
+          "start_secs": 4.48,
+          "text": "styrka"
+        },
+        {
+          "end_secs": 5.2,
+          "start_secs": 5.04,
+          "text": "och"
+        },
+        {
+          "end_secs": 5.44,
+          "start_secs": 5.2,
+          "text": "gav"
+        },
+        {
+          "end_secs": 5.68,
+          "start_secs": 5.44,
+          "text": "inte"
+        },
+        {
+          "end_secs": 6.0,
+          "start_secs": 5.68,
+          "text": "n\u00e5gra"
+        },
+        {
+          "end_secs": 6.48,
+          "start_secs": 6.0,
+          "text": "siffror"
+        },
+        {
+          "end_secs": 6.8,
+          "start_secs": 6.48,
+          "text": "f\u00f6r"
+        },
+        {
+          "end_secs": 7.44,
+          "start_secs": 6.8,
+          "text": "den."
+        }
+      ],
+      "text": "Han sa att nedf\u00f6rj\u00e4rningarna skulle baseras p\u00e5 Kinas ekonomiska styrka och gav inte n\u00e5gra siffror f\u00f6r den.",
+      "id": "sv_se:1661:10882455023026937910.wav",
+      "language": "sv_se",
+      "errors": 2,
+      "words": 17,
+      "phase": "warm",
+      "run": 1
+    },
+    {
+      "audio_secs": 10.5,
+      "backend": "nemometal",
+      "inference_secs": 0.082121791,
+      "path": "target/fixtures/fleurs/sv_se/485880107959944598.wav",
+      "segments": [
+        {
+          "end_secs": 1.28,
+          "start_secs": 0.96,
+          "text": "Han"
+        },
+        {
+          "end_secs": 1.52,
+          "start_secs": 1.28,
+          "text": "sa"
+        },
+        {
+          "end_secs": 1.92,
+          "start_secs": 1.68,
+          "text": "att"
+        },
+        {
+          "end_secs": 3.2,
+          "start_secs": 1.92,
+          "text": "nedsk\u00e4rningarna"
+        },
+        {
+          "end_secs": 3.68,
+          "start_secs": 3.36,
+          "text": "skulle"
+        },
+        {
+          "end_secs": 4.32,
+          "start_secs": 3.68,
+          "text": "baseras"
+        },
+        {
+          "end_secs": 4.48,
+          "start_secs": 4.32,
+          "text": "p\u00e5"
+        },
+        {
+          "end_secs": 4.96,
+          "start_secs": 4.48,
+          "text": "Kina"
+        },
+        {
+          "end_secs": 6.0,
+          "start_secs": 5.12,
+          "text": "ekonomiska"
+        },
+        {
+          "end_secs": 6.96,
+          "start_secs": 6.0,
+          "text": "styrka,"
+        },
+        {
+          "end_secs": 7.2,
+          "start_secs": 6.96,
+          "text": "och"
+        },
+        {
+          "end_secs": 7.68,
+          "start_secs": 7.2,
+          "text": "gav"
+        },
+        {
+          "end_secs": 8.0,
+          "start_secs": 7.68,
+          "text": "inte"
+        },
+        {
+          "end_secs": 8.32,
+          "start_secs": 8.0,
+          "text": "n\u00e5gra"
+        },
+        {
+          "end_secs": 8.96,
+          "start_secs": 8.4,
+          "text": "siffror"
+        },
+        {
+          "end_secs": 9.28,
+          "start_secs": 8.96,
+          "text": "f\u00f6r"
+        },
+        {
+          "end_secs": 10.16,
+          "start_secs": 9.28,
+          "text": "dem."
+        }
+      ],
+      "text": "Han sa att nedsk\u00e4rningarna skulle baseras p\u00e5 Kina ekonomiska styrka, och gav inte n\u00e5gra siffror f\u00f6r dem.",
+      "id": "sv_se:1661:485880107959944598.wav",
+      "language": "sv_se",
+      "errors": 1,
+      "words": 17,
+      "phase": "warm",
+      "run": 1
+    },
+    {
+      "audio_secs": 11.52,
+      "backend": "nemometal",
+      "inference_secs": 0.08578725,
+      "path": "target/fixtures/fleurs/sv_se/121725361684087135.wav",
+      "segments": [
+        {
+          "end_secs": 2.0,
+          "start_secs": 0.8,
+          "text": "Legeringar"
+        },
+        {
+          "end_secs": 2.24,
+          "start_secs": 2.0,
+          "text": "\u00e4r"
+        },
+        {
+          "end_secs": 2.4,
+          "start_secs": 2.24,
+          "text": "en"
+        },
+        {
+          "end_secs": 3.12,
+          "start_secs": 2.4,
+          "text": "blandning"
+        },
+        {
+          "end_secs": 3.36,
+          "start_secs": 3.12,
+          "text": "av"
+        },
+        {
+          "end_secs": 3.68,
+          "start_secs": 3.36,
+          "text": "tv\u00e5"
+        },
+        {
+          "end_secs": 4.0,
+          "start_secs": 3.68,
+          "text": "eller"
+        },
+        {
+          "end_secs": 4.56,
+          "start_secs": 4.0,
+          "text": "flera"
+        },
+        {
+          "end_secs": 5.44,
+          "start_secs": 4.56,
+          "text": "metaller."
+        },
+        {
+          "end_secs": 5.6,
+          "start_secs": 5.44,
+          "text": "Kom"
+        },
+        {
+          "end_secs": 6.24,
+          "start_secs": 5.84,
+          "text": "ih\u00e5g"
+        },
+        {
+          "end_secs": 6.4,
+          "start_secs": 6.24,
+          "text": "att"
+        },
+        {
+          "end_secs": 6.56,
+          "start_secs": 6.4,
+          "text": "det"
+        },
+        {
+          "end_secs": 6.88,
+          "start_secs": 6.56,
+          "text": "finns"
+        },
+        {
+          "end_secs": 7.12,
+          "start_secs": 6.88,
+          "text": "m\u00e5nga"
+        },
+        {
+          "end_secs": 7.76,
+          "start_secs": 7.28,
+          "text": "olika"
+        },
+        {
+          "end_secs": 8.8,
+          "start_secs": 7.76,
+          "text": "grund\u00e4mnen"
+        },
+        {
+          "end_secs": 8.96,
+          "start_secs": 8.8,
+          "text": "i"
+        },
+        {
+          "end_secs": 9.12,
+          "start_secs": 8.96,
+          "text": "det"
+        },
+        {
+          "end_secs": 10.08,
+          "start_secs": 9.12,
+          "text": "periodiska"
+        },
+        {
+          "end_secs": 11.2,
+          "start_secs": 10.08,
+          "text": "systemet."
+        }
+      ],
+      "text": "Legeringar \u00e4r en blandning av tv\u00e5 eller flera metaller. Kom ih\u00e5g att det finns m\u00e5nga olika grund\u00e4mnen i det periodiska systemet.",
+      "id": "sv_se:1662:121725361684087135.wav",
+      "language": "sv_se",
+      "errors": 0,
+      "words": 21,
+      "phase": "warm",
+      "run": 1
+    },
+    {
+      "audio_secs": 11.34,
+      "backend": "nemometal",
+      "inference_secs": 0.0879115,
+      "path": "target/fixtures/fleurs/sv_se/2278899330194391527.wav",
+      "segments": [
+        {
+          "end_secs": 2.32,
+          "start_secs": 1.28,
+          "text": "Legeringar"
+        },
+        {
+          "end_secs": 2.48,
+          "start_secs": 2.32,
+          "text": "\u00e4r"
+        },
+        {
+          "end_secs": 2.64,
+          "start_secs": 2.48,
+          "text": "en"
+        },
+        {
+          "end_secs": 3.12,
+          "start_secs": 2.64,
+          "text": "blandning"
+        },
+        {
+          "end_secs": 3.28,
+          "start_secs": 3.12,
+          "text": "av"
+        },
+        {
+          "end_secs": 3.6,
+          "start_secs": 3.28,
+          "text": "tv\u00e5"
+        },
+        {
+          "end_secs": 3.84,
+          "start_secs": 3.6,
+          "text": "eller"
+        },
+        {
+          "end_secs": 4.24,
+          "start_secs": 3.84,
+          "text": "flera"
+        },
+        {
+          "end_secs": 5.12,
+          "start_secs": 4.24,
+          "text": "metaller."
+        },
+        {
+          "end_secs": 5.28,
+          "start_secs": 5.12,
+          "text": "Kom"
+        },
+        {
+          "end_secs": 5.84,
+          "start_secs": 5.44,
+          "text": "ih\u00e5g"
+        },
+        {
+          "end_secs": 5.92,
+          "start_secs": 5.84,
+          "text": "att"
+        },
+        {
+          "end_secs": 6.08,
+          "start_secs": 6.0,
+          "text": "det"
+        },
+        {
+          "end_secs": 6.32,
+          "start_secs": 6.08,
+          "text": "finns"
+        },
+        {
+          "end_secs": 6.64,
+          "start_secs": 6.32,
+          "text": "m\u00e5nga"
+        },
+        {
+          "end_secs": 7.04,
+          "start_secs": 6.64,
+          "text": "olika"
+        },
+        {
+          "end_secs": 7.76,
+          "start_secs": 7.04,
+          "text": "grund\u00e4mnen"
+        },
+        {
+          "end_secs": 7.92,
+          "start_secs": 7.76,
+          "text": "i"
+        },
+        {
+          "end_secs": 8.0,
+          "start_secs": 7.92,
+          "text": "det"
+        },
+        {
+          "end_secs": 8.88,
+          "start_secs": 8.0,
+          "text": "periodiska"
+        },
+        {
+          "end_secs": 10.08,
+          "start_secs": 8.88,
+          "text": "systemet."
+        }
+      ],
+      "text": "Legeringar \u00e4r en blandning av tv\u00e5 eller flera metaller. Kom ih\u00e5g att det finns m\u00e5nga olika grund\u00e4mnen i det periodiska systemet.",
+      "id": "sv_se:1662:2278899330194391527.wav",
+      "language": "sv_se",
+      "errors": 0,
+      "words": 21,
+      "phase": "warm",
+      "run": 1
+    },
+    {
+      "audio_secs": 15.0,
+      "backend": "nemometal",
+      "inference_secs": 0.110783583,
+      "path": "target/fixtures/fleurs/sv_se/12688026512340699992.wav",
+      "segments": [
+        {
+          "end_secs": 2.88,
+          "start_secs": 1.28,
+          "text": "Cockamodalen,"
+        },
+        {
+          "end_secs": 3.28,
+          "start_secs": 2.88,
+          "text": "Kiles"
+        },
+        {
+          "end_secs": 3.92,
+          "start_secs": 3.36,
+          "text": "fr\u00e4msta"
+        },
+        {
+          "end_secs": 4.48,
+          "start_secs": 3.92,
+          "text": "destination"
+        },
+        {
+          "end_secs": 4.64,
+          "start_secs": 4.48,
+          "text": "f\u00f6r"
+        },
+        {
+          "end_secs": 5.6,
+          "start_secs": 4.64,
+          "text": "kl\u00e4ttring,"
+        },
+        {
+          "end_secs": 5.84,
+          "start_secs": 5.6,
+          "text": "\u00e4r"
+        },
+        {
+          "end_secs": 6.16,
+          "start_secs": 5.84,
+          "text": "k\u00e4nd"
+        },
+        {
+          "end_secs": 6.4,
+          "start_secs": 6.24,
+          "text": "som"
+        },
+        {
+          "end_secs": 7.12,
+          "start_secs": 6.4,
+          "text": "Sydamerikas"
+        },
+        {
+          "end_secs": 8.56,
+          "start_secs": 7.28,
+          "text": "josemitte,"
+        },
+        {
+          "end_secs": 8.8,
+          "start_secs": 8.56,
+          "text": "och"
+        },
+        {
+          "end_secs": 9.04,
+          "start_secs": 8.8,
+          "text": "har"
+        },
+        {
+          "end_secs": 9.2,
+          "start_secs": 9.04,
+          "text": "ett"
+        },
+        {
+          "end_secs": 9.68,
+          "start_secs": 9.2,
+          "text": "antal"
+        },
+        {
+          "end_secs": 10.08,
+          "start_secs": 9.68,
+          "text": "stora"
+        },
+        {
+          "end_secs": 10.64,
+          "start_secs": 10.08,
+          "text": "klippor"
+        },
+        {
+          "end_secs": 10.8,
+          "start_secs": 10.64,
+          "text": "och"
+        },
+        {
+          "end_secs": 11.28,
+          "start_secs": 10.8,
+          "text": "v\u00e4ggar"
+        },
+        {
+          "end_secs": 11.6,
+          "start_secs": 11.36,
+          "text": "i"
+        },
+        {
+          "end_secs": 12.56,
+          "start_secs": 11.6,
+          "text": "granit."
+        }
+      ],
+      "text": "Cockamodalen, Kiles fr\u00e4msta destination f\u00f6r kl\u00e4ttring, \u00e4r k\u00e4nd som Sydamerikas josemitte, och har ett antal stora klippor och v\u00e4ggar i granit.",
+      "id": "sv_se:1663:12688026512340699992.wav",
+      "language": "sv_se",
+      "errors": 4,
+      "words": 22,
+      "phase": "warm",
+      "run": 1
+    },
+    {
+      "audio_secs": 12.96,
+      "backend": "nemometal",
+      "inference_secs": 0.102985666,
+      "path": "target/fixtures/fleurs/sv_se/16339275641865603551.wav",
+      "segments": [
+        {
+          "end_secs": 2.24,
+          "start_secs": 0.88,
+          "text": "Cookamodalen,"
+        },
+        {
+          "end_secs": 2.72,
+          "start_secs": 2.24,
+          "text": "Kiles"
+        },
+        {
+          "end_secs": 3.2,
+          "start_secs": 2.8,
+          "text": "fr\u00e4msta"
+        },
+        {
+          "end_secs": 3.76,
+          "start_secs": 3.2,
+          "text": "destination"
+        },
+        {
+          "end_secs": 3.92,
+          "start_secs": 3.76,
+          "text": "f\u00f6r"
+        },
+        {
+          "end_secs": 4.8,
+          "start_secs": 3.92,
+          "text": "kl\u00e4ttring,"
+        },
+        {
+          "end_secs": 5.04,
+          "start_secs": 4.8,
+          "text": "\u00e4r"
+        },
+        {
+          "end_secs": 5.36,
+          "start_secs": 5.04,
+          "text": "k\u00e4nd"
+        },
+        {
+          "end_secs": 5.6,
+          "start_secs": 5.44,
+          "text": "som"
+        },
+        {
+          "end_secs": 6.48,
+          "start_secs": 5.6,
+          "text": "Sydamerikas"
+        },
+        {
+          "end_secs": 7.44,
+          "start_secs": 6.48,
+          "text": "Josemite"
+        },
+        {
+          "end_secs": 7.92,
+          "start_secs": 7.6,
+          "text": "och"
+        },
+        {
+          "end_secs": 8.16,
+          "start_secs": 7.92,
+          "text": "har"
+        },
+        {
+          "end_secs": 8.32,
+          "start_secs": 8.16,
+          "text": "ett"
+        },
+        {
+          "end_secs": 8.72,
+          "start_secs": 8.32,
+          "text": "antal"
+        },
+        {
+          "end_secs": 9.04,
+          "start_secs": 8.72,
+          "text": "stora"
+        },
+        {
+          "end_secs": 9.6,
+          "start_secs": 9.04,
+          "text": "klippor"
+        },
+        {
+          "end_secs": 9.76,
+          "start_secs": 9.6,
+          "text": "och"
+        },
+        {
+          "end_secs": 10.16,
+          "start_secs": 9.76,
+          "text": "v\u00e4ggar"
+        },
+        {
+          "end_secs": 10.48,
+          "start_secs": 10.24,
+          "text": "i"
+        },
+        {
+          "end_secs": 11.44,
+          "start_secs": 10.48,
+          "text": "granit."
+        }
+      ],
+      "text": "Cookamodalen, Kiles fr\u00e4msta destination f\u00f6r kl\u00e4ttring, \u00e4r k\u00e4nd som Sydamerikas Josemite och har ett antal stora klippor och v\u00e4ggar i granit.",
+      "id": "sv_se:1663:16339275641865603551.wav",
+      "language": "sv_se",
+      "errors": 4,
+      "words": 22,
+      "phase": "warm",
+      "run": 1
+    },
+    {
+      "audio_secs": 8.64,
+      "backend": "nemometal",
+      "inference_secs": 0.070698209,
+      "path": "target/fixtures/fleurs/sv_se/11569046426682372641.wav",
+      "segments": [
+        {
+          "end_secs": 1.68,
+          "start_secs": 1.2,
+          "text": "R\u00f6r"
+        },
+        {
+          "end_secs": 2.32,
+          "start_secs": 1.84,
+          "text": "ihop"
+        },
+        {
+          "end_secs": 2.48,
+          "start_secs": 2.32,
+          "text": "de"
+        },
+        {
+          "end_secs": 2.8,
+          "start_secs": 2.48,
+          "text": "tv\u00e5"
+        },
+        {
+          "end_secs": 3.28,
+          "start_secs": 2.8,
+          "text": "t\u00e5ra"
+        },
+        {
+          "end_secs": 4.08,
+          "start_secs": 3.28,
+          "text": "polbren"
+        },
+        {
+          "end_secs": 4.88,
+          "start_secs": 4.32,
+          "text": "formade"
+        },
+        {
+          "end_secs": 5.44,
+          "start_secs": 5.12,
+          "text": "sedan"
+        },
+        {
+          "end_secs": 5.92,
+          "start_secs": 5.68,
+          "text": "till"
+        },
+        {
+          "end_secs": 6.08,
+          "start_secs": 5.92,
+          "text": "en"
+        },
+        {
+          "end_secs": 6.32,
+          "start_secs": 6.08,
+          "text": "boll"
+        },
+        {
+          "end_secs": 6.56,
+          "start_secs": 6.4,
+          "text": "med"
+        },
+        {
+          "end_secs": 6.88,
+          "start_secs": 6.56,
+          "text": "rena"
+        },
+        {
+          "end_secs": 7.52,
+          "start_secs": 6.96,
+          "text": "bl\u00f6da"
+        },
+        {
+          "end_secs": 8.48,
+          "start_secs": 7.52,
+          "text": "h\u00e4nder."
+        }
+      ],
+      "text": "R\u00f6r ihop de tv\u00e5 t\u00e5ra polbren formade sedan till en boll med rena bl\u00f6da h\u00e4nder.",
+      "id": "sv_se:1664:11569046426682372641.wav",
+      "language": "sv_se",
+      "errors": 5,
+      "words": 16,
+      "phase": "warm",
+      "run": 1
+    },
+    {
+      "audio_secs": 5.16,
+      "backend": "nemometal",
+      "inference_secs": 0.057623542,
+      "path": "target/fixtures/fleurs/sv_se/18430281348165445219.wav",
+      "segments": [
+        {
+          "end_secs": 0.48,
+          "start_secs": 0.0,
+          "text": "R\u00f6r"
+        },
+        {
+          "end_secs": 0.8,
+          "start_secs": 0.48,
+          "text": "ihop"
+        },
+        {
+          "end_secs": 0.96,
+          "start_secs": 0.8,
+          "text": "de"
+        },
+        {
+          "end_secs": 1.44,
+          "start_secs": 0.96,
+          "text": "tv\u00e5torra"
+        },
+        {
+          "end_secs": 1.92,
+          "start_secs": 1.44,
+          "text": "pulvren."
+        },
+        {
+          "end_secs": 2.24,
+          "start_secs": 1.92,
+          "text": "Formar"
+        },
+        {
+          "end_secs": 2.48,
+          "start_secs": 2.32,
+          "text": "den"
+        },
+        {
+          "end_secs": 2.72,
+          "start_secs": 2.48,
+          "text": "sedan"
+        },
+        {
+          "end_secs": 3.04,
+          "start_secs": 2.88,
+          "text": "till"
+        },
+        {
+          "end_secs": 3.12,
+          "start_secs": 3.04,
+          "text": "en"
+        },
+        {
+          "end_secs": 3.28,
+          "start_secs": 3.12,
+          "text": "boll"
+        },
+        {
+          "end_secs": 3.52,
+          "start_secs": 3.36,
+          "text": "med"
+        },
+        {
+          "end_secs": 3.84,
+          "start_secs": 3.52,
+          "text": "rena"
+        },
+        {
+          "end_secs": 4.4,
+          "start_secs": 3.92,
+          "text": "bl\u00f6ta"
+        },
+        {
+          "end_secs": 5.04,
+          "start_secs": 4.4,
+          "text": "\u00e4nder."
+        }
+      ],
+      "text": "R\u00f6r ihop de tv\u00e5torra pulvren. Formar den sedan till en boll med rena bl\u00f6ta \u00e4nder.",
+      "id": "sv_se:1664:18430281348165445219.wav",
+      "language": "sv_se",
+      "errors": 5,
+      "words": 16,
+      "phase": "warm",
+      "run": 1
+    },
+    {
+      "audio_secs": 10.68,
+      "backend": "nemometal",
+      "inference_secs": 0.085105959,
+      "path": "target/fixtures/fleurs/en_us/12742373433258665797.wav",
+      "segments": [
+        {
+          "end_secs": 2.08,
+          "start_secs": 0.88,
+          "text": "Romanticism"
+        },
+        {
+          "end_secs": 2.24,
+          "start_secs": 2.08,
+          "text": "had"
+        },
+        {
+          "end_secs": 2.4,
+          "start_secs": 2.24,
+          "text": "a"
+        },
+        {
+          "end_secs": 2.8,
+          "start_secs": 2.4,
+          "text": "large"
+        },
+        {
+          "end_secs": 3.12,
+          "start_secs": 2.8,
+          "text": "element"
+        },
+        {
+          "end_secs": 3.36,
+          "start_secs": 3.12,
+          "text": "of"
+        },
+        {
+          "end_secs": 3.92,
+          "start_secs": 3.36,
+          "text": "cultural"
+        },
+        {
+          "end_secs": 4.8,
+          "start_secs": 3.92,
+          "text": "determinism"
+        },
+        {
+          "end_secs": 5.28,
+          "start_secs": 4.8,
+          "text": "drawn"
+        },
+        {
+          "end_secs": 5.44,
+          "start_secs": 5.28,
+          "text": "from"
+        },
+        {
+          "end_secs": 5.92,
+          "start_secs": 5.44,
+          "text": "writers"
+        },
+        {
+          "end_secs": 6.08,
+          "start_secs": 5.92,
+          "text": "such"
+        },
+        {
+          "end_secs": 6.32,
+          "start_secs": 6.08,
+          "text": "as"
+        },
+        {
+          "end_secs": 7.12,
+          "start_secs": 6.32,
+          "text": "Goth,"
+        },
+        {
+          "end_secs": 7.6,
+          "start_secs": 7.12,
+          "text": "Pitt"
+        },
+        {
+          "end_secs": 8.0,
+          "start_secs": 7.84,
+          "text": "and"
+        },
+        {
+          "end_secs": 9.36,
+          "start_secs": 8.0,
+          "text": "Schlagel."
+        }
+      ],
+      "text": "Romanticism had a large element of cultural determinism drawn from writers such as Goth, Pitt and Schlagel.",
+      "id": "en_us:1660:12742373433258665797.wav",
+      "language": "en_us",
+      "errors": 3,
+      "words": 17,
+      "phase": "warm",
+      "run": 2
+    },
+    {
+      "audio_secs": 11.52,
+      "backend": "nemometal",
+      "inference_secs": 0.087578333,
+      "path": "target/fixtures/fleurs/en_us/9327483361259434782.wav",
+      "segments": [
+        {
+          "end_secs": 2.32,
+          "start_secs": 1.12,
+          "text": "Romanticism"
+        },
+        {
+          "end_secs": 2.48,
+          "start_secs": 2.32,
+          "text": "had"
+        },
+        {
+          "end_secs": 2.64,
+          "start_secs": 2.48,
+          "text": "a"
+        },
+        {
+          "end_secs": 2.96,
+          "start_secs": 2.64,
+          "text": "large"
+        },
+        {
+          "end_secs": 3.28,
+          "start_secs": 2.96,
+          "text": "element"
+        },
+        {
+          "end_secs": 3.44,
+          "start_secs": 3.28,
+          "text": "of"
+        },
+        {
+          "end_secs": 4.0,
+          "start_secs": 3.44,
+          "text": "cultural"
+        },
+        {
+          "end_secs": 4.96,
+          "start_secs": 4.0,
+          "text": "determinism"
+        },
+        {
+          "end_secs": 5.36,
+          "start_secs": 4.96,
+          "text": "drawn"
+        },
+        {
+          "end_secs": 5.52,
+          "start_secs": 5.36,
+          "text": "from"
+        },
+        {
+          "end_secs": 6.0,
+          "start_secs": 5.52,
+          "text": "writers"
+        },
+        {
+          "end_secs": 6.16,
+          "start_secs": 6.0,
+          "text": "such"
+        },
+        {
+          "end_secs": 6.32,
+          "start_secs": 6.16,
+          "text": "as"
+        },
+        {
+          "end_secs": 7.2,
+          "start_secs": 6.32,
+          "text": "Goth,"
+        },
+        {
+          "end_secs": 8.08,
+          "start_secs": 7.2,
+          "text": "Ficht,"
+        },
+        {
+          "end_secs": 8.4,
+          "start_secs": 8.08,
+          "text": "and"
+        },
+        {
+          "end_secs": 9.92,
+          "start_secs": 8.4,
+          "text": "Schlegel."
+        }
+      ],
+      "text": "Romanticism had a large element of cultural determinism drawn from writers such as Goth, Ficht, and Schlegel.",
+      "id": "en_us:1660:9327483361259434782.wav",
+      "language": "en_us",
+      "errors": 2,
+      "words": 17,
+      "phase": "warm",
+      "run": 2
+    },
+    {
+      "audio_secs": 6.36,
+      "backend": "nemometal",
+      "inference_secs": 0.060466625,
+      "path": "target/fixtures/fleurs/en_us/6917907748364342404.wav",
+      "segments": [
+        {
+          "end_secs": 0.64,
+          "start_secs": 0.32,
+          "text": "He"
+        },
+        {
+          "end_secs": 0.96,
+          "start_secs": 0.64,
+          "text": "did"
+        },
+        {
+          "end_secs": 1.2,
+          "start_secs": 0.96,
+          "text": "not"
+        },
+        {
+          "end_secs": 1.36,
+          "start_secs": 1.2,
+          "text": "set"
+        },
+        {
+          "end_secs": 1.52,
+          "start_secs": 1.36,
+          "text": "a"
+        },
+        {
+          "end_secs": 1.76,
+          "start_secs": 1.52,
+          "text": "figure"
+        },
+        {
+          "end_secs": 1.92,
+          "start_secs": 1.76,
+          "text": "for"
+        },
+        {
+          "end_secs": 2.0,
+          "start_secs": 1.92,
+          "text": "the"
+        },
+        {
+          "end_secs": 2.32,
+          "start_secs": 2.0,
+          "text": "cuts"
+        },
+        {
+          "end_secs": 2.72,
+          "start_secs": 2.4,
+          "text": "saying"
+        },
+        {
+          "end_secs": 2.88,
+          "start_secs": 2.72,
+          "text": "they"
+        },
+        {
+          "end_secs": 3.04,
+          "start_secs": 2.88,
+          "text": "will"
+        },
+        {
+          "end_secs": 3.12,
+          "start_secs": 3.04,
+          "text": "be"
+        },
+        {
+          "end_secs": 3.36,
+          "start_secs": 3.12,
+          "text": "made"
+        },
+        {
+          "end_secs": 3.6,
+          "start_secs": 3.36,
+          "text": "based"
+        },
+        {
+          "end_secs": 3.76,
+          "start_secs": 3.6,
+          "text": "on"
+        },
+        {
+          "end_secs": 4.4,
+          "start_secs": 3.76,
+          "text": "China's"
+        },
+        {
+          "end_secs": 4.96,
+          "start_secs": 4.4,
+          "text": "economic"
+        },
+        {
+          "end_secs": 6.16,
+          "start_secs": 4.96,
+          "text": "output."
+        }
+      ],
+      "text": "He did not set a figure for the cuts saying they will be made based on China's economic output.",
+      "id": "en_us:1661:6917907748364342404.wav",
+      "language": "en_us",
+      "errors": 0,
+      "words": 19,
+      "phase": "warm",
+      "run": 2
+    },
+    {
+      "audio_secs": 6.9,
+      "backend": "nemometal",
+      "inference_secs": 0.06193875,
+      "path": "target/fixtures/fleurs/en_us/8546403500877190903.wav",
+      "segments": [
+        {
+          "end_secs": 0.64,
+          "start_secs": 0.32,
+          "text": "He"
+        },
+        {
+          "end_secs": 0.96,
+          "start_secs": 0.64,
+          "text": "did"
+        },
+        {
+          "end_secs": 1.28,
+          "start_secs": 0.96,
+          "text": "not"
+        },
+        {
+          "end_secs": 1.52,
+          "start_secs": 1.28,
+          "text": "set"
+        },
+        {
+          "end_secs": 1.68,
+          "start_secs": 1.52,
+          "text": "a"
+        },
+        {
+          "end_secs": 2.0,
+          "start_secs": 1.68,
+          "text": "figure"
+        },
+        {
+          "end_secs": 2.16,
+          "start_secs": 2.0,
+          "text": "for"
+        },
+        {
+          "end_secs": 2.32,
+          "start_secs": 2.16,
+          "text": "the"
+        },
+        {
+          "end_secs": 2.64,
+          "start_secs": 2.32,
+          "text": "cuts"
+        },
+        {
+          "end_secs": 3.12,
+          "start_secs": 2.8,
+          "text": "saying"
+        },
+        {
+          "end_secs": 3.28,
+          "start_secs": 3.12,
+          "text": "they"
+        },
+        {
+          "end_secs": 3.44,
+          "start_secs": 3.28,
+          "text": "will"
+        },
+        {
+          "end_secs": 3.6,
+          "start_secs": 3.44,
+          "text": "be"
+        },
+        {
+          "end_secs": 3.84,
+          "start_secs": 3.6,
+          "text": "made"
+        },
+        {
+          "end_secs": 4.08,
+          "start_secs": 3.84,
+          "text": "based"
+        },
+        {
+          "end_secs": 4.24,
+          "start_secs": 4.08,
+          "text": "on"
+        },
+        {
+          "end_secs": 4.8,
+          "start_secs": 4.24,
+          "text": "China's"
+        },
+        {
+          "end_secs": 5.36,
+          "start_secs": 4.8,
+          "text": "economic"
+        },
+        {
+          "end_secs": 6.56,
+          "start_secs": 5.36,
+          "text": "output."
+        }
+      ],
+      "text": "He did not set a figure for the cuts saying they will be made based on China's economic output.",
+      "id": "en_us:1661:8546403500877190903.wav",
+      "language": "en_us",
+      "errors": 0,
+      "words": 19,
+      "phase": "warm",
+      "run": 2
+    },
+    {
+      "audio_secs": 8.38,
+      "backend": "nemometal",
+      "inference_secs": 0.0699335,
+      "path": "target/fixtures/fleurs/en_us/10614481583312370701.wav",
+      "segments": [
+        {
+          "end_secs": 1.28,
+          "start_secs": 0.56,
+          "text": "Alloys"
+        },
+        {
+          "end_secs": 1.44,
+          "start_secs": 1.28,
+          "text": "are"
+        },
+        {
+          "end_secs": 1.84,
+          "start_secs": 1.44,
+          "text": "basically"
+        },
+        {
+          "end_secs": 1.92,
+          "start_secs": 1.84,
+          "text": "a"
+        },
+        {
+          "end_secs": 2.24,
+          "start_secs": 1.92,
+          "text": "mixture"
+        },
+        {
+          "end_secs": 2.32,
+          "start_secs": 2.24,
+          "text": "of"
+        },
+        {
+          "end_secs": 2.48,
+          "start_secs": 2.32,
+          "text": "2"
+        },
+        {
+          "end_secs": 2.8,
+          "start_secs": 2.56,
+          "text": "or"
+        },
+        {
+          "end_secs": 3.04,
+          "start_secs": 2.8,
+          "text": "more"
+        },
+        {
+          "end_secs": 3.68,
+          "start_secs": 3.04,
+          "text": "metals."
+        },
+        {
+          "end_secs": 4.0,
+          "start_secs": 3.68,
+          "text": "Don't"
+        },
+        {
+          "end_secs": 4.4,
+          "start_secs": 4.0,
+          "text": "forget"
+        },
+        {
+          "end_secs": 4.56,
+          "start_secs": 4.4,
+          "text": "there"
+        },
+        {
+          "end_secs": 4.72,
+          "start_secs": 4.56,
+          "text": "are"
+        },
+        {
+          "end_secs": 5.04,
+          "start_secs": 4.72,
+          "text": "many"
+        },
+        {
+          "end_secs": 5.52,
+          "start_secs": 5.04,
+          "text": "elements"
+        },
+        {
+          "end_secs": 5.68,
+          "start_secs": 5.52,
+          "text": "on"
+        },
+        {
+          "end_secs": 5.92,
+          "start_secs": 5.68,
+          "text": "the"
+        },
+        {
+          "end_secs": 6.48,
+          "start_secs": 5.92,
+          "text": "PRI"
+        },
+        {
+          "end_secs": 7.76,
+          "start_secs": 6.8,
+          "text": "table."
+        }
+      ],
+      "text": "Alloys are basically a mixture of 2 or more metals. Don't forget there are many elements on the PRI table.",
+      "id": "en_us:1662:10614481583312370701.wav",
+      "language": "en_us",
+      "errors": 3,
+      "words": 21,
+      "phase": "warm",
+      "run": 2
+    },
+    {
+      "audio_secs": 11.16,
+      "backend": "nemometal",
+      "inference_secs": 0.0825345,
+      "path": "target/fixtures/fleurs/en_us/7378917572989533960.wav",
+      "segments": [
+        {
+          "end_secs": 1.52,
+          "start_secs": 0.64,
+          "text": "Alloys"
+        },
+        {
+          "end_secs": 1.76,
+          "start_secs": 1.52,
+          "text": "are"
+        },
+        {
+          "end_secs": 2.32,
+          "start_secs": 1.76,
+          "text": "basically"
+        },
+        {
+          "end_secs": 2.56,
+          "start_secs": 2.32,
+          "text": "a"
+        },
+        {
+          "end_secs": 3.12,
+          "start_secs": 2.56,
+          "text": "mixture"
+        },
+        {
+          "end_secs": 3.36,
+          "start_secs": 3.12,
+          "text": "of"
+        },
+        {
+          "end_secs": 3.68,
+          "start_secs": 3.36,
+          "text": "two"
+        },
+        {
+          "end_secs": 4.0,
+          "start_secs": 3.68,
+          "text": "or"
+        },
+        {
+          "end_secs": 4.32,
+          "start_secs": 4.0,
+          "text": "more"
+        },
+        {
+          "end_secs": 5.28,
+          "start_secs": 4.32,
+          "text": "metals."
+        },
+        {
+          "end_secs": 5.76,
+          "start_secs": 5.28,
+          "text": "Don't"
+        },
+        {
+          "end_secs": 6.32,
+          "start_secs": 5.68,
+          "text": "forget"
+        },
+        {
+          "end_secs": 6.48,
+          "start_secs": 6.32,
+          "text": "there"
+        },
+        {
+          "end_secs": 6.72,
+          "start_secs": 6.48,
+          "text": "are"
+        },
+        {
+          "end_secs": 7.2,
+          "start_secs": 6.72,
+          "text": "many"
+        },
+        {
+          "end_secs": 7.84,
+          "start_secs": 7.2,
+          "text": "elements"
+        },
+        {
+          "end_secs": 8.08,
+          "start_secs": 7.84,
+          "text": "on"
+        },
+        {
+          "end_secs": 8.16,
+          "start_secs": 8.08,
+          "text": "the"
+        },
+        {
+          "end_secs": 9.36,
+          "start_secs": 8.4,
+          "text": "periodic"
+        },
+        {
+          "end_secs": 10.64,
+          "start_secs": 9.68,
+          "text": "table."
+        }
+      ],
+      "text": "Alloys are basically a mixture of two or more metals. Don't forget there are many elements on the periodic table.",
+      "id": "en_us:1662:7378917572989533960.wav",
+      "language": "en_us",
+      "errors": 1,
+      "words": 21,
+      "phase": "warm",
+      "run": 2
+    },
+    {
+      "audio_secs": 12.12,
+      "backend": "nemometal",
+      "inference_secs": 0.095896916,
+      "path": "target/fixtures/fleurs/en_us/3156459702070203007.wav",
+      "segments": [
+        {
+          "end_secs": 1.68,
+          "start_secs": 0.8,
+          "text": "Chokamo"
+        },
+        {
+          "end_secs": 2.24,
+          "start_secs": 1.84,
+          "text": "Valley"
+        },
+        {
+          "end_secs": 3.12,
+          "start_secs": 2.48,
+          "text": "Chile's"
+        },
+        {
+          "end_secs": 3.44,
+          "start_secs": 3.12,
+          "text": "premier"
+        },
+        {
+          "end_secs": 4.0,
+          "start_secs": 3.44,
+          "text": "climbing"
+        },
+        {
+          "end_secs": 4.64,
+          "start_secs": 4.0,
+          "text": "destination"
+        },
+        {
+          "end_secs": 5.04,
+          "start_secs": 4.8,
+          "text": "known"
+        },
+        {
+          "end_secs": 5.2,
+          "start_secs": 5.04,
+          "text": "as"
+        },
+        {
+          "end_secs": 5.36,
+          "start_secs": 5.2,
+          "text": "the"
+        },
+        {
+          "end_secs": 6.16,
+          "start_secs": 5.36,
+          "text": "Yosemite"
+        },
+        {
+          "end_secs": 6.24,
+          "start_secs": 6.16,
+          "text": "of"
+        },
+        {
+          "end_secs": 6.56,
+          "start_secs": 6.24,
+          "text": "South"
+        },
+        {
+          "end_secs": 7.12,
+          "start_secs": 6.56,
+          "text": "America,"
+        },
+        {
+          "end_secs": 7.36,
+          "start_secs": 7.12,
+          "text": "with"
+        },
+        {
+          "end_secs": 7.44,
+          "start_secs": 7.36,
+          "text": "a"
+        },
+        {
+          "end_secs": 7.92,
+          "start_secs": 7.44,
+          "text": "variety"
+        },
+        {
+          "end_secs": 8.16,
+          "start_secs": 7.92,
+          "text": "of"
+        },
+        {
+          "end_secs": 8.64,
+          "start_secs": 8.16,
+          "text": "granite"
+        },
+        {
+          "end_secs": 9.04,
+          "start_secs": 8.64,
+          "text": "big"
+        },
+        {
+          "end_secs": 9.44,
+          "start_secs": 9.04,
+          "text": "walls"
+        },
+        {
+          "end_secs": 9.76,
+          "start_secs": 9.44,
+          "text": "and"
+        },
+        {
+          "end_secs": 10.8,
+          "start_secs": 9.76,
+          "text": "crags."
+        }
+      ],
+      "text": "Chokamo Valley Chile's premier climbing destination known as the Yosemite of South America, with a variety of granite big walls and crags.",
+      "id": "en_us:1663:3156459702070203007.wav",
+      "language": "en_us",
+      "errors": 1,
+      "words": 22,
+      "phase": "warm",
+      "run": 2
+    },
+    {
+      "audio_secs": 9.9,
+      "backend": "nemometal",
+      "inference_secs": 0.084513667,
+      "path": "target/fixtures/fleurs/en_us/6603783905885843777.wav",
+      "segments": [
+        {
+          "end_secs": 1.04,
+          "start_secs": 0.24,
+          "text": "Cacho"
+        },
+        {
+          "end_secs": 1.44,
+          "start_secs": 1.04,
+          "text": "Valley,"
+        },
+        {
+          "end_secs": 1.92,
+          "start_secs": 1.44,
+          "text": "Chile's"
+        },
+        {
+          "end_secs": 2.24,
+          "start_secs": 1.92,
+          "text": "premier"
+        },
+        {
+          "end_secs": 2.64,
+          "start_secs": 2.24,
+          "text": "climbing"
+        },
+        {
+          "end_secs": 3.2,
+          "start_secs": 2.64,
+          "text": "destination,"
+        },
+        {
+          "end_secs": 3.44,
+          "start_secs": 3.2,
+          "text": "known"
+        },
+        {
+          "end_secs": 3.52,
+          "start_secs": 3.44,
+          "text": "as"
+        },
+        {
+          "end_secs": 3.76,
+          "start_secs": 3.52,
+          "text": "the"
+        },
+        {
+          "end_secs": 4.48,
+          "start_secs": 3.76,
+          "text": "Yosemite"
+        },
+        {
+          "end_secs": 4.8,
+          "start_secs": 4.64,
+          "text": "of"
+        },
+        {
+          "end_secs": 5.04,
+          "start_secs": 4.8,
+          "text": "South"
+        },
+        {
+          "end_secs": 5.6,
+          "start_secs": 5.04,
+          "text": "America,"
+        },
+        {
+          "end_secs": 5.84,
+          "start_secs": 5.6,
+          "text": "with"
+        },
+        {
+          "end_secs": 6.0,
+          "start_secs": 5.84,
+          "text": "a"
+        },
+        {
+          "end_secs": 6.4,
+          "start_secs": 6.0,
+          "text": "variety"
+        },
+        {
+          "end_secs": 6.64,
+          "start_secs": 6.4,
+          "text": "of"
+        },
+        {
+          "end_secs": 7.2,
+          "start_secs": 6.64,
+          "text": "granite"
+        },
+        {
+          "end_secs": 7.76,
+          "start_secs": 7.44,
+          "text": "big"
+        },
+        {
+          "end_secs": 8.08,
+          "start_secs": 7.76,
+          "text": "walls"
+        },
+        {
+          "end_secs": 8.32,
+          "start_secs": 8.08,
+          "text": "and"
+        },
+        {
+          "end_secs": 9.28,
+          "start_secs": 8.32,
+          "text": "crags."
+        }
+      ],
+      "text": "Cacho Valley, Chile's premier climbing destination, known as the Yosemite of South America, with a variety of granite big walls and crags.",
+      "id": "en_us:1663:6603783905885843777.wav",
+      "language": "en_us",
+      "errors": 1,
+      "words": 22,
+      "phase": "warm",
+      "run": 2
+    },
+    {
+      "audio_secs": 8.36,
+      "backend": "nemometal",
+      "inference_secs": 0.072703292,
+      "path": "target/fixtures/fleurs/en_us/13031516147694203229.wav",
+      "segments": [
+        {
+          "end_secs": 1.28,
+          "start_secs": 0.56,
+          "text": "Swirl"
+        },
+        {
+          "end_secs": 1.36,
+          "start_secs": 1.28,
+          "text": "the"
+        },
+        {
+          "end_secs": 1.6,
+          "start_secs": 1.36,
+          "text": "two"
+        },
+        {
+          "end_secs": 1.92,
+          "start_secs": 1.6,
+          "text": "dry"
+        },
+        {
+          "end_secs": 2.48,
+          "start_secs": 1.92,
+          "text": "powers"
+        },
+        {
+          "end_secs": 2.72,
+          "start_secs": 2.48,
+          "text": "together"
+        },
+        {
+          "end_secs": 2.96,
+          "start_secs": 2.8,
+          "text": "and"
+        },
+        {
+          "end_secs": 3.2,
+          "start_secs": 2.96,
+          "text": "then"
+        },
+        {
+          "end_secs": 3.52,
+          "start_secs": 3.2,
+          "text": "with"
+        },
+        {
+          "end_secs": 3.92,
+          "start_secs": 3.52,
+          "text": "clean"
+        },
+        {
+          "end_secs": 4.56,
+          "start_secs": 4.08,
+          "text": "wet"
+        },
+        {
+          "end_secs": 4.96,
+          "start_secs": 4.56,
+          "text": "hands"
+        },
+        {
+          "end_secs": 5.84,
+          "start_secs": 5.2,
+          "text": "squeeze"
+        },
+        {
+          "end_secs": 6.08,
+          "start_secs": 5.84,
+          "text": "them"
+        },
+        {
+          "end_secs": 6.24,
+          "start_secs": 6.08,
+          "text": "into"
+        },
+        {
+          "end_secs": 6.48,
+          "start_secs": 6.24,
+          "text": "a"
+        },
+        {
+          "end_secs": 6.96,
+          "start_secs": 6.48,
+          "text": "ball."
+        }
+      ],
+      "text": "Swirl the two dry powers together and then with clean wet hands squeeze them into a ball.",
+      "id": "en_us:1664:13031516147694203229.wav",
+      "language": "en_us",
+      "errors": 1,
+      "words": 17,
+      "phase": "warm",
+      "run": 2
+    },
+    {
+      "audio_secs": 5.4,
+      "backend": "nemometal",
+      "inference_secs": 0.060487041,
+      "path": "target/fixtures/fleurs/en_us/1944915261206096046.wav",
+      "segments": [
+        {
+          "end_secs": 0.8,
+          "start_secs": 0.16,
+          "text": "Swirl"
+        },
+        {
+          "end_secs": 0.88,
+          "start_secs": 0.8,
+          "text": "the"
+        },
+        {
+          "end_secs": 1.2,
+          "start_secs": 0.88,
+          "text": "two"
+        },
+        {
+          "end_secs": 1.52,
+          "start_secs": 1.2,
+          "text": "dry"
+        },
+        {
+          "end_secs": 2.0,
+          "start_secs": 1.52,
+          "text": "powders"
+        },
+        {
+          "end_secs": 2.24,
+          "start_secs": 2.0,
+          "text": "together"
+        },
+        {
+          "end_secs": 2.4,
+          "start_secs": 2.32,
+          "text": "and"
+        },
+        {
+          "end_secs": 2.56,
+          "start_secs": 2.4,
+          "text": "then"
+        },
+        {
+          "end_secs": 2.88,
+          "start_secs": 2.64,
+          "text": "with"
+        },
+        {
+          "end_secs": 3.12,
+          "start_secs": 2.88,
+          "text": "clean"
+        },
+        {
+          "end_secs": 3.44,
+          "start_secs": 3.2,
+          "text": "wet"
+        },
+        {
+          "end_secs": 3.68,
+          "start_secs": 3.44,
+          "text": "hands"
+        },
+        {
+          "end_secs": 4.24,
+          "start_secs": 3.84,
+          "text": "squeeze"
+        },
+        {
+          "end_secs": 4.4,
+          "start_secs": 4.24,
+          "text": "them"
+        },
+        {
+          "end_secs": 4.56,
+          "start_secs": 4.4,
+          "text": "into"
+        },
+        {
+          "end_secs": 4.64,
+          "start_secs": 4.56,
+          "text": "a"
+        },
+        {
+          "end_secs": 5.36,
+          "start_secs": 4.64,
+          "text": "ball."
+        }
+      ],
+      "text": "Swirl the two dry powders together and then with clean wet hands squeeze them into a ball.",
+      "id": "en_us:1664:1944915261206096046.wav",
+      "language": "en_us",
+      "errors": 0,
+      "words": 17,
+      "phase": "warm",
+      "run": 2
+    },
+    {
+      "audio_secs": 8.46,
+      "backend": "nemometal",
+      "inference_secs": 0.074053542,
+      "path": "target/fixtures/fleurs/sv_se/11017371815100260878.wav",
+      "segments": [
+        {
+          "end_secs": 1.04,
+          "start_secs": 0.16,
+          "text": "Romantiken"
+        },
+        {
+          "end_secs": 1.68,
+          "start_secs": 1.04,
+          "text": "inneh\u00e5ller"
+        },
+        {
+          "end_secs": 2.08,
+          "start_secs": 1.76,
+          "text": "stort"
+        },
+        {
+          "end_secs": 2.4,
+          "start_secs": 2.08,
+          "text": "element"
+        },
+        {
+          "end_secs": 2.72,
+          "start_secs": 2.48,
+          "text": "av"
+        },
+        {
+          "end_secs": 3.44,
+          "start_secs": 2.72,
+          "text": "determinism"
+        },
+        {
+          "end_secs": 3.92,
+          "start_secs": 3.68,
+          "text": "med"
+        },
+        {
+          "end_secs": 4.56,
+          "start_secs": 3.92,
+          "text": "ursprung"
+        },
+        {
+          "end_secs": 4.8,
+          "start_secs": 4.64,
+          "text": "hos"
+        },
+        {
+          "end_secs": 5.36,
+          "start_secs": 4.8,
+          "text": "f\u00f6rfattare"
+        },
+        {
+          "end_secs": 5.6,
+          "start_secs": 5.36,
+          "text": "som"
+        },
+        {
+          "end_secs": 6.24,
+          "start_secs": 5.6,
+          "text": "g\u00e5et,"
+        },
+        {
+          "end_secs": 6.64,
+          "start_secs": 6.24,
+          "text": "fiste"
+        },
+        {
+          "end_secs": 7.12,
+          "start_secs": 6.88,
+          "text": "och"
+        },
+        {
+          "end_secs": 8.24,
+          "start_secs": 7.12,
+          "text": "slegel."
+        }
+      ],
+      "text": "Romantiken inneh\u00e5ller stort element av determinism med ursprung hos f\u00f6rfattare som g\u00e5et, fiste och slegel.",
+      "id": "sv_se:1660:11017371815100260878.wav",
+      "language": "sv_se",
+      "errors": 5,
+      "words": 16,
+      "phase": "warm",
+      "run": 2
+    },
+    {
+      "audio_secs": 9.36,
+      "backend": "nemometal",
+      "inference_secs": 0.074207792,
+      "path": "target/fixtures/fleurs/sv_se/1010284889812064135.wav",
+      "segments": [
+        {
+          "end_secs": 0.96,
+          "start_secs": 0.64,
+          "text": "Han"
+        },
+        {
+          "end_secs": 1.2,
+          "start_secs": 0.96,
+          "text": "sa"
+        },
+        {
+          "end_secs": 1.68,
+          "start_secs": 1.36,
+          "text": "att"
+        },
+        {
+          "end_secs": 2.64,
+          "start_secs": 1.68,
+          "text": "nedsk\u00e4rningarna"
+        },
+        {
+          "end_secs": 2.96,
+          "start_secs": 2.72,
+          "text": "skulle"
+        },
+        {
+          "end_secs": 3.44,
+          "start_secs": 2.96,
+          "text": "baseras"
+        },
+        {
+          "end_secs": 3.6,
+          "start_secs": 3.44,
+          "text": "p\u00e5"
+        },
+        {
+          "end_secs": 3.84,
+          "start_secs": 3.6,
+          "text": "Kinas"
+        },
+        {
+          "end_secs": 4.64,
+          "start_secs": 4.0,
+          "text": "ekonomiska"
+        },
+        {
+          "end_secs": 5.28,
+          "start_secs": 4.64,
+          "text": "styrka"
+        },
+        {
+          "end_secs": 5.52,
+          "start_secs": 5.28,
+          "text": "och"
+        },
+        {
+          "end_secs": 5.92,
+          "start_secs": 5.52,
+          "text": "gav"
+        },
+        {
+          "end_secs": 6.24,
+          "start_secs": 5.92,
+          "text": "inte"
+        },
+        {
+          "end_secs": 6.56,
+          "start_secs": 6.24,
+          "text": "n\u00e5gra"
+        },
+        {
+          "end_secs": 6.96,
+          "start_secs": 6.56,
+          "text": "siffror"
+        },
+        {
+          "end_secs": 7.28,
+          "start_secs": 7.12,
+          "text": "f\u00f6r"
+        },
+        {
+          "end_secs": 8.24,
+          "start_secs": 7.28,
+          "text": "dem."
+        }
+      ],
+      "text": "Han sa att nedsk\u00e4rningarna skulle baseras p\u00e5 Kinas ekonomiska styrka och gav inte n\u00e5gra siffror f\u00f6r dem.",
+      "id": "sv_se:1661:1010284889812064135.wav",
+      "language": "sv_se",
+      "errors": 0,
+      "words": 17,
+      "phase": "warm",
+      "run": 2
+    },
+    {
+      "audio_secs": 8.16,
+      "backend": "nemometal",
+      "inference_secs": 0.0703145,
+      "path": "target/fixtures/fleurs/sv_se/10882455023026937910.wav",
+      "segments": [
+        {
+          "end_secs": 0.96,
+          "start_secs": 0.64,
+          "text": "Han"
+        },
+        {
+          "end_secs": 1.36,
+          "start_secs": 1.12,
+          "text": "sa"
+        },
+        {
+          "end_secs": 1.6,
+          "start_secs": 1.36,
+          "text": "att"
+        },
+        {
+          "end_secs": 2.48,
+          "start_secs": 1.6,
+          "text": "nedf\u00f6rj\u00e4rningarna"
+        },
+        {
+          "end_secs": 2.8,
+          "start_secs": 2.56,
+          "text": "skulle"
+        },
+        {
+          "end_secs": 3.28,
+          "start_secs": 2.8,
+          "text": "baseras"
+        },
+        {
+          "end_secs": 3.36,
+          "start_secs": 3.28,
+          "text": "p\u00e5"
+        },
+        {
+          "end_secs": 3.68,
+          "start_secs": 3.36,
+          "text": "Kinas"
+        },
+        {
+          "end_secs": 4.48,
+          "start_secs": 3.84,
+          "text": "ekonomiska"
+        },
+        {
+          "end_secs": 5.04,
+          "start_secs": 4.48,
+          "text": "styrka"
+        },
+        {
+          "end_secs": 5.2,
+          "start_secs": 5.04,
+          "text": "och"
+        },
+        {
+          "end_secs": 5.44,
+          "start_secs": 5.2,
+          "text": "gav"
+        },
+        {
+          "end_secs": 5.68,
+          "start_secs": 5.44,
+          "text": "inte"
+        },
+        {
+          "end_secs": 6.0,
+          "start_secs": 5.68,
+          "text": "n\u00e5gra"
+        },
+        {
+          "end_secs": 6.48,
+          "start_secs": 6.0,
+          "text": "siffror"
+        },
+        {
+          "end_secs": 6.8,
+          "start_secs": 6.48,
+          "text": "f\u00f6r"
+        },
+        {
+          "end_secs": 7.44,
+          "start_secs": 6.8,
+          "text": "den."
+        }
+      ],
+      "text": "Han sa att nedf\u00f6rj\u00e4rningarna skulle baseras p\u00e5 Kinas ekonomiska styrka och gav inte n\u00e5gra siffror f\u00f6r den.",
+      "id": "sv_se:1661:10882455023026937910.wav",
+      "language": "sv_se",
+      "errors": 2,
+      "words": 17,
+      "phase": "warm",
+      "run": 2
+    },
+    {
+      "audio_secs": 10.5,
+      "backend": "nemometal",
+      "inference_secs": 0.081535709,
+      "path": "target/fixtures/fleurs/sv_se/485880107959944598.wav",
+      "segments": [
+        {
+          "end_secs": 1.28,
+          "start_secs": 0.96,
+          "text": "Han"
+        },
+        {
+          "end_secs": 1.52,
+          "start_secs": 1.28,
+          "text": "sa"
+        },
+        {
+          "end_secs": 1.92,
+          "start_secs": 1.68,
+          "text": "att"
+        },
+        {
+          "end_secs": 3.2,
+          "start_secs": 1.92,
+          "text": "nedsk\u00e4rningarna"
+        },
+        {
+          "end_secs": 3.68,
+          "start_secs": 3.36,
+          "text": "skulle"
+        },
+        {
+          "end_secs": 4.32,
+          "start_secs": 3.68,
+          "text": "baseras"
+        },
+        {
+          "end_secs": 4.48,
+          "start_secs": 4.32,
+          "text": "p\u00e5"
+        },
+        {
+          "end_secs": 4.96,
+          "start_secs": 4.48,
+          "text": "Kina"
+        },
+        {
+          "end_secs": 6.0,
+          "start_secs": 5.12,
+          "text": "ekonomiska"
+        },
+        {
+          "end_secs": 6.96,
+          "start_secs": 6.0,
+          "text": "styrka,"
+        },
+        {
+          "end_secs": 7.2,
+          "start_secs": 6.96,
+          "text": "och"
+        },
+        {
+          "end_secs": 7.68,
+          "start_secs": 7.2,
+          "text": "gav"
+        },
+        {
+          "end_secs": 8.0,
+          "start_secs": 7.68,
+          "text": "inte"
+        },
+        {
+          "end_secs": 8.32,
+          "start_secs": 8.0,
+          "text": "n\u00e5gra"
+        },
+        {
+          "end_secs": 8.96,
+          "start_secs": 8.4,
+          "text": "siffror"
+        },
+        {
+          "end_secs": 9.28,
+          "start_secs": 8.96,
+          "text": "f\u00f6r"
+        },
+        {
+          "end_secs": 10.16,
+          "start_secs": 9.28,
+          "text": "dem."
+        }
+      ],
+      "text": "Han sa att nedsk\u00e4rningarna skulle baseras p\u00e5 Kina ekonomiska styrka, och gav inte n\u00e5gra siffror f\u00f6r dem.",
+      "id": "sv_se:1661:485880107959944598.wav",
+      "language": "sv_se",
+      "errors": 1,
+      "words": 17,
+      "phase": "warm",
+      "run": 2
+    },
+    {
+      "audio_secs": 11.52,
+      "backend": "nemometal",
+      "inference_secs": 0.085661292,
+      "path": "target/fixtures/fleurs/sv_se/121725361684087135.wav",
+      "segments": [
+        {
+          "end_secs": 2.0,
+          "start_secs": 0.8,
+          "text": "Legeringar"
+        },
+        {
+          "end_secs": 2.24,
+          "start_secs": 2.0,
+          "text": "\u00e4r"
+        },
+        {
+          "end_secs": 2.4,
+          "start_secs": 2.24,
+          "text": "en"
+        },
+        {
+          "end_secs": 3.12,
+          "start_secs": 2.4,
+          "text": "blandning"
+        },
+        {
+          "end_secs": 3.36,
+          "start_secs": 3.12,
+          "text": "av"
+        },
+        {
+          "end_secs": 3.68,
+          "start_secs": 3.36,
+          "text": "tv\u00e5"
+        },
+        {
+          "end_secs": 4.0,
+          "start_secs": 3.68,
+          "text": "eller"
+        },
+        {
+          "end_secs": 4.56,
+          "start_secs": 4.0,
+          "text": "flera"
+        },
+        {
+          "end_secs": 5.44,
+          "start_secs": 4.56,
+          "text": "metaller."
+        },
+        {
+          "end_secs": 5.6,
+          "start_secs": 5.44,
+          "text": "Kom"
+        },
+        {
+          "end_secs": 6.24,
+          "start_secs": 5.84,
+          "text": "ih\u00e5g"
+        },
+        {
+          "end_secs": 6.4,
+          "start_secs": 6.24,
+          "text": "att"
+        },
+        {
+          "end_secs": 6.56,
+          "start_secs": 6.4,
+          "text": "det"
+        },
+        {
+          "end_secs": 6.88,
+          "start_secs": 6.56,
+          "text": "finns"
+        },
+        {
+          "end_secs": 7.12,
+          "start_secs": 6.88,
+          "text": "m\u00e5nga"
+        },
+        {
+          "end_secs": 7.76,
+          "start_secs": 7.28,
+          "text": "olika"
+        },
+        {
+          "end_secs": 8.8,
+          "start_secs": 7.76,
+          "text": "grund\u00e4mnen"
+        },
+        {
+          "end_secs": 8.96,
+          "start_secs": 8.8,
+          "text": "i"
+        },
+        {
+          "end_secs": 9.12,
+          "start_secs": 8.96,
+          "text": "det"
+        },
+        {
+          "end_secs": 10.08,
+          "start_secs": 9.12,
+          "text": "periodiska"
+        },
+        {
+          "end_secs": 11.2,
+          "start_secs": 10.08,
+          "text": "systemet."
+        }
+      ],
+      "text": "Legeringar \u00e4r en blandning av tv\u00e5 eller flera metaller. Kom ih\u00e5g att det finns m\u00e5nga olika grund\u00e4mnen i det periodiska systemet.",
+      "id": "sv_se:1662:121725361684087135.wav",
+      "language": "sv_se",
+      "errors": 0,
+      "words": 21,
+      "phase": "warm",
+      "run": 2
+    },
+    {
+      "audio_secs": 11.34,
+      "backend": "nemometal",
+      "inference_secs": 0.087703584,
+      "path": "target/fixtures/fleurs/sv_se/2278899330194391527.wav",
+      "segments": [
+        {
+          "end_secs": 2.32,
+          "start_secs": 1.28,
+          "text": "Legeringar"
+        },
+        {
+          "end_secs": 2.48,
+          "start_secs": 2.32,
+          "text": "\u00e4r"
+        },
+        {
+          "end_secs": 2.64,
+          "start_secs": 2.48,
+          "text": "en"
+        },
+        {
+          "end_secs": 3.12,
+          "start_secs": 2.64,
+          "text": "blandning"
+        },
+        {
+          "end_secs": 3.28,
+          "start_secs": 3.12,
+          "text": "av"
+        },
+        {
+          "end_secs": 3.6,
+          "start_secs": 3.28,
+          "text": "tv\u00e5"
+        },
+        {
+          "end_secs": 3.84,
+          "start_secs": 3.6,
+          "text": "eller"
+        },
+        {
+          "end_secs": 4.24,
+          "start_secs": 3.84,
+          "text": "flera"
+        },
+        {
+          "end_secs": 5.12,
+          "start_secs": 4.24,
+          "text": "metaller."
+        },
+        {
+          "end_secs": 5.28,
+          "start_secs": 5.12,
+          "text": "Kom"
+        },
+        {
+          "end_secs": 5.84,
+          "start_secs": 5.44,
+          "text": "ih\u00e5g"
+        },
+        {
+          "end_secs": 5.92,
+          "start_secs": 5.84,
+          "text": "att"
+        },
+        {
+          "end_secs": 6.08,
+          "start_secs": 6.0,
+          "text": "det"
+        },
+        {
+          "end_secs": 6.32,
+          "start_secs": 6.08,
+          "text": "finns"
+        },
+        {
+          "end_secs": 6.64,
+          "start_secs": 6.32,
+          "text": "m\u00e5nga"
+        },
+        {
+          "end_secs": 7.04,
+          "start_secs": 6.64,
+          "text": "olika"
+        },
+        {
+          "end_secs": 7.76,
+          "start_secs": 7.04,
+          "text": "grund\u00e4mnen"
+        },
+        {
+          "end_secs": 7.92,
+          "start_secs": 7.76,
+          "text": "i"
+        },
+        {
+          "end_secs": 8.0,
+          "start_secs": 7.92,
+          "text": "det"
+        },
+        {
+          "end_secs": 8.88,
+          "start_secs": 8.0,
+          "text": "periodiska"
+        },
+        {
+          "end_secs": 10.08,
+          "start_secs": 8.88,
+          "text": "systemet."
+        }
+      ],
+      "text": "Legeringar \u00e4r en blandning av tv\u00e5 eller flera metaller. Kom ih\u00e5g att det finns m\u00e5nga olika grund\u00e4mnen i det periodiska systemet.",
+      "id": "sv_se:1662:2278899330194391527.wav",
+      "language": "sv_se",
+      "errors": 0,
+      "words": 21,
+      "phase": "warm",
+      "run": 2
+    },
+    {
+      "audio_secs": 15.0,
+      "backend": "nemometal",
+      "inference_secs": 0.110749958,
+      "path": "target/fixtures/fleurs/sv_se/12688026512340699992.wav",
+      "segments": [
+        {
+          "end_secs": 2.88,
+          "start_secs": 1.28,
+          "text": "Cockamodalen,"
+        },
+        {
+          "end_secs": 3.28,
+          "start_secs": 2.88,
+          "text": "Kiles"
+        },
+        {
+          "end_secs": 3.92,
+          "start_secs": 3.36,
+          "text": "fr\u00e4msta"
+        },
+        {
+          "end_secs": 4.48,
+          "start_secs": 3.92,
+          "text": "destination"
+        },
+        {
+          "end_secs": 4.64,
+          "start_secs": 4.48,
+          "text": "f\u00f6r"
+        },
+        {
+          "end_secs": 5.6,
+          "start_secs": 4.64,
+          "text": "kl\u00e4ttring,"
+        },
+        {
+          "end_secs": 5.84,
+          "start_secs": 5.6,
+          "text": "\u00e4r"
+        },
+        {
+          "end_secs": 6.16,
+          "start_secs": 5.84,
+          "text": "k\u00e4nd"
+        },
+        {
+          "end_secs": 6.4,
+          "start_secs": 6.24,
+          "text": "som"
+        },
+        {
+          "end_secs": 7.12,
+          "start_secs": 6.4,
+          "text": "Sydamerikas"
+        },
+        {
+          "end_secs": 8.56,
+          "start_secs": 7.28,
+          "text": "josemitte,"
+        },
+        {
+          "end_secs": 8.8,
+          "start_secs": 8.56,
+          "text": "och"
+        },
+        {
+          "end_secs": 9.04,
+          "start_secs": 8.8,
+          "text": "har"
+        },
+        {
+          "end_secs": 9.2,
+          "start_secs": 9.04,
+          "text": "ett"
+        },
+        {
+          "end_secs": 9.68,
+          "start_secs": 9.2,
+          "text": "antal"
+        },
+        {
+          "end_secs": 10.08,
+          "start_secs": 9.68,
+          "text": "stora"
+        },
+        {
+          "end_secs": 10.64,
+          "start_secs": 10.08,
+          "text": "klippor"
+        },
+        {
+          "end_secs": 10.8,
+          "start_secs": 10.64,
+          "text": "och"
+        },
+        {
+          "end_secs": 11.28,
+          "start_secs": 10.8,
+          "text": "v\u00e4ggar"
+        },
+        {
+          "end_secs": 11.6,
+          "start_secs": 11.36,
+          "text": "i"
+        },
+        {
+          "end_secs": 12.56,
+          "start_secs": 11.6,
+          "text": "granit."
+        }
+      ],
+      "text": "Cockamodalen, Kiles fr\u00e4msta destination f\u00f6r kl\u00e4ttring, \u00e4r k\u00e4nd som Sydamerikas josemitte, och har ett antal stora klippor och v\u00e4ggar i granit.",
+      "id": "sv_se:1663:12688026512340699992.wav",
+      "language": "sv_se",
+      "errors": 4,
+      "words": 22,
+      "phase": "warm",
+      "run": 2
+    },
+    {
+      "audio_secs": 12.96,
+      "backend": "nemometal",
+      "inference_secs": 0.102540417,
+      "path": "target/fixtures/fleurs/sv_se/16339275641865603551.wav",
+      "segments": [
+        {
+          "end_secs": 2.24,
+          "start_secs": 0.88,
+          "text": "Cookamodalen,"
+        },
+        {
+          "end_secs": 2.72,
+          "start_secs": 2.24,
+          "text": "Kiles"
+        },
+        {
+          "end_secs": 3.2,
+          "start_secs": 2.8,
+          "text": "fr\u00e4msta"
+        },
+        {
+          "end_secs": 3.76,
+          "start_secs": 3.2,
+          "text": "destination"
+        },
+        {
+          "end_secs": 3.92,
+          "start_secs": 3.76,
+          "text": "f\u00f6r"
+        },
+        {
+          "end_secs": 4.8,
+          "start_secs": 3.92,
+          "text": "kl\u00e4ttring,"
+        },
+        {
+          "end_secs": 5.04,
+          "start_secs": 4.8,
+          "text": "\u00e4r"
+        },
+        {
+          "end_secs": 5.36,
+          "start_secs": 5.04,
+          "text": "k\u00e4nd"
+        },
+        {
+          "end_secs": 5.6,
+          "start_secs": 5.44,
+          "text": "som"
+        },
+        {
+          "end_secs": 6.48,
+          "start_secs": 5.6,
+          "text": "Sydamerikas"
+        },
+        {
+          "end_secs": 7.44,
+          "start_secs": 6.48,
+          "text": "Josemite"
+        },
+        {
+          "end_secs": 7.92,
+          "start_secs": 7.6,
+          "text": "och"
+        },
+        {
+          "end_secs": 8.16,
+          "start_secs": 7.92,
+          "text": "har"
+        },
+        {
+          "end_secs": 8.32,
+          "start_secs": 8.16,
+          "text": "ett"
+        },
+        {
+          "end_secs": 8.72,
+          "start_secs": 8.32,
+          "text": "antal"
+        },
+        {
+          "end_secs": 9.04,
+          "start_secs": 8.72,
+          "text": "stora"
+        },
+        {
+          "end_secs": 9.6,
+          "start_secs": 9.04,
+          "text": "klippor"
+        },
+        {
+          "end_secs": 9.76,
+          "start_secs": 9.6,
+          "text": "och"
+        },
+        {
+          "end_secs": 10.16,
+          "start_secs": 9.76,
+          "text": "v\u00e4ggar"
+        },
+        {
+          "end_secs": 10.48,
+          "start_secs": 10.24,
+          "text": "i"
+        },
+        {
+          "end_secs": 11.44,
+          "start_secs": 10.48,
+          "text": "granit."
+        }
+      ],
+      "text": "Cookamodalen, Kiles fr\u00e4msta destination f\u00f6r kl\u00e4ttring, \u00e4r k\u00e4nd som Sydamerikas Josemite och har ett antal stora klippor och v\u00e4ggar i granit.",
+      "id": "sv_se:1663:16339275641865603551.wav",
+      "language": "sv_se",
+      "errors": 4,
+      "words": 22,
+      "phase": "warm",
+      "run": 2
+    },
+    {
+      "audio_secs": 8.64,
+      "backend": "nemometal",
+      "inference_secs": 0.071101625,
+      "path": "target/fixtures/fleurs/sv_se/11569046426682372641.wav",
+      "segments": [
+        {
+          "end_secs": 1.68,
+          "start_secs": 1.2,
+          "text": "R\u00f6r"
+        },
+        {
+          "end_secs": 2.32,
+          "start_secs": 1.84,
+          "text": "ihop"
+        },
+        {
+          "end_secs": 2.48,
+          "start_secs": 2.32,
+          "text": "de"
+        },
+        {
+          "end_secs": 2.8,
+          "start_secs": 2.48,
+          "text": "tv\u00e5"
+        },
+        {
+          "end_secs": 3.28,
+          "start_secs": 2.8,
+          "text": "t\u00e5ra"
+        },
+        {
+          "end_secs": 4.08,
+          "start_secs": 3.28,
+          "text": "polbren"
+        },
+        {
+          "end_secs": 4.88,
+          "start_secs": 4.32,
+          "text": "formade"
+        },
+        {
+          "end_secs": 5.44,
+          "start_secs": 5.12,
+          "text": "sedan"
+        },
+        {
+          "end_secs": 5.92,
+          "start_secs": 5.68,
+          "text": "till"
+        },
+        {
+          "end_secs": 6.08,
+          "start_secs": 5.92,
+          "text": "en"
+        },
+        {
+          "end_secs": 6.32,
+          "start_secs": 6.08,
+          "text": "boll"
+        },
+        {
+          "end_secs": 6.56,
+          "start_secs": 6.4,
+          "text": "med"
+        },
+        {
+          "end_secs": 6.88,
+          "start_secs": 6.56,
+          "text": "rena"
+        },
+        {
+          "end_secs": 7.52,
+          "start_secs": 6.96,
+          "text": "bl\u00f6da"
+        },
+        {
+          "end_secs": 8.48,
+          "start_secs": 7.52,
+          "text": "h\u00e4nder."
+        }
+      ],
+      "text": "R\u00f6r ihop de tv\u00e5 t\u00e5ra polbren formade sedan till en boll med rena bl\u00f6da h\u00e4nder.",
+      "id": "sv_se:1664:11569046426682372641.wav",
+      "language": "sv_se",
+      "errors": 5,
+      "words": 16,
+      "phase": "warm",
+      "run": 2
+    },
+    {
+      "audio_secs": 5.16,
+      "backend": "nemometal",
+      "inference_secs": 0.058225958,
+      "path": "target/fixtures/fleurs/sv_se/18430281348165445219.wav",
+      "segments": [
+        {
+          "end_secs": 0.48,
+          "start_secs": 0.0,
+          "text": "R\u00f6r"
+        },
+        {
+          "end_secs": 0.8,
+          "start_secs": 0.48,
+          "text": "ihop"
+        },
+        {
+          "end_secs": 0.96,
+          "start_secs": 0.8,
+          "text": "de"
+        },
+        {
+          "end_secs": 1.44,
+          "start_secs": 0.96,
+          "text": "tv\u00e5torra"
+        },
+        {
+          "end_secs": 1.92,
+          "start_secs": 1.44,
+          "text": "pulvren."
+        },
+        {
+          "end_secs": 2.24,
+          "start_secs": 1.92,
+          "text": "Formar"
+        },
+        {
+          "end_secs": 2.48,
+          "start_secs": 2.32,
+          "text": "den"
+        },
+        {
+          "end_secs": 2.72,
+          "start_secs": 2.48,
+          "text": "sedan"
+        },
+        {
+          "end_secs": 3.04,
+          "start_secs": 2.88,
+          "text": "till"
+        },
+        {
+          "end_secs": 3.12,
+          "start_secs": 3.04,
+          "text": "en"
+        },
+        {
+          "end_secs": 3.28,
+          "start_secs": 3.12,
+          "text": "boll"
+        },
+        {
+          "end_secs": 3.52,
+          "start_secs": 3.36,
+          "text": "med"
+        },
+        {
+          "end_secs": 3.84,
+          "start_secs": 3.52,
+          "text": "rena"
+        },
+        {
+          "end_secs": 4.4,
+          "start_secs": 3.92,
+          "text": "bl\u00f6ta"
+        },
+        {
+          "end_secs": 5.04,
+          "start_secs": 4.4,
+          "text": "\u00e4nder."
+        }
+      ],
+      "text": "R\u00f6r ihop de tv\u00e5torra pulvren. Formar den sedan till en boll med rena bl\u00f6ta \u00e4nder.",
+      "id": "sv_se:1664:18430281348165445219.wav",
+      "language": "sv_se",
+      "errors": 5,
+      "words": 16,
+      "phase": "warm",
+      "run": 2
+    }
+  ],
+  "schema_version": 2,
+  "fixture_manifest_sha256": "8a7a481fcf51a264718926d154eb89cd10224a98a234db7e352f4181253e9720",
+  "runtime_files": {
+    "target/performance/2026-11-03/nemo-build/bin/libnemo_speech_asr_c.dylib": "4f37563ed6c164b64a91ad21077b4e7e7cbc9b4172a6e81d520030eefcfc8c8f"
+  },
+  "requested_backend": "nemometal",
+  "model_manifest": {
+    "repo": "nvidia/parakeet-tdt-0.6b-v3",
+    "revision": "541d1f99c6b0c3cd0b11a95167540bb8edefd82b",
+    "files": [
+      {
+        "name": "parakeet-tdt-0.6b-v3.q8_0.gguf",
+        "size": 713975456,
+        "sha256": "e3880d0aaaaf2c308ea2c35016b2b895c423eb3fda924c1b463d1c19b7f4d32e"
+      }
+    ],
+    "id": "parakeet-tdt-0.6b-v3-nemo",
+    "precision": "q8_0"
+  },
+  "model_files_verified": true,
+  "model_manifest_sha256": "a67bb28ed192d671f12eab191b048b890253107ddd91415073aff91f154a60d7",
+  "cold_runs": 0,
+  "warm_runs": 3,
+  "screening": true,
+  "streaming": false,
+  "cpu_threads": 0,
+  "decoder_threads": null,
+  "profiled": false,
+  "os_build": "26A434",
+  "worker_source_commit": "f6c7283ae7b8f2e2ef475ef012ff40d4f63688ef"
+}
