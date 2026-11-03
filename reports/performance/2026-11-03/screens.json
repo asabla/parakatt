@@ -1,0 +1,185 @@
+[
+  {
+    "case": "original-cpu",
+    "exit_code": 1
+  },
+  {
+    "case": "profile-cpu",
+    "exit_code": 1
+  },
+  {
+    "case": "profile-webgpu",
+    "exit_code": 1
+  },
+  {
+    "case": "profile-webgpu-decoder1",
+    "exit_code": 1
+  },
+  {
+    "case": "burn",
+    "exit_code": 0,
+    "summary": {
+      "en_us": {
+        "wer": 0.06770833333333333,
+        "median_secs": 0.0920007085,
+        "p95_secs": 6.292165792,
+        "real_time_factor": 0.15480336222001911
+      },
+      "sv_se": {
+        "wer": 0.12972972972972974,
+        "median_secs": 0.0937588125,
+        "p95_secs": 0.319697458,
+        "real_time_factor": 0.013945242624464227
+      }
+    },
+    "loads": [
+      {
+        "backend": "burnmetal",
+        "frontend": "upstream",
+        "load_secs": 0.646925917,
+        "runtime": "parakeet-rs 0.4.4 / burn Metal",
+        "peak_memory_bytes": 627916800
+      }
+    ]
+  },
+  {
+    "case": "nemo",
+    "exit_code": 0,
+    "summary": {
+      "en_us": {
+        "wer": 0.0625,
+        "median_secs": 0.0811369585,
+        "p95_secs": 0.099277208,
+        "real_time_factor": 0.01034494213115958
+      },
+      "sv_se": {
+        "wer": 0.14054054054054055,
+        "median_secs": 0.077894417,
+        "p95_secs": 0.110783583,
+        "real_time_factor": 0.008091562406857896
+      }
+    },
+    "loads": [
+      {
+        "backend": "nemometal",
+        "load_secs": 16.617423291,
+        "thread_policy": "native default: min(8, hardware threads)",
+        "peak_memory_bytes": 288210944
+      }
+    ]
+  },
+  {
+    "case": "original-cpu",
+    "exit_code": 0,
+    "attempt": 2,
+    "summary": {
+      "en_us": {
+        "wer": 0.0625,
+        "median_secs": 0.423509083,
+        "p95_secs": 0.549902167,
+        "real_time_factor": 0.046311344282881695
+      },
+      "sv_se": {
+        "wer": 0.11891891891891893,
+        "median_secs": 0.456662354,
+        "p95_secs": 0.676885083,
+        "real_time_factor": 0.04626780277612924
+      }
+    },
+    "loads": [
+      {
+        "backend": "Cpu",
+        "cpu_threads": 4,
+        "load_secs": 1.114213875,
+        "peak_memory_bytes": 2781020160
+      }
+    ]
+  },
+  {
+    "case": "profile-cpu",
+    "exit_code": 0,
+    "attempt": 2,
+    "summary": {
+      "en_us": {
+        "wer": 0.0625,
+        "median_secs": 0.42304216699999997,
+        "p95_secs": 0.549710792,
+        "real_time_factor": 0.046336973540427415
+      },
+      "sv_se": {
+        "wer": 0.11891891891891893,
+        "median_secs": 0.455785146,
+        "p95_secs": 0.678778834,
+        "real_time_factor": 0.04627123681833169
+      }
+    },
+    "loads": [
+      {
+        "backend": "Cpu",
+        "cpu_threads": 4,
+        "decoder_threads": 4,
+        "load_secs": 1.092908208,
+        "profile": true,
+        "peak_memory_bytes": 2780397568
+      }
+    ]
+  },
+  {
+    "case": "profile-webgpu",
+    "exit_code": 0,
+    "attempt": 2,
+    "summary": {
+      "en_us": {
+        "wer": 0.0625,
+        "median_secs": 0.0942932085,
+        "p95_secs": 0.134636625,
+        "real_time_factor": 0.012484052875082618
+      },
+      "sv_se": {
+        "wer": 0.11891891891891893,
+        "median_secs": 0.0939964375,
+        "p95_secs": 0.121857625,
+        "real_time_factor": 0.009565818344873063
+      }
+    },
+    "loads": [
+      {
+        "backend": "WebGpu",
+        "cpu_threads": 4,
+        "decoder_threads": 4,
+        "load_secs": 0.773527834,
+        "profile": true,
+        "peak_memory_bytes": 2715729920
+      }
+    ]
+  },
+  {
+    "case": "profile-webgpu-decoder1",
+    "exit_code": 0,
+    "attempt": 2,
+    "summary": {
+      "en_us": {
+        "wer": 0.0625,
+        "median_secs": 0.108676667,
+        "p95_secs": 0.124606875,
+        "real_time_factor": 0.011980404865241977
+      },
+      "sv_se": {
+        "wer": 0.11891891891891893,
+        "median_secs": 0.108128104,
+        "p95_secs": 0.1472195,
+        "real_time_factor": 0.011197019033959775
+      }
+    },
+    "loads": [
+      {
+        "backend": "WebGpu",
+        "cpu_threads": 4,
+        "decoder_threads": 1,
+        "load_secs": 0.707041042,
+        "profile": true,
+        "peak_memory_bytes": 2715435008
+      }
+    ]
+  }
+]

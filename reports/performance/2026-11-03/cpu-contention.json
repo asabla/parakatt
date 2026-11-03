@@ -1,0 +1,222 @@
+{
+  "commit": "74f2cfcba737146b85c200a1049514177b1afb9e",
+  "binary_sha256": "798d1003cbe53396e0a38bdbb0fbe0118a6d5d295ce10bbda0d6cf4d2f29c58f",
+  "fixtures": [
+    {
+      "id": "en_us:1660:12742373433258665797.wav",
+      "language": "en_us",
+      "path": "target/fixtures/fleurs/en_us/12742373433258665797.wav",
+      "reference": "romanticism had a large element of cultural determinism drawn from writers such as goethe fichte and schlegel",
+      "sha256": "f17abcd4a9abded45086642ab68174b5447b6e73dcb2c0fcf6a9b1f5e788688c"
+    },
+    {
+      "id": "sv_se:1660:11017371815100260878.wav",
+      "language": "sv_se",
+      "path": "target/fixtures/fleurs/sv_se/11017371815100260878.wav",
+      "reference": "romantiken inneh\u00f6ll ett stort element av determinism med ursprung hos f\u00f6rfattare som goethe fichte och schlegel",
+      "sha256": "66c246c41c10a9dfa92fa774483a633691f76f2cfabfbc89ccaaaad9e91e88f5"
+    }
+  ],
+  "model_manifest": {
+    "id": "parakeet-tdt-0.6b-v3",
+    "display_name": "Parakeet TDT 0.6B v3",
+    "provider_type": "parakeet",
+    "repo": "istupakov/parakeet-tdt-0.6b-v3-onnx",
+    "revision": "8f23f0c03c8761650bdb5b40aaf3e40d2c15f1ce",
+    "subdirectory": "",
+    "precision": "fp32",
+    "languages": [
+      "en",
+      "es",
+      "fr",
+      "de",
+      "bg",
+      "hr",
+      "cs",
+      "da",
+      "nl",
+      "et",
+      "fi",
+      "el",
+      "hu",
+      "it",
+      "lv",
+      "lt",
+      "mt",
+      "pl",
+      "pt",
+      "ro",
+      "sk",
+      "sl",
+      "sv",
+      "ru",
+      "uk"
+    ],
+    "files": [
+      {
+        "name": "vocab.txt",
+        "size": 93939,
+        "sha256": "d58544679ea4bc6ac563d1f545eb7d474bd6cfa467f0a6e2c1dc1c7d37e3c35d"
+      },
+      {
+        "name": "encoder-model.onnx",
+        "size": 41770866,
+        "sha256": "98a74b21b4cc0017c1e7030319a4a96f4a9506e50f0708f3a516d02a77c96bb1"
+      },
+      {
+        "name": "encoder-model.onnx.data",
+        "size": 2435420160,
+        "sha256": "9a22d372c51455c34f13405da2520baefb7125bd16981397561423ed32d24f36"
+      },
+      {
+        "name": "decoder_joint-model.onnx",
+        "size": 72520893,
+        "sha256": "e978ddf6688527182c10fde2eb4b83068421648985ef23f7a86be732be8706c1"
+      }
+    ]
+  },
+  "model_files_verified": true,
+  "exit_code": 0,
+  "output": [
+    {
+      "backend": "Cpu",
+      "kind": "synthetic shared-model contention",
+      "preview_audio_secs": 30,
+      "trials": 10
+    },
+    {
+      "backend": "Cpu",
+      "path": "target/fixtures/fleurs/en_us/12742373433258665797.wav",
+      "rows": [
+        {
+          "contended_secs": 1.874576792,
+          "provider_lock_wait_secs": 1.3820507499999999,
+          "solo_secs": 0.491430167,
+          "trial": 0
+        },
+        {
+          "contended_secs": 1.867291125,
+          "provider_lock_wait_secs": 1.375862625,
+          "solo_secs": 0.4911035,
+          "trial": 1
+        },
+        {
+          "contended_secs": 1.865407916,
+          "provider_lock_wait_secs": 1.37323225,
+          "solo_secs": 0.491720042,
+          "trial": 2
+        },
+        {
+          "contended_secs": 1.864499959,
+          "provider_lock_wait_secs": 1.3728259170000001,
+          "solo_secs": 0.491981417,
+          "trial": 3
+        },
+        {
+          "contended_secs": 1.8712873330000002,
+          "provider_lock_wait_secs": 1.379295458,
+          "solo_secs": 0.491059542,
+          "trial": 4
+        },
+        {
+          "contended_secs": 1.855031042,
+          "provider_lock_wait_secs": 1.366438834,
+          "solo_secs": 0.491518125,
+          "trial": 5
+        },
+        {
+          "contended_secs": 1.870495834,
+          "provider_lock_wait_secs": 1.374996292,
+          "solo_secs": 0.487266959,
+          "trial": 6
+        },
+        {
+          "contended_secs": 1.8606381669999998,
+          "provider_lock_wait_secs": 1.369187083,
+          "solo_secs": 0.492554083,
+          "trial": 7
+        },
+        {
+          "contended_secs": 1.8642293749999999,
+          "provider_lock_wait_secs": 1.372461583,
+          "solo_secs": 0.491247375,
+          "trial": 8
+        },
+        {
+          "contended_secs": 1.862437,
+          "provider_lock_wait_secs": 1.370897959,
+          "solo_secs": 0.494537167,
+          "trial": 9
+        }
+      ]
+    },
+    {
+      "backend": "Cpu",
+      "path": "target/fixtures/fleurs/sv_se/11017371815100260878.wav",
+      "rows": [
+        {
+          "contended_secs": 1.7834603329999998,
+          "provider_lock_wait_secs": 1.388294625,
+          "solo_secs": 0.395338834,
+          "trial": 0
+        },
+        {
+          "contended_secs": 1.7756984999999998,
+          "provider_lock_wait_secs": 1.380742333,
+          "solo_secs": 0.395815834,
+          "trial": 1
+        },
+        {
+          "contended_secs": 1.7772823340000001,
+          "provider_lock_wait_secs": 1.378695375,
+          "solo_secs": 0.394315708,
+          "trial": 2
+        },
+        {
+          "contended_secs": 1.775563459,
+          "provider_lock_wait_secs": 1.3806076250000001,
+          "solo_secs": 0.395349875,
+          "trial": 3
+        },
+        {
+          "contended_secs": 1.774885125,
+          "provider_lock_wait_secs": 1.38061875,
+          "solo_secs": 0.394472416,
+          "trial": 4
+        },
+        {
+          "contended_secs": 1.778881709,
+          "provider_lock_wait_secs": 1.3836411659999999,
+          "solo_secs": 0.393067083,
+          "trial": 5
+        },
+        {
+          "contended_secs": 1.775015709,
+          "provider_lock_wait_secs": 1.379904084,
+          "solo_secs": 0.394928292,
+          "trial": 6
+        },
+        {
+          "contended_secs": 1.7790326250000001,
+          "provider_lock_wait_secs": 1.384101792,
+          "solo_secs": 0.394742833,
+          "trial": 7
+        },
+        {
+          "contended_secs": 1.777144917,
+          "provider_lock_wait_secs": 1.3823070419999999,
+          "solo_secs": 0.394578333,
+          "trial": 8
+        },
+        {
+          "contended_secs": 1.778475958,
+          "provider_lock_wait_secs": 1.380342583,
+          "solo_secs": 0.394628125,
+          "trial": 9
+        }
+      ]
+    }
+  ],
+  "kind": "synthetic shared-model contention; excludes app capture, scheduling, UI, and LLM",
+  "worker_source_commit": "74f2cfcba737146b85c200a1049514177b1afb9e"
+}

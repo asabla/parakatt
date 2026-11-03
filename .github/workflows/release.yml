@@ -20,11 +20,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7.0.1
 
+      - name: Select build Python
+        uses: actions/setup-python@v7.1.0
+        with:
+          python-version: "3.13"
+
       - name: Verify release version and tooling
         id: version
         run: |
           ./scripts/sync-version.sh --check --tag "$GITHUB_REF_NAME"
           python3 scripts/test_release_tools.py
+          python3 scripts/test_benchmark_gates.py
+          python3 scripts/test_benchmark_worker.py
+          python3 scripts/test_media_build_environment.py
           echo "version=$(cat VERSION)" >> "$GITHUB_OUTPUT"
 
       - name: Install Rust

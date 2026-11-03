@@ -21,9 +21,17 @@ The source cask in `homebrew/parakatt.rb` describes a published release. Version
 
 Use the pinned Rust toolchain, XcodeGen 2.46.0, and cargo-swift 0.11.1. Install `create-dmg` on the build machine to make the DMG. End users do not need these tools.
 
+CI selects Python 3.13 explicitly. Media build environments are keyed by the
+selected interpreter, its version, and the pinned Meson/Ninja/packaging versions.
+An incomplete environment is cleared before bootstrap. Pip bootstrap runs as a
+separate command so its errors are visible. These are build-only dependencies.
+
 ```sh
 python3 scripts/test_release_tools.py
 python3 scripts/test_media_tool_downloads.py
+python3 scripts/test_media_build_environment.py
+python3 scripts/test_benchmark_gates.py
+python3 scripts/test_benchmark_worker.py
 cargo fmt --check
 cargo clippy --locked --all-targets --all-features -- -D warnings
 cargo test --locked

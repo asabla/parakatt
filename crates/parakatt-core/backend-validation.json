@@ -15,6 +15,21 @@
       "median_improvement": 0.7885,
       "p95_no_regression": true,
       "evidence": "reports/maintenance/webgpu-gates.json"
+    },
+    {
+      "model_id": "parakeet-tdt-0.6b-v3",
+      "model_revision": "8f23f0c03c8761650bdb5b40aaf3e40d2c15f1ce",
+      "hardware": "Apple M3 Max",
+      "os_build": "26A434",
+      "backend": "web_gpu",
+      "cpu_threads": 4,
+      "runtime_api_version": 28,
+      "packaged_startup": true,
+      "english_no_regression": true,
+      "swedish_no_regression": true,
+      "median_improvement": 0.7810401713672589,
+      "p95_no_regression": true,
+      "evidence": "reports/performance/2026-11-03/webgpu-gates.json"
     }
   ],
   "candidates": [

@@ -1,0 +1,18 @@
+{
+  "source_commit": "781014744da5584a1cbb33a49dda5c7f4f721d5c",
+  "source_dirty": false,
+  "xcode": "Xcode 27.1\nBuild version 27A9275",
+  "model_manifest_sha256": "68b75e04061724cd5b93043f0a484e562e19d2146f6042563868cf762e77261e",
+  "validation_matrix_sha256": "2ba7c930b766706969f4fc724c72b97c175dec186fa99ec5153103deb195de66",
+  "fixture_source": "en_us:1660:12742373433258665797.wav",
+  "fixture_source_sha256": "f17abcd4a9abded45086642ab68174b5447b6e73dcb2c0fcf6a9b1f5e788688c",
+  "fixture_video_sha256": "5667e2dd7c582ced53e8c6cfb590b28f539b72e73924d8dac9e0d236c80423d5",
+  "launcher_sha256": "e9f56b1a0349a826822ef364a809e5ace94b6daec3a6971028bdf5f3b447e39c",
+  "frameworks": {
+    "Contents/Frameworks/ParakattApp.framework/Versions/A/ParakattApp": "165595ce72091e0a1f3feee55c1f7136947ccfbf21dc1b0967bc3e75baf62710",
+    "Contents/Frameworks/VLCKit.framework/Versions/A/VLCKit": "a6f1a17f273b6114cef9e5e922c80f2692906a67b64e12b151d274d7ae6d0f0e",
+    "Contents/Frameworks/HotKey_18EE505B98F7DA_PackageProduct.framework/Versions/A/HotKey_18EE505B98F7DA_PackageProduct": "0f2ea71f6afaf9eae98f3af69c8fc5db41cbc096022afeb46629d6e17d96f2a8",
+    "Contents/Frameworks/parakatt_coreFFI.framework/Versions/A/parakatt_coreFFI": "b8db5cfc99ece1c8ea73b517f8b423059a5ebce963432041195b6033525ba183",
+    "Contents/Frameworks/ParakattCore_-4B3DC89CCD71F733_PackageProduct.framework/Versions/A/ParakattCore_-4B3DC89CCD71F733_PackageProduct": "27c374054cab3320ad834471eb23700d1b8c0f23f3ba344a1a32a7e31c1306fb"
+  }
+}

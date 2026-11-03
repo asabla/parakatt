@@ -1,0 +1,43 @@
+[
+  {
+    "repo": "altunenes/parakeet-rs",
+    "revision": "664cc742197053fa11afd12f5100749fb8000181",
+    "files": [
+      {
+        "name": "encoder-model.onnx",
+        "size": 3437572,
+        "sha256": "8f72233edd8175da74950bbcec59f4fe8405455f6e038cdb2e530c54ab0d46ed"
+      },
+      {
+        "name": "encoder-model.onnx.data",
+        "size": 2476376064,
+        "sha256": "40c1f3a0455a376fe906eb6caab976231bf0420df1e4e70929b11fba1410ccbc"
+      },
+      {
+        "name": "decoder_joint-model.onnx",
+        "size": 72584074,
+        "sha256": "9ce45c12b84c88366e259d51701eb6061bb40a8f3caee486fb7c3fe52ac131ac"
+      },
+      {
+        "name": "vocab.txt",
+        "size": 93939,
+        "sha256": "d58544679ea4bc6ac563d1f545eb7d474bd6cfa467f0a6e2c1dc1c7d37e3c35d"
+      }
+    ],
+    "id": "parakeet-tdt-0.6b-v3-burn",
+    "precision": "fp32"
+  },
+  {
+    "repo": "nvidia/parakeet-tdt-0.6b-v3",
+    "revision": "541d1f99c6b0c3cd0b11a95167540bb8edefd82b",
+    "files": [
+      {
+        "name": "parakeet-tdt-0.6b-v3.q8_0.gguf",
+        "size": 713975456,
+        "sha256": "e3880d0aaaaf2c308ea2c35016b2b895c423eb3fda924c1b463d1c19b7f4d32e"
+      }
+    ],
+    "id": "parakeet-tdt-0.6b-v3-nemo",
+    "precision": "q8_0"
+  }
+]
