@@ -72,12 +72,14 @@ pub mod cohere;
 mod tensor_utils;
 mod timestamps;
 mod transcriber;
+mod timing;
 mod vocab;
 
 pub use error::{Error, Result};
 pub use execution::{CoreMLComputeUnits, ExecutionProvider, ModelConfig as ExecutionConfig};
 pub use parakeet::Parakeet;
 pub use parakeet_tdt::ParakeetTDT;
+pub use timing::InferenceTimings;
 pub use timestamps::TimestampMode;
 pub use transcriber::*;
 

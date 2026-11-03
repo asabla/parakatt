@@ -23,6 +23,15 @@ pub struct ParakeetProvider {
     directory: PathBuf,
     accelerated: AtomicBool,
     threads: u32,
+    decoder_threads: u32,
+}
+
+/// Local benchmark measurements. Encoder time includes host/device transfers.
+#[derive(Debug, Default, serde::Serialize)]
+pub struct ParakeetProfile {
+    pub lock_wait_secs: f64,
+    #[serde(flatten)]
+    pub inference: parakeet_rs::InferenceTimings,
 }
 
 impl ParakeetProvider {
@@ -37,6 +46,18 @@ impl ParakeetProvider {
         threads: u32,
         fallback: bool,
     ) -> Result<Self, CoreError> {
+        Self::load_with_thread_counts(model_dir, model_id, backend, threads, threads, fallback)
+    }
+
+    /// Benchmark separate session thread counts without changing saved settings.
+    pub fn load_with_thread_counts(
+        model_dir: &Path,
+        model_id: &str,
+        backend: SpeechBackend,
+        threads: u32,
+        decoder_threads: u32,
+        fallback: bool,
+    ) -> Result<Self, CoreError> {
         if !model_dir.exists() {
             return Err(CoreError::ModelNotFound(format!(
                 "Model directory not found: {}",
@@ -44,11 +65,15 @@ impl ParakeetProvider {
             )));
         }
 
-        let (model, accelerated) = match Self::create(model_dir, backend, threads) {
+        let (model, accelerated) = match Self::create(model_dir, backend, threads, decoder_threads)
+        {
             Ok(model) => (model, backend == SpeechBackend::WebGpu),
             Err(error) if backend == SpeechBackend::WebGpu && fallback => {
                 log::warn!("WebGPU initialization failed; using CPU: {error}");
-                (Self::create(model_dir, SpeechBackend::Cpu, threads)?, false)
+                (
+                    Self::create(model_dir, SpeechBackend::Cpu, threads, decoder_threads)?,
+                    false,
+                )
             }
             Err(error) => return Err(error),
         };
@@ -61,9 +86,15 @@ impl ParakeetProvider {
             directory: model_dir.into(),
             accelerated: AtomicBool::new(accelerated),
             threads,
+            decoder_threads,
         })
     }
-    fn create(path: &Path, backend: SpeechBackend, threads: u32) -> Result<ParakeetTDT, CoreError> {
+    fn create(
+        path: &Path,
+        backend: SpeechBackend,
+        threads: u32,
+        decoder_threads: u32,
+    ) -> Result<ParakeetTDT, CoreError> {
         let cpu = ExecutionConfig::default().with_intra_threads(if threads == 0 {
             4
         } else {
@@ -87,7 +118,12 @@ impl ParakeetProvider {
         } else {
             cpu.clone()
         };
-        ParakeetTDT::from_pretrained_with_joint_config(path, Some(encoder), Some(cpu))
+        let decoder = cpu.with_intra_threads(if decoder_threads == 0 {
+            4
+        } else {
+            decoder_threads as usize
+        });
+        ParakeetTDT::from_pretrained_with_joint_config(path, Some(encoder), Some(decoder))
             .map(|model| model.with_legacy_frontend())
             .map_err(|error| CoreError::ModelLoadFailed(error.to_string()))
     }
@@ -109,7 +145,8 @@ impl SttProvider for ParakeetProvider {
         audio: &[f32],
         sample_rate: u32,
     ) -> Result<TranscriptionResult, CoreError> {
-        self.transcribe_timed(audio, sample_rate, TimestampMode::Sentences)
+        self.transcribe_timed(audio, sample_rate, TimestampMode::Sentences, false)
+            .map(|(result, _)| result)
     }
 
     fn transcribe_import(
@@ -117,7 +154,8 @@ impl SttProvider for ParakeetProvider {
         audio: &[f32],
         sample_rate: u32,
     ) -> Result<TranscriptionResult, CoreError> {
-        self.transcribe_timed(audio, sample_rate, TimestampMode::Words)
+        self.transcribe_timed(audio, sample_rate, TimestampMode::Words, false)
+            .map(|(result, _)| result)
     }
 
     fn name(&self) -> &str {
@@ -130,27 +168,61 @@ impl SttProvider for ParakeetProvider {
 }
 
 impl ParakeetProvider {
+    pub fn transcribe_profiled(
+        &self,
+        audio: &[f32],
+        sample_rate: u32,
+    ) -> Result<(TranscriptionResult, ParakeetProfile), CoreError> {
+        self.transcribe_timed(audio, sample_rate, TimestampMode::Sentences, true)
+    }
+
     fn transcribe_timed(
         &self,
         audio: &[f32],
         sample_rate: u32,
         timestamp_mode: TimestampMode,
-    ) -> Result<TranscriptionResult, CoreError> {
+        profile: bool,
+    ) -> Result<(TranscriptionResult, ParakeetProfile), CoreError> {
         let start = std::time::Instant::now();
+        let mut timings = ParakeetProfile::default();
 
         let mut model = self.model.lock().map_err(|e| {
             CoreError::TranscriptionFailed(format!("Failed to acquire model lock: {e}"))
         })?;
+        if profile {
+            timings.lock_wait_secs = start.elapsed().as_secs_f64();
+        }
 
         let result = infer_with_fallback(
             &mut *model,
             &self.accelerated,
             |model| {
+                if profile {
+                    return model
+                        .transcribe_samples_profiled(
+                            audio.to_vec(),
+                            sample_rate,
+                            1,
+                            Some(timestamp_mode),
+                        )
+                        .map(|(result, measured)| {
+                            timings.inference = measured;
+                            result
+                        })
+                        .map_err(|e| CoreError::TranscriptionFailed(e.to_string()));
+                }
                 model
                     .transcribe_samples(audio.to_vec(), sample_rate, 1, Some(timestamp_mode))
                     .map_err(|e| CoreError::TranscriptionFailed(e.to_string()))
             },
-            || Self::create(&self.directory, SpeechBackend::Cpu, self.threads),
+            || {
+                Self::create(
+                    &self.directory,
+                    SpeechBackend::Cpu,
+                    self.threads,
+                    self.decoder_threads,
+                )
+            },
         )
         .map_err(|e| CoreError::TranscriptionFailed(e.to_string()))?;
 
@@ -178,13 +250,16 @@ impl ParakeetProvider {
             text
         );
 
-        Ok(TranscriptionResult {
-            text,
-            duration_secs: audio.len() as f64 / sample_rate as f64,
-            provider_name: self.name().to_string(),
-            segments,
-            llm_error: None,
-        })
+        Ok((
+            TranscriptionResult {
+                text,
+                duration_secs: audio.len() as f64 / sample_rate as f64,
+                provider_name: self.name().to_string(),
+                segments,
+                llm_error: None,
+            },
+            timings,
+        ))
     }
 }
 

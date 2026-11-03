@@ -14,17 +14,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .nth(3)
         .unwrap_or_else(|| "0".into())
         .parse()?;
+    let decoder_threads: u32 = std::env::args()
+        .nth(4)
+        .map(|v| v.parse())
+        .transpose()?
+        .unwrap_or(threads);
+    let profile = std::env::args().nth(5).as_deref() == Some("profile");
     let started = Instant::now();
-    let provider = ParakeetProvider::load_with_backend(
+    let provider = ParakeetProvider::load_with_thread_counts(
         Path::new(&directory),
         "parakeet-tdt-0.6b-v3",
         backend,
         threads,
+        decoder_threads,
         false,
     )?;
     println!(
         "{}",
-        serde_json::json!({"load_secs": started.elapsed().as_secs_f64(), "backend": format!("{:?}", provider.actual_backend()), "cpu_threads": threads})
+        serde_json::json!({"load_secs": started.elapsed().as_secs_f64(), "backend": format!("{:?}", provider.actual_backend()), "cpu_threads": threads, "decoder_threads": decoder_threads, "profile": profile})
     );
     for line in std::io::stdin().lock().lines() {
         let path = line?;
@@ -41,10 +48,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .collect::<Result<Vec<_>, _>>()?,
         };
         let start = Instant::now();
-        let result = provider.transcribe(&samples, spec.sample_rate)?;
+        let (result, timings) = if profile {
+            let (result, timings) = provider.transcribe_profiled(&samples, spec.sample_rate)?;
+            (result, Some(timings))
+        } else {
+            (provider.transcribe(&samples, spec.sample_rate)?, None)
+        };
         println!(
             "{}",
-            serde_json::json!({"backend": format!("{:?}", provider.actual_backend()), "path": path, "text": result.text, "inference_secs": start.elapsed().as_secs_f64(), "audio_secs": samples.len() as f64 / 16000.0})
+            serde_json::json!({"backend": format!("{:?}", provider.actual_backend()), "path": path, "text": result.text, "segments": result.segments, "stages": timings, "inference_secs": start.elapsed().as_secs_f64(), "audio_secs": samples.len() as f64 / 16000.0})
         );
     }
     Ok(())

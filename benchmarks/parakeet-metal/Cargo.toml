@@ -1,0 +1,18 @@
+[package]
+name = "parakatt-metal-bench"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# Keep candidate dependencies separate from the application lockfile and runtime.
+[workspace]
+
+[dependencies]
+parakeet-rs = { version = "=0.4.4", default-features = false, features = ["metal"] }
+hound = "3.5"
+serde_json = "1"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+

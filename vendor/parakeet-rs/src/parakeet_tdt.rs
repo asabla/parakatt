@@ -120,6 +120,55 @@ impl ParakeetTDT {
     pub fn preprocessor_config(&self) -> &PreprocessorConfig {
         &self.preprocessor_config
     }
+
+    /// Run the same transcription with optional stage measurements. Audio and
+    /// transcripts remain with the caller; no profiling files are written.
+    pub fn transcribe_samples_profiled(
+        &mut self,
+        audio: Vec<f32>,
+        sample_rate: u32,
+        channels: u16,
+        mode: Option<TimestampMode>,
+    ) -> Result<(TranscriptionResult, crate::InferenceTimings)> {
+        let mut timings = crate::InferenceTimings::default();
+        let result = self.transcribe_impl(audio, sample_rate, channels, mode, Some(&mut timings))?;
+        Ok((result, timings))
+    }
+
+    fn transcribe_impl(
+        &mut self,
+        audio: Vec<f32>,
+        sample_rate: u32,
+        channels: u16,
+        mode: Option<TimestampMode>,
+        mut timings: Option<&mut crate::InferenceTimings>,
+    ) -> Result<TranscriptionResult> {
+        let started = timings.as_ref().map(|_| std::time::Instant::now());
+        let features = audio::extract_features_with_layout(
+            audio, sample_rate, channels, &self.preprocessor_config,
+            &self.feature_cache, self.legacy_frontend,
+        )?;
+        if let (Some(timings), Some(started)) = (timings.as_mut(), started) {
+            timings.frontend_secs = started.elapsed().as_secs_f64();
+        }
+        let (tokens, frame_indices, durations) = if let Some(timings) = timings.as_deref_mut() {
+            self.model.forward_with_timings(features, Some(timings))?
+        } else {
+            self.model.forward(features)?
+        };
+        let started = timings.as_ref().map(|_| std::time::Instant::now());
+        let mut result = self.decoder.decode_with_timestamps(
+            &tokens, &frame_indices, &durations,
+            self.preprocessor_config.hop_length, self.preprocessor_config.sampling_rate,
+        )?;
+        let mode = mode.unwrap_or(TimestampMode::Tokens);
+        result.tokens = process_timestamps(&result.tokens, mode);
+        result.text = rebuild_text(&result.tokens, mode);
+        if let (Some(timings), Some(started)) = (timings, started) {
+            timings.timestamps_secs = started.elapsed().as_secs_f64();
+        }
+        Ok(result)
+    }
 }
 
 impl Transcriber for ParakeetTDT {
@@ -130,31 +179,6 @@ impl Transcriber for ParakeetTDT {
         channels: u16,
         mode: Option<TimestampMode>,
     ) -> Result<TranscriptionResult> {
-        let features = audio::extract_features_with_layout(
-            audio,
-            sample_rate,
-            channels,
-            &self.preprocessor_config,
-            &self.feature_cache,
-            self.legacy_frontend,
-        )?;
-        let (tokens, frame_indices, durations) = self.model.forward(features)?;
-
-        let mut result = self.decoder.decode_with_timestamps(
-            &tokens,
-            &frame_indices,
-            &durations,
-            self.preprocessor_config.hop_length,
-            self.preprocessor_config.sampling_rate,
-        )?;
-
-        // Apply timestamp mode conversion
-        let mode = mode.unwrap_or(TimestampMode::Tokens);
-        result.tokens = process_timestamps(&result.tokens, mode);
-
-        // Rebuild full text from processed tokens
-        result.text = rebuild_text(&result.tokens, mode);
-
-        Ok(result)
+        self.transcribe_impl(audio, sample_rate, channels, mode, None)
     }
 }

@@ -110,11 +110,27 @@ impl ParakeetTDTModel {
         &mut self,
         features: Array2<f32>,
     ) -> Result<(Vec<usize>, Vec<usize>, Vec<usize>)> {
+        self.forward_with_timings(features, None)
+    }
+
+    pub(crate) fn forward_with_timings(
+        &mut self,
+        features: Array2<f32>,
+        mut timings: Option<&mut crate::InferenceTimings>,
+    ) -> Result<(Vec<usize>, Vec<usize>, Vec<usize>)> {
         // Run encoder
+        let started = timings.as_ref().map(|_| std::time::Instant::now());
         let (encoder_out, encoder_len) = self.run_encoder(&features)?;
+        if let (Some(timings), Some(started)) = (timings.as_mut(), started) {
+            timings.encoder_secs = started.elapsed().as_secs_f64();
+        }
 
         // Run greedy decoding with decoder_joint
+        let started = timings.as_ref().map(|_| std::time::Instant::now());
         let (tokens, frame_indices, durations) = self.greedy_decode(&encoder_out, encoder_len)?;
+        if let (Some(timings), Some(started)) = (timings, started) {
+            timings.decoder_secs = started.elapsed().as_secs_f64();
+        }
 
         Ok((tokens, frame_indices, durations))
     }

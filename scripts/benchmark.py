@@ -38,10 +38,15 @@ def command(*args):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-id", default="parakeet-tdt-0.6b-v3")
-    parser.add_argument("--backend", choices=["cpu", "webgpu"], default="cpu")
+    parser.add_argument("--backend", choices=["cpu", "webgpu", "burnmetal", "nemometal"], default="cpu")
     parser.add_argument("--streaming", action="store_true")
     parser.add_argument("--subset", action="store_true", help="Allow a screening or edge-case fixture subset; never a release acceptance run")
     parser.add_argument("--threads", type=int, default=0)
+    parser.add_argument("--decoder-threads", type=int)
+    parser.add_argument("--profile", action="store_true", help="Measure stages with the application worker")
+    parser.add_argument("--model-manifest", type=Path, help="Verified candidate manifest, outside the production registry")
+    parser.add_argument("--runtime-lock", type=Path, default=ROOT / "Cargo.lock")
+    parser.add_argument("--runtime-file", type=Path, action="append", default=[])
     parser.add_argument("--model", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--binary", type=Path)
@@ -49,6 +54,10 @@ def main():
     parser.add_argument("--warm-runs", type=int, default=10)
     parser.add_argument("--cold-runs", type=int, default=3)
     args = parser.parse_args()
+    if args.backend in ("burnmetal", "nemometal") and (args.binary is None or args.model_manifest is None):
+        parser.error("Native candidates require --binary and --model-manifest")
+    if args.profile and (args.streaming or args.backend not in ("cpu", "webgpu")):
+        parser.error("Stage profiling requires the application offline worker")
     if args.binary is None: args.binary = ROOT / "target/release/examples" / ("streaming_bench" if args.streaming else "model_bench")
     if args.warm_runs < 1 or args.cold_runs < 0 or args.threads < 0:
         parser.error("warm-runs must be positive; cold-runs and threads must be nonnegative")
@@ -63,12 +72,13 @@ def main():
         if args.backend == "webgpu": build += ["--features", "webgpu"]
         subprocess.run(build, cwd=ROOT, check=True)
         if not args.binary.exists(): raise FileNotFoundError(args.binary)
-    provenance = {"commit": command("git", "rev-parse", "HEAD"), "dirty": bool(command("git", "status", "--porcelain")), "runtime_lock_sha256": hashlib.sha256((ROOT / "Cargo.lock").read_bytes()).hexdigest()}
+    provenance = {"schema_version": 2, "commit": command("git", "rev-parse", "HEAD"), "dirty": bool(command("git", "status", "--porcelain")), "runtime_lock_sha256": hashlib.sha256(args.runtime_lock.read_bytes()).hexdigest(), "fixture_manifest_sha256": hashlib.sha256(args.fixtures.read_bytes()).hexdigest()}
+    provenance["runtime_files"] = {str(path): hashlib.sha256(path.read_bytes()).hexdigest() for path in args.runtime_file}
     model_manifests = json.loads((ROOT / "crates/parakatt-core/model-manifests.json").read_text())
     model_manifests += json.loads((ROOT / "crates/parakatt-core/model-candidates.json").read_text())
     provenance["binary_sha256"] = hashlib.sha256(args.binary.read_bytes()).hexdigest()
     provenance["requested_backend"] = args.backend
-    provenance["model_manifest"] = next(m for m in model_manifests if m["id"] == args.model_id)
+    provenance["model_manifest"] = json.loads(args.model_manifest.read_text()) if args.model_manifest else next(m for m in model_manifests if m["id"] == args.model_id)
     for file in provenance["model_manifest"]["files"]:
         path = args.model / file["name"]
         if path.stat().st_size != file["size"]:
@@ -80,8 +90,13 @@ def main():
         if digest.hexdigest() != file["sha256"]:
             raise RuntimeError(f"Model file hash differs from manifest: {file['name']}")
     provenance["model_files_verified"] = True
+    provenance["model_manifest_sha256"] = hashlib.sha256(json.dumps(provenance["model_manifest"], sort_keys=True).encode()).hexdigest()
     observations, loads = [], []
     worker_args = [str(args.binary), str(args.model), args.backend, str(args.threads)]
+    if args.decoder_threads is not None or args.profile:
+        worker_args += [str(args.decoder_threads if args.decoder_threads is not None else args.threads)]
+    if args.profile:
+        worker_args += ["profile"]
     for run in range(args.cold_runs + 1):
         memory_file = tempfile.NamedTemporaryFile(prefix="parakatt-memory-", delete=False)
         memory_file.close()
@@ -100,6 +115,9 @@ def main():
                     process.stdin.write((json.dumps(sample) if args.streaming else sample["path"]) + "\n")
                     process.stdin.flush()
                     result = json.loads(process.stdout.readline())
+                    actual = result.get("backend", "").replace("_", "").lower()
+                    if not args.streaming and actual != args.backend:
+                        raise RuntimeError(f"Requested {args.backend}, inference used {actual}")
                     count, total = errors(sample["reference"], result["text"])
                     observations.append(dict(result, id=sample["id"], language=sample["language"], errors=count, words=total, phase="cold" if run < args.cold_runs else "warm", run=iteration))
                 print(f"Completed {'cold' if run < args.cold_runs else 'warm'} run {(run if run < args.cold_runs else iteration) + 1}", flush=True)
@@ -120,7 +138,7 @@ def main():
         summary[language] = {"wer": sum(r["errors"] for r in rows) / max(1, sum(r["words"] for r in rows)), "median_secs": statistics.median(times), "p95_secs": times[math.ceil(len(times) * .95) - 1], "real_time_factor": sum(times) / sum(r["audio_secs"] for r in rows)}
     report = {"commit": command("git", "rev-parse", "HEAD"), "dirty": bool(command("git", "status", "--porcelain")), "binary_sha256": hashlib.sha256(args.binary.read_bytes()).hexdigest(), "os": platform.platform(), "hardware": command("sysctl", "-n", "machdep.cpu.brand_string"), "runtime_lock_sha256": hashlib.sha256((ROOT / "Cargo.lock").read_bytes()).hexdigest(), "dataset_revision": manifest["revision"], "model_directory": str(args.model), "loads": loads, "summary": summary, "observations": observations}
     report.update(provenance)
-    report.update(cold_runs=args.cold_runs, warm_runs=args.warm_runs, screening=args.subset or args.warm_runs < 10 or args.cold_runs < 3, streaming=args.streaming, cpu_threads=args.threads, os_build=command("sysctl", "-n", "kern.osversion"))
+    report.update(cold_runs=args.cold_runs, warm_runs=args.warm_runs, screening=args.subset or args.warm_runs < 10 or args.cold_runs < 3, streaming=args.streaming, cpu_threads=args.threads, decoder_threads=args.decoder_threads, profiled=args.profile, os_build=command("sysctl", "-n", "kern.osversion"))
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.with_suffix(".json").write_text(json.dumps(report, indent=2))
     markdown = "# Speech benchmark\n\n" + f"Commit: {report['commit']} (dirty={report['dirty']})\n\nHardware: {report['hardware']}. OS: {report['os']} ({report['os_build']}).\n\nModel: {args.model_id}, revision `{report['model_manifest']['revision']}`. Backend: {loads[-1]['backend']}.\n\nRuntime lock SHA-256: `{report['runtime_lock_sha256']}`. Worker SHA-256: `{report['binary_sha256']}`.\n\n| Language | WER | Median seconds | p95 seconds | Real-time factor |\n|---|---:|---:|---:|---:|\n"
