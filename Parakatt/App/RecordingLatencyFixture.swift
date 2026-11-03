@@ -59,10 +59,12 @@ func runRecordingLatencyFixtureIfRequested() -> Bool {
                             try await Task.sleep(nanoseconds: 1_000_000)
                         }
                         let elapsed = ProcessInfo.processInfo.systemUptime - start
+                        let observedBackend = bridge.speechRuntimeStatus().actualBackend == .webGpu ? "webgpu" : "cpu"
+                        guard observedBackend == backend else { throw LatencyFixtureError.backend }
                         guard let text = state.lastTranscription, !text.isEmpty else { throw LatencyFixtureError.noSpeech }
                         if let expected, text != expected { throw LatencyFixtureError.changedText }
                         expected = text
-                        if trial >= 0 { rows.append(["fixture": id, "trial": trial, "preview": preview,
+                        if trial >= 0 { rows.append(["fixture": id, "trial": trial, "preview": preview, "actual_backend": observedBackend,
                                      "preview_in_flight_at_stop": previewInFlight, "incremental": incremental,
                                      "audio_seconds": Double(samples.count) / 16000, "control_return_seconds": control,
                                      "drain_observed_seconds": drained ?? elapsed,
@@ -78,7 +80,7 @@ func runRecordingLatencyFixtureIfRequested() -> Bool {
             }
             report.merge(["completed": true, "actual_backend": backend,
                           "os": ProcessInfo.processInfo.operatingSystemVersionString,
-                          "observations": rows, "capture_drain_seconds": 0.6,
+                          "observations": rows, "capture_drain_seconds": 0.6, "backend_checked_each_trial": true,
                           "limitations": "Actual AppState stop, queue, Rust, history, and published-state path with preloaded public audio. No device capture, paste, LLM, or compositor timing. Warm model and shapes; observations use 1 ms polling."]) { _, new in new }
         } catch { report["error"] = String(describing: error) }
         report["observations"] = rows
