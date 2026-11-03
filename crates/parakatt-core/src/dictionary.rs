@@ -239,7 +239,7 @@ mod tests {
         // Rule was dropped — list of compiled rules is empty.
         assert_eq!(dict.rules().len(), 0);
         // And applying to text that *would* have matched is a no-op.
-        let result = dict.apply(&format!("{} word", &huge), &default_ctx(), "dictation");
+        let result = dict.apply(&format!("{} word", huge), &default_ctx(), "dictation");
         assert!(result.contains(&huge));
     }
 

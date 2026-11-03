@@ -175,7 +175,7 @@ impl ParakeetProvider {
             audio.len(),
             duration.as_secs_f64(),
             segments.len(),
-            &text
+            text
         );
 
         Ok(TranscriptionResult {

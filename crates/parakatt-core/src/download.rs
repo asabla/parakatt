@@ -269,7 +269,7 @@ mod tests {
         m.files = vec![models::ModelFile {
             name: "weights".into(),
             size: 6,
-            sha256: format!("{:x}", Sha256::digest(b"abcdef")),
+            sha256: crate::util::hex_lower(&Sha256::digest(b"abcdef")),
         }];
         m
     }

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build the pinned macOS media bundle. Build tools are never runtime dependencies."""
 import base64, hashlib, json, os, pathlib, shutil, subprocess, sys, tarfile, zipfile
-from media_tool_downloads import fetch_verified, verify
+from media_tool_downloads import fetch_verified, reset_media_outputs, verify
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DEST = ROOT / 'target/media-tools'
 CACHE = ROOT / 'target/media-cache'
@@ -12,6 +12,8 @@ local_notices = b''.join((ROOT / spec['local_path']).read_bytes() for spec in ma
 fingerprint = hashlib.sha256(LOCK.read_bytes() + pathlib.Path(__file__).read_bytes() + (ROOT / "scripts/collect-deno-notices.py").read_bytes() + (ROOT / "scripts/media_tool_downloads.py").read_bytes() + local_notices).hexdigest()
 if (DEST / 'stamp').exists() and (DEST / 'stamp').read_text() == fingerprint:
     sys.exit(0)
+# Rebuild the managed notices and source set when a dependency changes.
+reset_media_outputs(DEST)
 for directory in [DEST, CACHE, BUILD, DEST / 'licenses', DEST / 'sources']:
     directory.mkdir(parents=True, exist_ok=True)
 def run(args, cwd=None, env=None):
@@ -34,17 +36,17 @@ for name in ['ffmpeg','dav1d']:
     shutil.copy2(archive,DEST / 'sources' / archive.name)
 ffmpeg=BUILD / ('ffmpeg-'+manifest['ffmpeg']['version'])
 dav1d=BUILD / ('dav1d-'+manifest['dav1d']['version'])
-venv=BUILD / 'venv'
+venv=BUILD / 'venv-meson-1.12.1-ninja-1.13.2-packaging-26.3'
 if not (venv/'bin/meson').exists():
     run([sys.executable,'-m','venv',venv])
-    run([venv/'bin/pip','install','meson==1.9.1','ninja==1.13.0','packaging==25.0'])
+    run([venv/'bin/pip','install','meson==1.12.1','ninja==1.13.2','packaging==26.3'])
 env=dict(os.environ)
 env['PATH']=str(venv/'bin')+os.pathsep+env.get('PATH','')
 env['MACOSX_DEPLOYMENT_TARGET']='14.0'
 env['SDKROOT']=subprocess.check_output(['xcrun','--sdk','macosx','--show-sdk-path'],text=True).strip()
 env['CC']=subprocess.check_output(['xcrun','--find','clang'],text=True).strip()
 env['CFLAGS']='-mmacosx-version-min=14.0 -isysroot '+env['SDKROOT']
-prefix=BUILD / 'prefix'
+prefix=BUILD / ('prefix-dav1d-'+manifest['dav1d']['version'])
 if not (prefix/'lib/libdav1d.a').exists():
     run([venv/'bin/meson','setup',dav1d/'build',dav1d,'--prefix='+str(prefix),'--default-library=static','--buildtype=release','-Denable_tools=false','-Denable_tests=false'],env=env)
     run([venv/'bin/meson','install','-C',dav1d/'build'],env=env)
@@ -94,7 +96,7 @@ shutil.copy2(ROOT/'scripts/collect-deno-notices.py',DEST/'sources/collect-deno-n
 shutil.copy2(ROOT/'scripts/media_tool_downloads.py',DEST/'sources/media_tool_downloads.py')
 (DEST/'build-options.json').write_text(json.dumps(flags,indent=2))
 (DEST/'sources/build-options.json').write_text(json.dumps(flags,indent=2))
-(DEST/'sources/README.txt').write_text('Corresponding sources for the bundled media tools. The FFmpeg and dav1d source archives are unmodified. Build options and pinned download hashes are included. To reproduce the application bundle, check out the matching Parakatt release, copy these archives to target/media-cache using the filenames in media-tools.json, and run make media-tools. The preparation script uses the selected Xcode SDK and builds for Apple Silicon and macOS 14.0. Build-only Python tools are installed in target/media-build/venv. No build tools are required on the end user system.\n')
+(DEST/'sources/README.txt').write_text('Corresponding sources for the bundled media tools. The FFmpeg and dav1d source archives are unmodified. Build options and pinned download hashes are included. To reproduce the application bundle, check out the matching Parakatt release, copy these archives to target/media-cache using the filenames in media-tools.json, and run make media-tools. The preparation script uses the selected Xcode SDK and builds for Apple Silicon and macOS 14.0. Build-only Python tools are installed in a versioned virtual environment under target/media-build. No build tools are required on the end user system.\n')
 shutil.copy2(LOCK,DEST/'manifest.json')
 shutil.copy2(LOCK,DEST/'sources/media-tools.json')
 shutil.copy2(ROOT/'config/media-runtime.entitlements',DEST/'sources/media-runtime.entitlements')

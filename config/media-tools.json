@@ -2,34 +2,34 @@
   "schema": 1,
   "deployment_target": "14.0",
   "yt-dlp": {
-    "version": "2026.08.19",
-    "url": "https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/yt-dlp_macos",
-    "sha256": "0f192b7ec147ab6288885d6351d9ab67367640029b4377576ef46dd79cf7b202"
+    "version": "2026.10.26",
+    "url": "https://github.com/yt-dlp/yt-dlp/releases/download/2026.10.26/yt-dlp_macos",
+    "sha256": "0f922c15ccc0b83eefa1c8bc9104e434318c4bf16e408e1ee93b7745a6efe0aa"
   },
   "deno": {
-    "version": "2.9.7",
-    "url": "https://github.com/denoland/deno/releases/download/v2.9.7/deno-aarch64-apple-darwin.zip",
-    "sha256": "5cd46d6268f6f78f5d88bdc7159d20bd44cdaa4b3303474839f87ec6fe7ae25c"
+    "version": "2.9.8",
+    "url": "https://github.com/denoland/deno/releases/download/v2.9.8/deno-aarch64-apple-darwin.zip",
+    "sha256": "9f0bf660393da2eaff044cdc7444cb08c73f235849b61d224d825a194ce7c98e"
   },
   "ffmpeg": {
-    "version": "8.0.1",
-    "url": "https://ffmpeg.org/releases/ffmpeg-8.0.1.tar.xz",
-    "sha256": "05ee0b03119b45c0bdb4df654b96802e909e0a752f72e4fe3794f487229e5a41"
+    "version": "9.0.2",
+    "url": "https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz",
+    "sha256": "8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e"
   },
   "dav1d": {
-    "version": "1.5.1",
-    "url": "https://downloads.videolan.org/pub/videolan/dav1d/1.5.1/dav1d-1.5.1.tar.xz",
-    "sha256": "401813f1f89fa8fd4295805aa5284d9aed9bc7fc1fdbe554af4292f64cbabe21"
+    "version": "1.5.4",
+    "url": "https://download.videolan.org/pub/videolan/dav1d/1.5.4/dav1d-1.5.4.tar.xz",
+    "sha256": "686616b7c69eb88d44459391ab25cac13b6647a3b288835c5784e71c1514a5c5"
   },
   "yt-dlp-notices": {
-    "version": "2026.08.19",
-    "url": "https://codeload.github.com/yt-dlp/yt-dlp/tar.gz/refs/tags/2026.08.19",
-    "sha256": "a0779c45179a846986a852bce31bddbe9259b594574f75c0ec146d0567058f7e"
+    "version": "2026.10.26",
+    "url": "https://codeload.github.com/yt-dlp/yt-dlp/tar.gz/refs/tags/2026.10.26",
+    "sha256": "7d5da51731c3f5f5db13d16249fae085e170cc58807c43d68dcb41b7ede99a0d"
   },
   "deno-notices": {
-    "version": "v2.9.7",
-    "url": "https://codeload.github.com/denoland/deno/tar.gz/refs/tags/v2.9.7",
-    "sha256": "28c9677ccee96f9ba0910067d3249fcee90a795063af8a14372769c17a6e1bb2"
+    "version": "v2.9.8",
+    "url": "https://codeload.github.com/denoland/deno/tar.gz/refs/tags/v2.9.8",
+    "sha256": "1e7c94089b077ca9b8ee1528a37793b47a476336bc2e3e902381cb528055f0be"
   },
   "native-notice-rusty-v8": {
     "version": "v150.4.0",

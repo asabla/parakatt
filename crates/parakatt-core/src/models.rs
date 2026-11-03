@@ -74,7 +74,7 @@ pub fn verify_file(path: &Path, file: &ModelFile) -> Result<(), CoreError> {
         }
         hash.update(&buffer[..n]);
     }
-    if format!("{:x}", hash.finalize()) != file.sha256 {
+    if crate::util::hex_lower(&hash.finalize()) != file.sha256 {
         return Err(CoreError::ModelLoadFailed(format!(
             "Checksum mismatch: {}",
             file.name
@@ -170,7 +170,7 @@ mod tests {
         let file = ModelFile {
             name: "encoder".into(),
             size: 3,
-            sha256: format!("{:x}", Sha256::digest(b"abc")),
+            sha256: crate::util::hex_lower(&Sha256::digest(b"abc")),
         };
         let path = directory.path().join(&file.name);
         assert!(verify_file(&path, &file).is_err());

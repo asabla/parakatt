@@ -5,8 +5,8 @@ use std::path::Path;
 
 pub fn account(provider: &str, key: &str) -> String {
     format!(
-        "llm-api-key-{provider}-migrated-{:x}",
-        Sha256::digest(key.as_bytes())
+        "llm-api-key-{provider}-migrated-{}",
+        crate::util::hex_lower(&Sha256::digest(key.as_bytes()))
     )
 }
 pub fn pending(config: &Config, directory: &Path) -> Vec<LegacyCredential> {

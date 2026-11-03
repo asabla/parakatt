@@ -1,6 +1,6 @@
 [package]
 name = "parakatt-core"
-version = "0.7.0"
+version = "0.7.1"
 edition = "2021"
 description = "Core engine for Parakatt voice-to-text application"
 
@@ -10,6 +10,7 @@ name = "parakatt_core"
 
 [dependencies]
 # FFI
+# cargo-swift 0.11.1 requires the same UniFFI version for binding generation.
 uniffi = { version = "=0.31.1", features = ["cli"] }
 
 # Async runtime
@@ -27,20 +28,20 @@ ort = { version = "=2.0.0-rc.13", default-features = false }
 reqwest = { version = "0.13.5", features = ["json", "blocking", "stream", "query"] }
 
 # Integrity and streaming
-sha2 = "0.10"
+sha2 = "0.11.1"
 futures-util = "0.3"
 tokio-util = "0.7"
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-toml = "1.1.6"
+toml = "1.1.8"
 
 # Text processing
 regex = "1"
 
 # Storage
-rusqlite = { version = "0.40.2", features = ["bundled", "backup"] }
+rusqlite = { version = "0.41.1", features = ["bundled", "backup"] }
 uuid = { version = "1", features = ["v4"] }
 chrono = "0.4"
 

@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.7.1
+
+### Changed
+- Update Rust to 1.99.1 and refresh the locked Rust dependencies, including SQLite, SHA-256, Tokio, and TOML support
+- Update bundled yt-dlp to 2026.10.26, Deno to 2.9.8, FFmpeg to 9.0.2, and dav1d to 1.5.4 with matching sources and notices
+- Update the pinned media build tools and CI artifact actions
+
+### Fixed
+- Rebuild dav1d in a version-specific directory when its pinned version changes
+- Replace stale media sources and notices when rebuilding dependencies
+
 ## 0.7.0
 
 Changes since 0.6.1. See [the release notes](RELEASE_NOTES.md) for installation details and limits.

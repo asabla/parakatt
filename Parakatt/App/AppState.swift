@@ -2083,7 +2083,9 @@ class AppState: ObservableObject {
 
         DispatchQueue.global(qos: .userInteractive).async { [weak self] in
             guard let self else { return }
-            defer { self.isStreamTranscribing = false }
+            defer {
+                DispatchQueue.main.async { self.isStreamTranscribing = false }
+            }
 
             do {
                 let result = try bridge.bufferedPreviewUpdate(

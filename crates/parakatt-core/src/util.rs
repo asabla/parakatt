@@ -4,6 +4,11 @@ use std::sync::{Mutex, MutexGuard};
 
 use crate::CoreError;
 
+/// Preserve the lowercase, zero-padded encoding used by persisted SHA-256 values.
+pub(crate) fn hex_lower(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
 /// Lock a mutex, mapping a poison error to a `CoreError` via the
 /// supplied variant constructor. Always logs at `error!` on poison so
 /// we leave a breadcrumb even when the caller bubbles the error past a
@@ -26,4 +31,19 @@ pub(crate) fn lock_named<'a, T>(
         log::error!("{name} lock poisoned: {e}");
         ctor(format!("{name} lock poisoned: {e}"))
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::hex_lower;
+    use sha2::{Digest, Sha256};
+
+    #[test]
+    fn sha256_encoding_matches_existing_persisted_values() {
+        assert_eq!(hex_lower(&[0, 1, 15, 16, 255]), "00010f10ff");
+        assert_eq!(
+            hex_lower(&Sha256::digest(b"abc")),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+    }
 }
