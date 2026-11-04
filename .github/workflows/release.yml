@@ -106,10 +106,6 @@ jobs:
             dist/SHA256SUMS
             dist/parakatt.rb
             dist/dependency-advisories.json
-            reports/maintenance/*.md
-            reports/maintenance/*.json
-            crates/parakatt-core/backend-validation.json
-            reports/releases/${{ steps.version.outputs.version }}.md
 
       - name: Prepare Homebrew tap update
         env:

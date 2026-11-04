@@ -71,7 +71,10 @@ GitHub [retires the macOS 14 image on 2 November 2026](https://github.com/action
 
 ## Acceptance before publication
 
-Record the commit, hardware, OS, result, and evidence for these checks in the release report:
+Keep the commit, hardware, OS, result, and evidence for these checks in ignored
+local storage under `target/release-validation/<version>`. Local acceptance
+records and unfinished work do not belong in release notes or tracked release
+reports.
 
 - Install the packaged app on an actual macOS 14 system. Start it and test transcription and original-video playback. A deployment-target check does not replace this test.
 - Update an existing installation. Verify Microphone, Accessibility, and system-audio permissions. Check recording and paste after the update. An unchanged launcher hash alone does not prove permission persistence.
@@ -80,7 +83,9 @@ Record the commit, hardware, OS, result, and evidence for these checks in the re
 - Check local window playback, seeking, cancellation, subtitles, and transcript behavior after the video is removed.
 - Require passing hosted CI on the exact preparation commit. Retain its release candidate and dependency audit. Historical reports identify earlier checks and must not be presented as checks of the new release.
 
-Record unavailable checks as pending. Do not mark the release fully qualified while required checks remain pending. Keep new backend combinations disabled until their validation is recorded.
+Keep unavailable checks and follow-up work in the local records. Release notes
+describe shipped changes and installation requirements. Keep new backend
+combinations disabled until their validation is recorded.
 
 ## Publish
 
@@ -92,7 +97,7 @@ git tag -a "v$(cat VERSION)" -m "Release $(cat VERSION)"
 git push origin "v$(cat VERSION)"
 ```
 
-Monitor the Release workflow. It runs Rust formatting, Clippy, tests, dependency audit, Swift tests, `make package`, headless playback, and DMG verification. It publishes the app ZIP, DMG, corresponding media source ZIP, SHA256SUMS, generated cask, dependency audit, and validation reports. Release text comes from `RELEASE_NOTES.md`.
+Monitor the Release workflow. It runs Rust formatting, Clippy, tests, dependency audit, Swift tests, `make package`, headless playback, and DMG verification. It publishes the app ZIP, DMG, corresponding media source ZIP, SHA256SUMS, generated cask, and dependency audit. Local validation reports are not release assets. Release text comes from `RELEASE_NOTES.md`.
 
 ## Homebrew
 
