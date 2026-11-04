@@ -1,0 +1,12 @@
+{
+  "playback": {
+    "direct_playback": true,
+    "duration_secs": 6,
+    "playback_copy_created": false,
+    "seek_frames": 3,
+    "source_unchanged": true,
+    "state": "ready",
+    "video_output": "window"
+  },
+  "started": true
+}

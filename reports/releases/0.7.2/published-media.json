@@ -1,0 +1,22 @@
+{
+  "actual_backend": "webgpu",
+  "media": {
+    "characters": 693,
+    "chunks": 3,
+    "duration_secs": 65,
+    "max_audio_samples": 480000,
+    "segments": 10,
+    "srt_bytes": 1023,
+    "state": "completed",
+    "tools": {
+      "deno": "deno 2.9.8 (stable, release, aarch64-apple-darwin)",
+      "ffmpeg": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+      "ffprobe": "ffprobe version 9.0.2 Copyright (c) 2007-2026 the FFmpeg developers",
+      "yt-dlp": "2026.10.26"
+    }
+  },
+  "microphone_authorization": "authorized",
+  "model_loaded": true,
+  "os": "Version 27.0.1 (Build 26A434)",
+  "started": true
+}

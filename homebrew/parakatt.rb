@@ -1,6 +1,6 @@
 cask "parakatt" do
-  version "0.7.1"
-  sha256 "e727d0fd504b827b12e23be7b41e2f7442e9dc7c74f10a6dda998da82ba4719f"
+  version "0.7.2"
+  sha256 "828c3d3e7ba58de4513d934ed6058e42027f33b73c93abab3981375448d1781b"
 
   url "https://github.com/asabla/parakatt/releases/download/v#{version}/Parakatt-#{version}-arm64.dmg"
   name "Parakatt"

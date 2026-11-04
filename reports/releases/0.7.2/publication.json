@@ -1,0 +1,490 @@
+{
+  "tag": "v0.7.2",
+  "commit": "a737d3a6e824ba4f16c2d4a554242a67c4afeb35",
+  "release_id": 434240208,
+  "release_url": "https://github.com/asabla/parakatt/releases/tag/v0.7.2",
+  "verified_uploaded_assets": 55,
+  "assets": [
+    {
+      "name": "0.7.2.md",
+      "sha256": "3ffb37569db3eaba5a48fc71e11281fa88a709d3b40fac0fa692e3e7e5cbb69b",
+      "size": 5402
+    },
+    {
+      "name": "advisories.json",
+      "sha256": "f9938fa0dff2ff770187b7d2d4bae018e34c232d6d4b61c6c09874634dd4cdf0",
+      "size": 1793
+    },
+    {
+      "name": "backend-validation.json",
+      "sha256": "2ba7c930b766706969f4fc724c72b97c175dec186fa99ec5153103deb195de66",
+      "size": 1519
+    },
+    {
+      "name": "baseline.json",
+      "sha256": "19e78ebfe83a16b3f3fefdc77a989b371305052448b2e49400fdd54f1c37cbd4",
+      "size": 730910
+    },
+    {
+      "name": "compat-cpu.json",
+      "sha256": "4e9e525ce7e7bea9ca5ad1339d93be05c0e5ef034537a212152e23afd4909aba",
+      "size": 763795
+    },
+    {
+      "name": "cpu-threads-1.json",
+      "sha256": "21421c833d859b1e52373ec6b9a7e64a8d59869840275a03a29d091637ad280a",
+      "size": 23321
+    },
+    {
+      "name": "cpu-threads-2.json",
+      "sha256": "5a27954f49090cd642ad12072bcb6c2c04edddcc4e52d4df13a2f61cbcf179c7",
+      "size": 23299
+    },
+    {
+      "name": "cpu-threads-4.json",
+      "sha256": "35cb3fae12cbd2632bb60ae692c73c9be442ab9ad577657aea58d64514041cbf",
+      "size": 23259
+    },
+    {
+      "name": "cpu-threads-8.json",
+      "sha256": "726b4b60a316987e230c76b83e8baa658c390a3664ab58a6fd18834a34acd77c",
+      "size": 23264
+    },
+    {
+      "name": "dependencies-2026-11-03.md",
+      "sha256": "1eba3d0a5a014d5b9a82efd0c402cd3a23da6c10e367da05db89772f8a271ac1",
+      "size": 6523
+    },
+    {
+      "name": "dependency-advisories.json",
+      "sha256": "ba9de1f4885dec0ad710ed2b0a5a5eb4f61974671f83e6102dee7b67354be122",
+      "size": 2824
+    },
+    {
+      "name": "edges-cpu.json",
+      "sha256": "f3cefead80bbd31e5c0e600fbb1181880507b2d4a1da26849e984adbdaeeee57",
+      "size": 4591
+    },
+    {
+      "name": "edges-webgpu.json",
+      "sha256": "03c3590f0354aee7b182d078f551ab26e2ac441c58b1e7ac7e62d4c5f5b4375b",
+      "size": 4622
+    },
+    {
+      "name": "english-preview-baseline.json",
+      "sha256": "915670dd28479e9f0fbccb076dd5dc2de228cfa5c29648e476772dd0db448845",
+      "size": 82652
+    },
+    {
+      "name": "evolution-app-profile.json",
+      "sha256": "70e3e0cfce77a2bff216b199aa2a72bb2afdfb0d2c22d43665fee44cdb038cb0",
+      "size": 14507
+    },
+    {
+      "name": "evolution-follow-up.md",
+      "sha256": "42957c4e3112b6a72727ac5acaf80ce86dc34244c27ddc0b0a071c4fec9712ca",
+      "size": 8485
+    },
+    {
+      "name": "evolution-lmstudio-live.json",
+      "sha256": "6a9b50118381b7e7d852c883a8ba7475b2ffef7da53ac106de6568ca73f28fad",
+      "size": 161
+    },
+    {
+      "name": "evolution-ollama-live.json",
+      "sha256": "33ba64a6bf3d8aa6ea86e1e244ba741698c770948faca52547b9c13676b8377e",
+      "size": 146
+    },
+    {
+      "name": "evolution-packaged-startup.json",
+      "sha256": "420fb027aba18417e8e4e8ff661db03c4d1d18220f0e5adee5425ddbcf57ed6e",
+      "size": 159
+    },
+    {
+      "name": "fixtures.md",
+      "sha256": "c50cd442ad09be093fa992d588e34f91eb6ca5aff07a7015531216176415181f",
+      "size": 1999
+    },
+    {
+      "name": "int8-screen.json",
+      "sha256": "51ff00fb38b1cced299ae93916da78e182516dc2f968a8cf3d200f26ef8c4b21",
+      "size": 77626
+    },
+    {
+      "name": "model-test-failures.json",
+      "sha256": "c52d6c2e8ea6862a3d99959adffd497f3d84e5e0118cea1191ce8cda37c75846",
+      "size": 173
+    },
+    {
+      "name": "nemotron-acceptance.json",
+      "sha256": "0aa7fb54f82920f2446844a3dd4cd79842dd040d51b64d0fabaa6caae05eba61",
+      "size": 1664798
+    },
+    {
+      "name": "nemotron-edges.json",
+      "sha256": "448d42f5cf3bffd2c42870d66faeb413fd2b461e7cdc65f179133d197f25566b",
+      "size": 8173
+    },
+    {
+      "name": "nemotron-screen.json",
+      "sha256": "b6b7d491c60505b9519ffebc5ab9ed7cebf8f1bf0b60aa3d51e88a4b5fb38ea2",
+      "size": 166232
+    },
+    {
+      "name": "other-languages.json",
+      "sha256": "66e7fac323572364b012ffc4728f627d33afe5c733ecb12f93ccf2b335e8b8f7",
+      "size": 5553
+    },
+    {
+      "name": "packaged-cpu.json",
+      "sha256": "916aa499c3955228f17c7a5930a5e9d90773ea7e5efcb56fa6ed10f7ab477a5d",
+      "size": 95
+    },
+    {
+      "name": "packaged-final.json",
+      "sha256": "c32c1562ed5eacee9e92bcce30201d64ddff26e699738ee7bdbf718b1b0e32c4",
+      "size": 115
+    },
+    {
+      "name": "packaged-startup.json",
+      "sha256": "26c958709b2204e8b251dbe02391da2c718697b6a6c5e95c5c88f10beaff722b",
+      "size": 96
+    },
+    {
+      "name": "packaged-webgpu.json",
+      "sha256": "73d4efadab8522d5c8a98f620843aae740bb9b39d6064c77bf7dc1d4617527cc",
+      "size": 98
+    },
+    {
+      "name": "Parakatt-0.7.2-arm64.dmg",
+      "sha256": "828c3d3e7ba58de4513d934ed6058e42027f33b73c93abab3981375448d1781b",
+      "size": 132352455
+    },
+    {
+      "name": "Parakatt-0.7.2-arm64.zip",
+      "sha256": "488265c21840a665008b309db0f3be32035974947c3da718f80b22ef332711f8",
+      "size": 135064678
+    },
+    {
+      "name": "Parakatt-0.7.2-media-sources.zip",
+      "sha256": "64b7effd76b747ab3641cc1c09bfefc88490cd906bb91613bd5f998d6d2cc7c9",
+      "size": 251090360
+    },
+    {
+      "name": "parakatt.rb",
+      "sha256": "d41fa9007531f491cd8b169e84f9aca488057c2c719f95a72cb3a3d4c7308a40",
+      "size": 956
+    },
+    {
+      "name": "preview-timing-summary.json",
+      "sha256": "3d23721e7e869ea0dfc6bb53abc0d560c1f93dd42353746a340528d31b30662b",
+      "size": 1446
+    },
+    {
+      "name": "README.md",
+      "sha256": "e847468735a46f025e2f0482927193a0f79d8abc7f7f77b430bbb399e10ee99e",
+      "size": 14024
+    },
+    {
+      "name": "reliability-app-attribution.json",
+      "sha256": "1a35325c304fd410e974326188d92f118290be8c4776e32bd88ddc9f7b6626a7",
+      "size": 2548
+    },
+    {
+      "name": "reliability-app-profile.json",
+      "sha256": "360fe500b72184b6d1f36276010e7bc17930c8f1efe38b3b78491150e4cf4f4a",
+      "size": 14993
+    },
+    {
+      "name": "reliability-follow-up.md",
+      "sha256": "2d22717a0745b1b46d2a27e4bdbceb25d66508f2ad9295462c07b2acda3b572e",
+      "size": 7119
+    },
+    {
+      "name": "reliability-frame-summary.json",
+      "sha256": "8f1dad9fa190d5d55892221d3f2f557737236a952c81cae079845e228dc0d66e",
+      "size": 749
+    },
+    {
+      "name": "reliability-lmstudio-live.json",
+      "sha256": "be25462baf6ffa2ac027e1544ddad153bac835243c2ad91eb47e312298913b3d",
+      "size": 161
+    },
+    {
+      "name": "reliability-ollama-live.json",
+      "sha256": "5050fddcca025319d24dd15190896b23f526f2f1ed279a4cbd80192093d976b9",
+      "size": 156
+    },
+    {
+      "name": "reliability-packaged-startup.json",
+      "sha256": "420fb027aba18417e8e4e8ff661db03c4d1d18220f0e5adee5425ddbcf57ed6e",
+      "size": 159
+    },
+    {
+      "name": "SHA256SUMS",
+      "sha256": "fbb30e650f1c738fe30f8f73430e24692900edf1073f790a39336aa04013e91b",
+      "size": 281
+    },
+    {
+      "name": "ui-attribution.json",
+      "sha256": "198060f05cf306782ff1276a4eac303dda95783fa4a1dd57d2ea675dae81715c",
+      "size": 2950
+    },
+    {
+      "name": "ui-hitch-summary.json",
+      "sha256": "9dd812f28f6b810c623d734894ddfe61a608b7c0df6eebe67a89a7139f8ec593",
+      "size": 688
+    },
+    {
+      "name": "ui-profile-final.json",
+      "sha256": "3fb55dbd46b400097acdaa9d2b84fdb381230fdc0af07f407af83f69ad624bcf",
+      "size": 11479
+    },
+    {
+      "name": "updated-cpu.json",
+      "sha256": "aaab831eb875866de2a49ddd6614b44f3fcd57d8a4b22fb0544c560fd5482f96",
+      "size": 763328
+    },
+    {
+      "name": "validation.json",
+      "sha256": "2ed6e8a5a7e7b56b7db90bbc3a343c00821ec930399320fba03e6c462c2ec88b",
+      "size": 2636
+    },
+    {
+      "name": "video-import.md",
+      "sha256": "182aa0f2afa89227aadf9de397f7828b6f7e7c8db1498920e0a573a43dc9bfe8",
+      "size": 5720
+    },
+    {
+      "name": "webgpu-acceptance.json",
+      "sha256": "abd7d2ce473780bbbf2b748754c0c5535097b334c8657194a41dd745aa683be6",
+      "size": 769718
+    },
+    {
+      "name": "webgpu-final-gates.json",
+      "sha256": "b0e7370ef56e61f529ee44686f1e5de4e701cc13c28f64e4b08287d24fb17411",
+      "size": 543
+    },
+    {
+      "name": "webgpu-final.json",
+      "sha256": "77d2f766c09226624c3c1e48d466e73576e7463c94bb0aec0a86c3c2bd5563e2",
+      "size": 790837
+    },
+    {
+      "name": "webgpu-final.md",
+      "sha256": "b122335e120dcd54850b4f588030417191785b0dbadb4134f0818459eec01f8b",
+      "size": 887
+    },
+    {
+      "name": "webgpu-gates.json",
+      "sha256": "6e7c63723e9b37071f2aed0e592546afee987071e7282acb43047b58c2f4db7c",
+      "size": 444
+    }
+  ],
+  "source_archives_verified": 51,
+  "build_helpers_match": true,
+  "acceptance_exception_approved": "2026-11-04",
+  "release_workflow": {
+    "run_id": 41875516002,
+    "run_url": "https://github.com/asabla/parakatt/actions/runs/41875516002",
+    "job": {
+      "id": 126733720801,
+      "name": "Build and Release",
+      "status": "in_progress",
+      "conclusion": null,
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Checkout",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Select build Python",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Verify release version and tooling",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Install Rust",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Cache Rust",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Install build tools",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Build Rust core",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Test media dependency downloads",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Generate Swift package",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Generate Xcode project",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Verify Rust and Swift before packaging",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Audit locked dependencies",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Build and verify release package",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Check bundled video playback",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Verify DMG and prepare release metadata",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Create GitHub Release",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Prepare Homebrew tap update",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Cache Rust",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Select build Python",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Checkout",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success"
+        }
+      ]
+    }
+  },
+  "published_runtime": {
+    "version": "0.7.2",
+    "build": "4",
+    "readonly_dmg_mounted": true,
+    "dmg_regular_files_match_published_zip": 1235,
+    "dmg_symlink_targets_match": true,
+    "launcher_sha256": "e9f56b1a0349a826822ef364a809e5ace94b6daec3a6971028bdf5f3b447e39c",
+    "launcher_matches_installed_0_7_1": true,
+    "native_runtime_sha256": "02e7841a76ae4b5773800aa95b52a205009f9ac0742dd6b53fdf0549ca1949f0",
+    "native_runtime_matches_verified_ci_candidate": true,
+    "published_startup_backend": "webgpu",
+    "published_media": {
+      "characters": 693,
+      "chunks": 3,
+      "duration_secs": 65,
+      "max_audio_samples": 480000,
+      "segments": 10,
+      "srt_bytes": 1023,
+      "state": "completed",
+      "tools": {
+        "deno": "deno 2.9.8 (stable, release, aarch64-apple-darwin)",
+        "ffmpeg": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+        "ffprobe": "ffprobe version 9.0.2 Copyright (c) 2007-2026 the FFmpeg developers",
+        "yt-dlp": "2026.10.26"
+      }
+    },
+    "published_window_playback": {
+      "direct_playback": true,
+      "duration_secs": 6,
+      "playback_copy_created": false,
+      "seek_frames": 3,
+      "source_unchanged": true,
+      "state": "ready",
+      "video_output": "window"
+    },
+    "physical_capture_tested": false,
+    "paste_tested": false
+  },
+  "installation": {
+    "from_version": "0.7.1",
+    "to_version": "0.7.2",
+    "build": "4",
+    "normal_process_started": true,
+    "history_rows_before": 40,
+    "history_rows_after": 40,
+    "history_and_segments_unchanged": true,
+    "database_integrity_after": "ok",
+    "configuration_unchanged": true,
+    "installed_startup_backend": "webgpu",
+    "ui_controls_verified": false,
+    "live_capture_tested": false,
+    "paste_tested": false
+  },
+  "dependency_audit": {
+    "known_vulnerabilities": 0,
+    "unmaintained_warnings": [
+      "basic-toml",
+      "paste"
+    ]
+  },
+  "homebrew": {
+    "repository": "asabla/homebrew-tap",
+    "path": "Casks/parakatt.rb",
+    "pull_request": "https://github.com/asabla/homebrew-tap/pull/3",
+    "merge_commit": "e529cf43cca1238df8fe1e5c3d1207b468114a6d",
+    "cask_sha256": "d41fa9007531f491cd8b169e84f9aca488057c2c719f95a72cb3a3d4c7308a40",
+    "matches_published_cask": true
+  },
+  "acceptance_exception": {
+    "approved_date": "2026-11-04",
+    "checks_remaining_unverified": [
+      "Actual macOS 14 runtime",
+      "Live microphone and system-audio capture",
+      "Pause/resume and paste",
+      "Installed-update permission behavior",
+      "Configured live LLM providers"
+    ],
+    "fully_qualified": false
+  },
+  "native_ui_inspection": "Unavailable; file, process, isolated startup, and data-preservation checks completed",
+  "private_backups_committed": false
+}
