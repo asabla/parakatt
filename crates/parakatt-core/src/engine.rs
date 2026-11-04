@@ -130,7 +130,10 @@ impl Engine {
         if let Some(provider) = &engine_config.active_llm_provider {
             config.llm.active_provider = Some(provider.clone());
         }
-        config.general.active_mode = engine_config.active_mode;
+        // An empty startup selection preserves the saved global mode.
+        if !engine_config.active_mode.is_empty() {
+            config.general.active_mode = engine_config.active_mode;
+        }
 
         // Set up dictionary from config
         let mut dictionary = Dictionary::new();
@@ -838,6 +841,27 @@ impl Engine {
             }
         }
         Ok(config.general.active_mode.clone())
+    }
+
+    pub fn get_active_mode(&self) -> String {
+        self.config.lock().unwrap().general.active_mode.clone()
+    }
+
+    pub fn set_active_mode(&self, mode: String) -> Result<(), CoreError> {
+        let mut config = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
+        let available = if config.modes.is_empty() {
+            modes::default_modes()
+        } else {
+            config.modes.clone()
+        };
+        if modes::find_mode(&available, &mode).is_none() {
+            return Err(CoreError::ConfigError("Unknown transcription mode".into()));
+        }
+        let mut updated = config.clone();
+        updated.general.active_mode = mode;
+        updated.save(&self.config_dir)?;
+        *config = updated;
+        Ok(())
     }
 
     /// Update the dictionary rules.
@@ -1663,7 +1687,17 @@ impl Engine {
             stt_guard
                 .as_ref()
                 .ok_or_else(|| CoreError::TranscriptionFailed("No STT model loaded".into()))
-                .and_then(|stt| stt.transcribe(&audio_samples, sample_rate))
+                .and_then(|stt| {
+                    stt.transcribe_chunk(
+                        &audio_samples,
+                        sample_rate,
+                        if chunk_index == 0 {
+                            0.0
+                        } else {
+                            chunk_overlap_secs
+                        },
+                    )
+                })
         };
         let stt_result = match stt_result {
             Ok(result) => result,
@@ -1708,11 +1742,11 @@ impl Engine {
         chunk_result.llm_error = llm_error.clone();
         drop(mgr);
         let recognized_text = chunk_result.text.clone();
-        chunk_result.text = self.dictionary.lock().unwrap().apply(
-            &crate::filler::remove_fillers(&chunk_result.text),
-            &ctx,
-            &mode,
-        );
+        chunk_result.text = self
+            .dictionary
+            .lock()
+            .unwrap()
+            .apply(&chunk_result.text, &ctx, &mode);
         self.storage.lock().unwrap().recognize_draft_chunk(
             &session_id,
             chunk_index,
@@ -1859,7 +1893,17 @@ impl Engine {
             stt_guard
                 .as_ref()
                 .ok_or_else(|| CoreError::TranscriptionFailed("No STT model loaded".into()))
-                .and_then(|stt| stt.transcribe(&audio_samples, sample_rate))
+                .and_then(|stt| {
+                    stt.transcribe_chunk(
+                        &audio_samples,
+                        sample_rate,
+                        if slice_index == 0 {
+                            0.0
+                        } else {
+                            chunk_overlap_secs
+                        },
+                    )
+                })
         };
         let stt_result = match stt_result {
             Ok(result) => result,
@@ -1903,11 +1947,11 @@ impl Engine {
         chunk_result.llm_error = llm_error;
         drop(mgr);
         let recognized_text = chunk_result.text.clone();
-        chunk_result.text = self.dictionary.lock().unwrap().apply(
-            &crate::filler::remove_fillers(&chunk_result.text),
-            &ctx,
-            &mode,
-        );
+        chunk_result.text = self
+            .dictionary
+            .lock()
+            .unwrap()
+            .apply(&chunk_result.text, &ctx, &mode);
         self.storage.lock().unwrap().recognize_draft_chunk(
             &session_id,
             slice_index,
@@ -2464,6 +2508,113 @@ mod processing_integration_tests {
         *engine.stt.lock().unwrap() = Some(Box::new(Speech(calls.clone())));
         *engine.llm.lock().unwrap() = Some(Arc::new(Polish));
         (engine, directory, calls)
+    }
+
+    #[test]
+    fn all_recording_paths_preserve_multilingual_words_before_dictionary_processing() {
+        struct SpeechText(&'static str);
+        impl SttProvider for SpeechText {
+            fn name(&self) -> &str {
+                "fixture"
+            }
+            fn is_loaded(&self) -> bool {
+                true
+            }
+            fn transcribe(&self, _: &[f32], _: u32) -> Result<TranscriptionResult, CoreError> {
+                Ok(TranscriptionResult {
+                    text: self.0.into(),
+                    duration_secs: 2.0,
+                    provider_name: "fixture".into(),
+                    llm_error: None,
+                    segments: vec![TimestampedSegment {
+                        text: self.0.into(),
+                        start_secs: 0.0,
+                        end_secs: 2.0,
+                        speaker: None,
+                    }],
+                })
+            }
+        }
+        for text in [
+            "Kan ni skicka er rapport?",
+            "Er ist Arzt.",
+            "Um acht Uhr.",
+            "uh huh",
+        ] {
+            let (engine, _directory, _) = setup();
+            *engine.stt.lock().unwrap() = Some(Box::new(SpeechText(text)));
+            let result = engine
+                .transcribe(vec![0.1; 32000], 16000, "dictation".into(), None)
+                .unwrap();
+            assert_eq!(result.text, text);
+            engine.start_session("dual".into()).unwrap();
+            let result = engine
+                .process_source_chunk(
+                    "dual".into(),
+                    ChunkSource::Mic,
+                    0,
+                    vec![0.1; 32000],
+                    16000,
+                    0.0,
+                    "dictation".into(),
+                    None,
+                )
+                .unwrap();
+            assert_eq!(result.text, text);
+            engine.cancel_session("dual".into());
+            let mut job = engine
+                .create_import_job(
+                    "file".into(),
+                    "/fixture.mp4".into(),
+                    "Fixture".into(),
+                    "dictation".into(),
+                )
+                .unwrap();
+            job.attachment.duration_secs = 2.0;
+            engine
+                .attach_import_media(job.id.clone(), job.attachment)
+                .unwrap();
+            engine
+                .set_import_state(job.id.clone(), "transcribing".into(), String::new())
+                .unwrap();
+            engine
+                .process_import_chunk(job.id.clone(), vec![0.1; 32000], 0.0)
+                .unwrap();
+            assert_eq!(engine.get_transcription(job.id).unwrap().text, text);
+        }
+    }
+
+    #[test]
+    fn selected_mode_is_persisted_and_app_overrides_do_not_change_the_global_mode() {
+        let (engine, directory, _) = setup();
+        engine.set_active_mode("email".into()).unwrap();
+        engine
+            .set_app_mode_default("test.editor".into(), "code".into())
+            .unwrap();
+        assert_eq!(
+            engine
+                .resolve_mode_for_app(Some("test.editor".into()))
+                .unwrap(),
+            "code"
+        );
+        assert_eq!(
+            engine
+                .resolve_mode_for_app(Some("test.other".into()))
+                .unwrap(),
+            "email"
+        );
+        assert!(engine.set_active_mode("nonexistent".into()).is_err());
+        drop(engine);
+        let reopened = Engine::new(EngineConfig {
+            models_dir: directory.path().join("models").display().to_string(),
+            config_dir: directory.path().display().to_string(),
+            active_stt_model: None,
+            active_llm_provider: None,
+            active_mode: String::new(),
+        })
+        .unwrap();
+        assert_eq!(reopened.get_active_mode(), "email");
+        assert_eq!(reopened.resolve_mode_for_app(None).unwrap(), "email");
     }
     #[test]
     fn ended_buffered_preview_does_not_run_stt() {

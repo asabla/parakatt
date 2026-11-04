@@ -4,6 +4,28 @@ import ParakattCore
 @testable import ParakattApp
 
 final class EvolutionTests: XCTestCase {
+    @MainActor
+    func testRecordingKeepsItsSelectedModeAndApplicationContext() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let bridge = try CoreBridge(modelsDir: directory.appendingPathComponent("models").path, configDir: directory.path)
+        let state = AppState(bridge: bridge)
+        state.activeMode = "clean"
+        try state.prepareRecordingContext(AppContextInfo(appBundleId: "test.other", selectedText: "Original selection"))
+        XCTAssertEqual(state.recordingContext.mode, "clean")
+        XCTAssertEqual(bridge.getActiveMode(), "clean")
+        state.activeMode = "email"
+        XCTAssertEqual(state.recordingContext.mode, "clean")
+        XCTAssertEqual(state.recordingContext.application?.selectedText, "Original selection")
+        try bridge.setAppModeDefault(bundleId: "test.editor", mode: "code")
+        try state.prepareRecordingContext(AppContextInfo(appBundleId: "test.editor"))
+        XCTAssertEqual(state.recordingContext.mode, "code")
+        XCTAssertEqual(state.activeMode, "email")
+        try state.prepareRecordingContext(nil)
+        XCTAssertEqual(state.recordingContext.mode, "email")
+        let reopened = try CoreBridge(modelsDir: directory.appendingPathComponent("models").path, configDir: directory.path)
+        XCTAssertEqual(reopened.getActiveMode(), "email")
+    }
     func testSpeechCapacityStaysBoundedAndCanBeReused() {
         let capacity = WorkCapacity(limit: 2)
         XCTAssertFalse(capacity.hasPendingWork)

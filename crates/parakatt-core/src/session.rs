@@ -175,8 +175,8 @@ impl SessionManager {
     /// (in seconds) at the start of this chunk that re-encodes audio
     /// already covered by the previous chunk. When `chunk_overlap_secs`
     /// is positive we use **time-based** segment gating: any STT
-    /// segment whose start falls inside `[0, chunk_overlap_secs)` is
-    /// dropped, since the previous chunk already emitted it. This is
+    /// segment fully covered by `[0, chunk_overlap_secs]` is
+    /// dropped. Crossing words or fallback sentences are retained. This is
     /// the NeMo "middle-token merging" pattern adapted to our chunk
     /// shape — exact, no string-matching heuristics.
     ///
@@ -230,7 +230,7 @@ impl SessionManager {
         //   1. Caller knows the overlap (chunk_overlap_secs > 0) AND
         //      we have STT segments → time-based gating, the
         //      authoritative middle-token merge. Drop segments whose
-        //      start falls inside the overlap window. Cleanest, no
+        //      end falls inside the overlap window. Crossing segments stay; no
         //      string matching needed.
         //   2. We have segments but no overlap info → fall back to
         //      text-based segment dedup against trailing segments
@@ -243,7 +243,7 @@ impl SessionManager {
             // Path 1: time-based middle-token merge.
             surviving_segments = segments
                 .iter()
-                .filter(|s| s.start_secs >= chunk_overlap_secs)
+                .filter(|s| s.end_secs > overlap)
                 .cloned()
                 .collect();
 
@@ -463,7 +463,7 @@ impl SessionManager {
         if chunk_overlap_secs > 0.0 && !segments.is_empty() && slice_index > 0 {
             surviving_segments = segments
                 .iter()
-                .filter(|s| s.start_secs >= chunk_overlap_secs)
+                .filter(|s| s.end_secs > chunk_overlap_secs)
                 .cloned()
                 .collect();
             new_text = surviving_segments
@@ -1094,7 +1094,7 @@ mod tests {
     #[test]
     fn test_time_based_overlap_gating() {
         // The "middle-token merging" path. Caller passes a 2 s
-        // overlap, segments that start before 2.0 s into the chunk
+        // overlap, segments that end at or before 2.0 s into the chunk
         // are dropped — no string matching at all.
         use crate::TimestampedSegment;
 

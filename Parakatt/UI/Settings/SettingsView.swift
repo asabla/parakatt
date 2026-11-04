@@ -690,8 +690,8 @@ struct GeneralSettingsView: View {
                         BehaviorToggleRow(
                             icon: "person.2.wave.2",
                             color: .purple,
-                            label: "Speaker labels in meetings",
-                            description: "Tag segments as 'Me' (mic) and 'Speaker 1/2/…' (system audio). Downloads diarization models on first use.",
+                            label: "Microphone and system audio labels",
+                            description: "Label microphone speech as 'Me' and all system audio as 'Speaker 1'. Individual system speakers are not identified.",
                             isOn: Binding(
                                 get: { appState.speakerLabelsEnabled },
                                 set: { appState.setSpeakerLabelsEnabled($0) }

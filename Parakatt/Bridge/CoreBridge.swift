@@ -16,7 +16,7 @@ class CoreBridge {
     func invalidateImportSource(_ id: String) throws { try engine.invalidateImportSource(id: id) }
     func processImportText(_ id: String) throws { try engine.processImportText(id: id) }
 
-    init(modelsDir: String, configDir: String, activeMode: String = "dictation") throws {
+    init(modelsDir: String, configDir: String, activeMode: String = "") throws {
         let config = EngineConfig(
             modelsDir: modelsDir,
             configDir: configDir,
@@ -202,6 +202,9 @@ class CoreBridge {
     }
 
     // MARK: - Modes
+
+    func getActiveMode() -> String { engine.getActiveMode() }
+    func setActiveMode(_ mode: String) throws { try engine.setActiveMode(mode: mode) }
 
     /// Get per-app mode defaults as (bundleId, modeName) pairs.
     func getAppModeDefaults() throws -> [(String, String)] {

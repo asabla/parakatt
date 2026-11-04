@@ -72,10 +72,9 @@ pub struct GeneralConfig {
     /// is the user's expressed preference, not a hard gate.
     #[serde(default = "default_true")]
     pub streaming_preview_enabled: bool,
-    /// Whether to label transcript segments by speaker in meetings.
-    /// When on, the mic channel is tagged "Me" and system audio is
-    /// run through a diarizer. Off by default — enabling it prompts
-    /// the user to download the diarization models.
+    /// Whether to label meeting segments by audio source. The microphone is
+    /// tagged "Me" and all system audio is tagged "Speaker 1". Off by default;
+    /// individual speakers are not identified and no extra model is downloaded.
     #[serde(default)]
     pub speaker_labels_enabled: bool,
 }

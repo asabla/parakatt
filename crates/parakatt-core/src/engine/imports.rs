@@ -199,16 +199,16 @@ impl Engine {
             if job.next_chunk == 0 { 0.0 } else { 2.0 },
             stt_result.segments,
         )?;
-        let mut segments = crate::media_import::group_import_words(result.segments);
+        let mut segments = crate::stt::group_timed_words(result.segments);
         for segment in &mut segments {
             segment.start_secs += media_offset_secs;
             segment.end_secs += media_offset_secs;
         }
-        let text = self.dictionary.lock().unwrap().apply(
-            &crate::filler::remove_fillers(&result.text),
-            &AppContext::default(),
-            &job.mode,
-        );
+        let text =
+            self.dictionary
+                .lock()
+                .unwrap()
+                .apply(&result.text, &AppContext::default(), &job.mode);
         let expected_chunk = job.next_chunk;
         job.next_chunk += 1;
         job.processed_until = media_offset_secs + duration;
@@ -359,6 +359,154 @@ mod tests {
         engine
             .set_import_state(job.id.clone(), "transcribing".into(), String::new())
             .unwrap()
+    }
+    #[test]
+    fn manual_correction_survives_pause_restart_and_completion_until_undo() {
+        let dir = tempfile::tempdir().unwrap();
+        let first = engine(dir.path());
+        let job = job(&first);
+        first
+            .process_import_chunk(job.id.clone(), vec![0.1; 480000], 0.0)
+            .unwrap();
+        first
+            .edit_transcription(job.id.clone(), "Saved correction".into())
+            .unwrap();
+        first
+            .set_import_state(job.id.clone(), "paused".into(), String::new())
+            .unwrap();
+        assert_eq!(
+            first.get_transcription(job.id.clone()).unwrap().text,
+            "Saved correction"
+        );
+        drop(first);
+
+        let second = engine(dir.path());
+        second
+            .set_import_state(job.id.clone(), "transcribing".into(), String::new())
+            .unwrap();
+        second
+            .process_import_chunk(job.id.clone(), vec![0.1; 480000], 28.0)
+            .unwrap();
+        second
+            .set_import_state(job.id.clone(), "completed".into(), String::new())
+            .unwrap();
+        assert_eq!(
+            second.get_transcription(job.id.clone()).unwrap().text,
+            "Saved correction"
+        );
+        assert_eq!(
+            second
+                .get_transcription_processing(job.id.clone())
+                .unwrap()
+                .recognized_text,
+            "repeat next\n\nnext"
+        );
+        second.undo_transcription_edit(job.id.clone()).unwrap();
+        assert_eq!(
+            second.get_transcription(job.id.clone()).unwrap().text,
+            "repeat next\n\nnext"
+        );
+        second.undo_transcription_edit(job.id.clone()).unwrap();
+        assert_eq!(
+            second.get_transcription(job.id).unwrap().text,
+            "repeat next\n\nnext"
+        );
+    }
+
+    #[test]
+    fn import_override_and_undo_survive_backup_restore_and_delete() {
+        let dir = tempfile::tempdir().unwrap();
+        let engine = engine(dir.path());
+        let job = job(&engine);
+        engine
+            .process_import_chunk(job.id.clone(), vec![0.1; 480000], 0.0)
+            .unwrap();
+        engine
+            .edit_transcription(job.id.clone(), "First correction".into())
+            .unwrap();
+        engine
+            .edit_transcription(job.id.clone(), "Second correction".into())
+            .unwrap();
+        let backup = dir.path().join("backup.db");
+        engine
+            .export_database(backup.display().to_string())
+            .unwrap();
+        engine.delete_transcription(job.id.clone()).unwrap();
+        engine
+            .import_database(backup.display().to_string())
+            .unwrap();
+        engine
+            .set_import_state(job.id.clone(), "paused".into(), String::new())
+            .unwrap();
+        assert_eq!(
+            engine.get_transcription(job.id.clone()).unwrap().text,
+            "Second correction"
+        );
+        engine.undo_transcription_edit(job.id.clone()).unwrap();
+        assert_eq!(
+            engine.get_transcription(job.id.clone()).unwrap().text,
+            "First correction"
+        );
+        engine.undo_transcription_edit(job.id.clone()).unwrap();
+        assert_eq!(
+            engine.get_transcription(job.id.clone()).unwrap().text,
+            "First correction"
+        );
+        engine.delete_transcription(job.id).unwrap();
+        assert_eq!(
+            engine
+                .storage
+                .lock()
+                .unwrap()
+                .conn
+                .query_row("SELECT COUNT(*) FROM import_text_overrides", [], |r| r
+                    .get::<_, u32>(0))
+                .unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn retry_updates_import_chunks_and_undo_restores_the_previous_display() {
+        let dir = tempfile::tempdir().unwrap();
+        let engine = engine(dir.path());
+        let job = job(&engine);
+        engine
+            .process_import_chunk(job.id.clone(), vec![0.1; 480000], 0.0)
+            .unwrap();
+        let storage = engine.storage.lock().unwrap();
+        let mut sections = storage.import_sections(&job.id).unwrap();
+        sections[0].text = "Processed text".into();
+        sections[0].status = "completed".into();
+        storage
+            .apply_history_processing(
+                &job.id,
+                "Processed text",
+                &crate::processing::ProcessingSummary {
+                    recognized_text: "repeat next".into(),
+                    status: "completed".into(),
+                },
+                &sections,
+            )
+            .unwrap();
+        assert_eq!(
+            storage.import_sections(&job.id).unwrap()[0].text,
+            "Processed text"
+        );
+        assert_eq!(
+            storage.import_sections(&job.id).unwrap()[0].status,
+            "processed"
+        );
+        storage
+            .refresh_import_text(&storage.import_job(&job.id).unwrap())
+            .unwrap();
+        assert_eq!(storage.get(&job.id).unwrap().text, "Processed text");
+        storage.undo_transcription_edit(&job.id).unwrap();
+        assert_eq!(storage.get(&job.id).unwrap().text, "repeat next");
+        storage
+            .refresh_import_text(&storage.import_job(&job.id).unwrap())
+            .unwrap();
+        assert_eq!(storage.get(&job.id).unwrap().text, "repeat next");
     }
     #[test]
     fn resumes_without_duplicate_speech_or_timestamp_shift() {

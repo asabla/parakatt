@@ -158,6 +158,24 @@ impl SttProvider for ParakeetProvider {
             .map(|(result, _)| result)
     }
 
+    fn transcribe_chunk(
+        &self,
+        audio: &[f32],
+        sample_rate: u32,
+        overlap_secs: f64,
+    ) -> Result<TranscriptionResult, CoreError> {
+        let (mut result, _) =
+            self.transcribe_timed(audio, sample_rate, TimestampMode::Words, false)?;
+        result.segments = chunk_sentences(result.segments, overlap_secs);
+        result.text = result
+            .segments
+            .iter()
+            .map(|s| s.text.as_str())
+            .collect::<Vec<_>>()
+            .join(" ");
+        Ok(result)
+    }
+
     fn name(&self) -> &str {
         &self.model_id
     }
@@ -165,6 +183,17 @@ impl SttProvider for ParakeetProvider {
     fn is_loaded(&self) -> bool {
         true
     }
+}
+
+/// Remove only words fully covered by the preceding chunk. A word that crosses
+/// the boundary stays intact; sentence grouping must happen after this check.
+fn chunk_sentences(words: Vec<TimestampedSegment>, overlap_secs: f64) -> Vec<TimestampedSegment> {
+    crate::stt::group_timed_words(
+        words
+            .into_iter()
+            .filter(|word| word.end_secs > overlap_secs)
+            .collect(),
+    )
 }
 
 impl ParakeetProvider {
@@ -286,6 +315,34 @@ fn infer_with_fallback<M, T, E: std::fmt::Display>(
 #[cfg(test)]
 mod fallback_tests {
     use super::*;
+    #[test]
+    fn chunk_overlap_is_removed_before_sentences_are_grouped() {
+        let words = [
+            ("old", 0.2, 1.0),
+            ("tail", 1.0, 2.0),
+            ("new", 1.95, 2.5),
+            ("content.", 2.6, 8.0),
+            ("Next.", 9.0, 10.0),
+        ]
+        .into_iter()
+        .map(|(text, start_secs, end_secs)| TimestampedSegment {
+            text: text.into(),
+            start_secs,
+            end_secs,
+            speaker: None,
+        })
+        .collect();
+        let sentences = chunk_sentences(words, 2.0);
+        assert_eq!(
+            sentences
+                .iter()
+                .map(|s| s.text.as_str())
+                .collect::<Vec<_>>(),
+            ["new content.", "Next."]
+        );
+        assert_eq!(sentences[0].start_secs, 1.95);
+        assert_eq!(sentences[0].end_secs, 8.0);
+    }
     #[test]
     fn failed_gpu_chunk_returns_one_cpu_result_and_next_chunk_stays_on_cpu() {
         let mut gpu = true;

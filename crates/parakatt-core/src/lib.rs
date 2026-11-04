@@ -5,7 +5,6 @@ mod credentials;
 pub mod dictionary;
 pub mod download;
 pub mod engine;
-pub mod filler;
 pub mod llm;
 pub mod local_agreement;
 pub mod media_import;
@@ -203,5 +202,6 @@ pub struct EngineConfig {
     pub config_dir: String,
     pub active_stt_model: Option<String>,
     pub active_llm_provider: Option<String>,
+    /// Startup override; an empty value preserves the saved mode.
     pub active_mode: String,
 }

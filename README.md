@@ -103,6 +103,8 @@ Automatic execution uses WebGPU only for combinations in `crates/parakatt-core/b
 
 Configure optional LLM processing in **Settings > LLM**. Ollama and LM Studio run locally. OpenAI and Anthropic require a model and a provider-specific Keychain credential. They remain disabled until configured. Recognized text appears first; completed processing replaces each accepted chunk. Failures and queue limits preserve recognized text. History keeps the recognized timeline separate from processed text.
 
+Push-to-talk recordings keep the mode and application context selected at their start, including per-app mode defaults. The global mode selection is saved for the next launch. Recognized words are preserved before dictionary rules and optional LLM processing; English filler expressions are not removed automatically from multilingual speech. Live chunks remove overlap using word timing before grouping sentences.
+
 Use **Test selected model** in LLM settings to check the connection, authentication, selected model, and a complete synthetic streaming response. The test does not send a recording. **Use preceding speech as context** is optional and off by default. When enabled, it supplies up to 120 words from the two preceding recognized chunks of the same source and session. The original text remains available.
 
 For reproducible benchmarks, fixture attribution, and release checks, see [the validation commands](reports/maintenance/README.md).
@@ -116,6 +118,8 @@ History marks a recording as incomplete if speech recognition fails. An incomple
 Temporary audio retention is off by default. Enable it in Settings only if you want audio recovery. Successful recordings remove their recovery records immediately. Temporary audio expires after 24 hours when the app next accesses recovery data, with a total retention limit of 512 MiB. Turning the setting off clears retained audio. Backups include recognized recovery text, but exclude temporary audio. If capture writes or speech processing cannot keep up with their bounded queues, recording stops and remains marked incomplete.
 
 In the history detail menu, use **Retry failed processing** to process failed LLM sections again. **Edit processed text** changes the display and export text. The original recognized text and timestamps remain available. **Undo last text change** restores the previous display text. Copy uses the selected transcript view.
+
+For imports, saved edits remain the display and export text through pause, resume, completion, and restart. Recognition continues to update the original timeline. Undoing the first manual edit returns to the latest generated text, including chunks committed after the edit. Undoing a later edit or processing retry restores the preceding display text.
 
 History loads 100 recordings per page. Use **Load more recordings** to browse older entries. Query failures show a retry action. Use **Cmd+Shift+F** to search within a transcript and **Cmd+G** / **Cmd+Shift+G** to move between matches. **Cmd+F** searches recording history.
 
@@ -181,6 +185,8 @@ Local files stay in place. Use **Locate File…** if a source moves. Downloaded 
 In History, use **Load Video** to play the original video with the bundled VLCKit engine. MP4, MOV, MKV, and WebM playback does not need a conversion or a separate playback copy. This also applies to existing imports; old review copies are ignored. Source checking and player loading show progress and can be cancelled. A player that cannot open the file reports an error after a bounded wait. Playback uses the audio track selected for transcription. In the recognized timeline, click a sentence to seek to it. Playback has play/pause, seeking, volume, speed selection, and optional transcript following. The transcript remains available when its video is missing.
 
 Export SRT or WebVTT subtitles from History. Subtitles use recognized sentence timing, not LLM-rewritten text. The export dialog identifies incomplete transcripts. Automatic identification of individual speakers is not included.
+
+The meeting setting **Microphone and system audio labels** labels microphone speech as **Me** and all system audio as **Speaker 1**. It does not distinguish individual system speakers or download speaker-identification models.
 
 ### Building bundled media tools
 

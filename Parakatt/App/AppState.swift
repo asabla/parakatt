@@ -173,7 +173,24 @@ class AppState: ObservableObject {
     }
     var activeMode: String {
         get { settings.activeMode }
-        set { settings.activeMode = newValue }
+        set {
+            do {
+                try bridge?.setActiveMode(newValue)
+                settings.activeMode = newValue
+            } catch { errorMessage = "Could not select transcription mode: \(error.localizedDescription)" }
+        }
+    }
+
+    struct RecordingContext {
+        let mode: String
+        let application: AppContextInfo?
+    }
+    private(set) var recordingContext = RecordingContext(mode: "dictation", application: nil)
+
+    /// Capture once so app switches or setting changes cannot change a running recording.
+    func prepareRecordingContext(_ application: AppContextInfo?) throws {
+        let mode = try bridge?.resolveModeForApp(bundleId: application?.appBundleId) ?? activeMode
+        recordingContext = RecordingContext(mode: mode, application: application)
     }
 
     // Audio source selection lives on ContextCoordinator.
@@ -315,9 +332,9 @@ class AppState: ObservableObject {
         do {
             bridge = try CoreBridge(
                 modelsDir: modelsDirectory().path,
-                configDir: configDirectory().path,
-                activeMode: activeMode
+                configDir: configDirectory().path
             )
+            if let bridge { settings.activeMode = bridge.getActiveMode() }
             if let bridge {
                 let imports = MediaImportService(bridge: bridge, root: configDirectory().deletingLastPathComponent().appendingPathComponent("media"))
                 imports.canTranscribe = { [weak self] in guard let self else { return false }; return self.isModelLoaded && !self.isRecording && !self.isMeetingActive && !self.isProcessing }
@@ -466,6 +483,7 @@ class AppState: ObservableObject {
         isModelLoaded = true
         finalModelGate.update(.ready)
         speechGeneration = UUID()
+        try prepareRecordingContext(nil)
         lastTranscription = nil
         liveTranscription = nil
         errorMessage = nil
@@ -527,9 +545,10 @@ class AppState: ObservableObject {
         audioBufferLock.unlock()
 
         do {
+            try prepareRecordingContext(contextService?.currentContext())
             if let bridge {
                 let generation = speechGeneration
-                captureJournal = try CaptureJournal(bridge: bridge, id: generation.uuidString, source: "push_to_talk", mode: activeMode) { [weak self] message in
+                captureJournal = try CaptureJournal(bridge: bridge, id: generation.uuidString, source: "push_to_talk", mode: recordingContext.mode) { [weak self] message in
                     guard let self, self.speechGeneration == generation else { return }
                     self.errorMessage = message
                     self.recording.captureWarning = message
@@ -699,8 +718,8 @@ class AppState: ObservableObject {
             audioBuffer.removeAll()
             audioBufferLock.unlock()
 
-            let context = contextService?.currentContext()
-            let mode = activeMode
+            let context = recordingContext.application
+            let mode = recordingContext.mode
             let currentIndex = pttChunkIndex
             let journal = captureJournal
 
@@ -1049,6 +1068,7 @@ class AppState: ObservableObject {
             if let so = try? bridge?.getShowOverlay() { showRecordingOverlay = so }
             if let dm = try? bridge?.getDebugMode() { debugMode = dm }
             if let sl = try? bridge?.getSpeakerLabelsEnabled() { speakerLabelsEnabled = sl }
+            if let bridge { settings.activeMode = bridge.getActiveMode() }
             loadLlmApiKeyFromKeychain()
             reloadSpeechModels()
             NSLog("[Parakatt] Loaded profile: %@", name)
@@ -1773,6 +1793,7 @@ class AppState: ObservableObject {
         let job = SessionCancellation()
         let journal = captureJournal
         shortProcessing = job
+        let selection = recordingContext
 
         let maxAmp = samples.map { abs($0) }.max() ?? 0
         NSLog("[Parakatt] Processing %d samples (%.1fs), maxAmp=%.4f, mode=%@, llm=%@",
@@ -1788,16 +1809,8 @@ class AppState: ObservableObject {
                 return
             }
 
-            let context = self.contextService?.currentContext()
-
-            // Resolve mode: use per-app default if configured, otherwise global active mode
-            let effectiveMode: String
-            if let bundleId = context?.appBundleId,
-               let resolved = try? bridge.resolveModeForApp(bundleId: bundleId) {
-                effectiveMode = resolved
-            } else {
-                effectiveMode = self.activeMode
-            }
+            let context = selection.application
+            let effectiveMode = selection.mode
 
             do {
                 journal?.finish()
@@ -1866,7 +1879,7 @@ class AppState: ObservableObject {
         let sessionId = speechGeneration.uuidString
 
         do {
-            try bridge.startSession(sessionId: sessionId, source: "push_to_talk", mode: activeMode)
+            try bridge.startSession(sessionId: sessionId, source: "push_to_talk", mode: recordingContext.mode)
             watchProcessing(sessionID: sessionId)
         } catch {
             NSLog("[Parakatt] Failed to start PTT session: %@ — will use single-shot on stop",
@@ -1969,8 +1982,8 @@ class AppState: ObservableObject {
 
         let currentIndex = pttChunkIndex
         pttChunkIndex += 1
-        let context = contextService?.currentContext()
-        let mode = activeMode
+        let context = recordingContext.application
+        let mode = recordingContext.mode
 
         let capacity = speechWork
         transcriptionQueue.async { [weak self] in

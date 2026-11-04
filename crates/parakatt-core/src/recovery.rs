@@ -141,6 +141,31 @@ impl Storage {
     ) -> Result<(), CoreError> {
         let tx = self.conn.unchecked_transaction().map_err(io)?;
         self.edit_transcription_inner(id, text)?;
+        // Retrying replaces the generated chunks too. Undo must restore the
+        // previous display text rather than the newly generated result.
+        self.conn.execute(
+            "UPDATE import_text_overrides SET previous_text=COALESCE(previous_text,(SELECT previous_text FROM transcription_edits WHERE transcription_id=?1)) WHERE id=?1",
+            [id],
+        ).map_err(io)?;
+        // Import chunks remain the generated source of truth after a retry.
+        // Keep them in sync so later state changes cannot restore failed text.
+        for section in sections {
+            self.conn
+                .execute(
+                    "UPDATE import_chunks SET text=?3,status=?4 WHERE id=?1 AND chunk_index=?2",
+                    params![
+                        id,
+                        section.chunk_id,
+                        section.text,
+                        if section.status == "completed" {
+                            "processed"
+                        } else {
+                            section.status.as_str()
+                        }
+                    ],
+                )
+                .map_err(io)?;
+        }
         self.save_processing(id, summary)?;
         self.save_sections(id, sections)?;
         tx.commit().map_err(io)
@@ -380,6 +405,11 @@ impl Storage {
     }
     fn edit_transcription_inner(&self, id: &str, text: &str) -> Result<(), CoreError> {
         self.conn.execute("INSERT OR REPLACE INTO transcription_edits SELECT id,text FROM transcriptions WHERE id=?1",[id]).map_err(io)?;
+        self.conn.execute(
+            "INSERT INTO import_text_overrides(id,text) SELECT id,?2 FROM import_jobs WHERE id=?1
+             ON CONFLICT(id) DO UPDATE SET previous_text=import_text_overrides.text,text=excluded.text",
+            params![id,text],
+        ).map_err(io)?;
         let changed = self
             .conn
             .execute(
@@ -394,7 +424,29 @@ impl Storage {
     }
     pub fn undo_transcription_edit(&self, id: &str) -> Result<(), CoreError> {
         let tx = self.conn.unchecked_transaction().map_err(io)?;
+        // On the first import edit, Undo returns to the latest generated text,
+        // including any chunks committed since the edit was saved.
+        use rusqlite::OptionalExtension;
+        let previous: Option<Option<String>> = self.conn.query_row(
+            "SELECT o.previous_text FROM import_text_overrides o JOIN transcription_edits e ON e.transcription_id=o.id WHERE o.id=?1",
+            [id], |r| r.get(0),
+        ).optional().map_err(io)?;
         self.conn.execute("UPDATE transcriptions SET text=(SELECT previous_text FROM transcription_edits WHERE transcription_id=?1) WHERE id=?1 AND EXISTS(SELECT 1 FROM transcription_edits WHERE transcription_id=?1)",[id]).map_err(io)?;
+        if let Some(previous) = previous {
+            if let Some(text) = previous {
+                self.conn
+                    .execute(
+                        "UPDATE import_text_overrides SET text=?2,previous_text=NULL WHERE id=?1",
+                        params![id, text],
+                    )
+                    .map_err(io)?;
+            } else {
+                self.conn
+                    .execute("DELETE FROM import_text_overrides WHERE id=?1", [id])
+                    .map_err(io)?;
+            }
+            self.refresh_import_text(&self.import_job(id)?)?;
+        }
         self.conn
             .execute(
                 "DELETE FROM transcription_edits WHERE transcription_id=?1",
