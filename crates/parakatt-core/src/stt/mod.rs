@@ -22,6 +22,17 @@ pub trait SttProvider: Send + Sync {
     fn transcribe(&self, audio: &[f32], sample_rate: u32)
         -> Result<TranscriptionResult, CoreError>;
 
+    /// Live chunks need word timing before overlap removal and sentence grouping.
+    /// Providers without word timing retain crossing sentences in the session adapter.
+    fn transcribe_chunk(
+        &self,
+        audio: &[f32],
+        sample_rate: u32,
+        _overlap_secs: f64,
+    ) -> Result<TranscriptionResult, CoreError> {
+        self.transcribe(audio, sample_rate)
+    }
+
     /// Imported media uses word timing at overlap boundaries when supported.
     fn transcribe_import(
         &self,
@@ -36,4 +47,27 @@ pub trait SttProvider: Send + Sync {
 
     /// Whether a model is currently loaded and ready.
     fn is_loaded(&self) -> bool;
+}
+
+/// Group retained model-timed words only after overlap gating. No timing is invented.
+pub(crate) fn group_timed_words(
+    words: Vec<crate::TimestampedSegment>,
+) -> Vec<crate::TimestampedSegment> {
+    let mut grouped: Vec<crate::TimestampedSegment> = Vec::new();
+    for word in words {
+        let append = grouped.last().is_some_and(|previous| {
+            !previous.text.ends_with(['.', '?', '!'])
+                && word.start_secs - previous.end_secs < 1.0
+                && previous.text.chars().count() + word.text.chars().count() < 160
+        });
+        if append {
+            let previous = grouped.last_mut().unwrap();
+            previous.text.push(' ');
+            previous.text.push_str(&word.text);
+            previous.end_secs = word.end_secs;
+        } else {
+            grouped.push(word);
+        }
+    }
+    grouped
 }

@@ -35,26 +35,6 @@ pub struct ImportJob {
     pub configuration: String,
     pub checkpoint_version: u32,
 }
-/// Group retained model-timed words only after overlap gating. No timing is invented.
-pub(crate) fn group_import_words(words: Vec<TimestampedSegment>) -> Vec<TimestampedSegment> {
-    let mut grouped: Vec<TimestampedSegment> = Vec::new();
-    for word in words {
-        let append = grouped.last().is_some_and(|previous| {
-            !previous.text.ends_with(['.', '?', '!'])
-                && word.start_secs - previous.end_secs < 1.0
-                && previous.text.chars().count() + word.text.chars().count() < 160
-        });
-        if append {
-            let previous = grouped.last_mut().unwrap();
-            previous.text.push(' ');
-            previous.text.push_str(&word.text);
-            previous.end_secs = word.end_secs;
-        } else {
-            grouped.push(word);
-        }
-    }
-    grouped
-}
 
 impl Storage {
     pub(crate) fn migrate_imports(&self) -> Result<(), CoreError> {
@@ -66,7 +46,10 @@ impl Storage {
             CREATE TABLE IF NOT EXISTS import_chunks (
             id TEXT NOT NULL REFERENCES import_jobs(id) ON DELETE CASCADE,
             chunk_index INTEGER NOT NULL, recognized TEXT NOT NULL, text TEXT NOT NULL,
-            status TEXT NOT NULL, PRIMARY KEY(id,chunk_index));",
+            status TEXT NOT NULL, PRIMARY KEY(id,chunk_index));
+            CREATE TABLE IF NOT EXISTS import_text_overrides (
+            id TEXT PRIMARY KEY REFERENCES import_jobs(id) ON DELETE CASCADE,
+            text TEXT NOT NULL, previous_text TEXT);",
             )
             .map_err(io)
     }
@@ -196,7 +179,7 @@ impl Storage {
             .join("\n\n");
         self.conn
             .execute(
-                "UPDATE transcriptions SET text=?2,duration_secs=?3 WHERE id=?1",
+                "UPDATE transcriptions SET text=COALESCE((SELECT text FROM import_text_overrides WHERE id=?1),?2),duration_secs=?3 WHERE id=?1",
                 params![job.id, text, job.attachment.duration_secs],
             )
             .map_err(io)?;

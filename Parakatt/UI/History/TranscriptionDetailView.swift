@@ -113,6 +113,9 @@ struct TranscriptionDetailView: View {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Edit processed text").font(.title2)
                 Text("The original recognized text and timeline remain available.").foregroundStyle(.secondary)
+                if item.source == "import" {
+                    Text("Saved edits remain the display text while the import continues. Undoing the first edit returns to the latest generated text.").foregroundStyle(.secondary)
+                }
                 TextEditor(text: $correctedText).font(.body).border(Color.secondary.opacity(0.3))
                 HStack {
                     Button("Cancel") { editingText = false }

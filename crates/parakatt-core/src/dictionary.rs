@@ -53,10 +53,14 @@ impl Dictionary {
             if !matches_context(&rule.source, context, mode) {
                 continue;
             }
-            result = rule
-                .regex
-                .replace_all(&result, rule.source.replacement.as_str())
-                .into_owned();
+            result = if rule.source.pattern.starts_with("re:") {
+                rule.regex
+                    .replace_all(&result, rule.source.replacement.as_str())
+            } else {
+                rule.regex
+                    .replace_all(&result, regex::NoExpand(&rule.source.replacement))
+            }
+            .into_owned();
         }
 
         result
@@ -144,6 +148,21 @@ mod tests {
 
         let result = dict.apply("deploy to kubernetes cluster", &default_ctx(), "dictation");
         assert_eq!(result, "deploy to Kubernetes cluster");
+    }
+
+    #[test]
+    fn plain_replacements_preserve_dollars_and_regex_rules_keep_capture_expansion() {
+        let mut dict = Dictionary::new();
+        dict.set_rules(vec![make_rule("hundred dollars", "$100 ${name} $$")]);
+        assert_eq!(
+            dict.apply("Pay hundred dollars today.", &default_ctx(), "dictation"),
+            "Pay $100 ${name} $$ today."
+        );
+        dict.set_rules(vec![make_rule(r"re:USD (\d+)", "$$$1")]);
+        assert_eq!(
+            dict.apply("Pay USD 100 today.", &default_ctx(), "dictation"),
+            "Pay $100 today."
+        );
     }
 
     #[test]

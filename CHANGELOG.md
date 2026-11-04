@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## 0.7.3
+
+### Fixed
+- Preserve speech that crosses a chunk overlap by checking word timing before grouping sentences
+- Preserve multilingual words by removing automatic English filler stripping
+- Keep dollar signs literal in plain dictionary replacements while retaining capture expansion for explicit regex rules
+- Preserve saved import corrections through pause, resume, restart, completion, and backup restoration, with consistent Undo behavior
+- Save the global mode selection and use one mode and application context throughout each push-to-talk recording, including per-app defaults
+- Correct meeting label descriptions to identify microphone and system audio sources without promising individual speaker identification
+
+### Added
+- Experimental output-only file transcription CLI for macOS and Linux, built from source with bounded 16 kHz mono WAV or raw float input
+- Regression coverage for overlapping speech, multilingual words, dictionary replacements, import edits and Undo, and recording mode selection
+
 ## 0.7.2
 
 ### Changed
