@@ -7,9 +7,13 @@ import math
 import os
 from pathlib import Path
 import platform
+import runpy
 import subprocess
 import tempfile
-import wave
+
+# The pinned fixtures use IEEE float WAV, unsupported by Python <3.15's wave
+# reader. Reuse the existing fixture decoder rather than the host's wave API.
+read_fixture_audio = runpy.run_path(str(Path(__file__).with_name("prepare-edge-fixtures.py")))["read_audio"]
 
 
 def digest(path):
@@ -37,8 +41,7 @@ def check(binary, models, manifest):
             fixture = next(s for s in fixtures["samples"] if s["language"] == language)
             audio = Path(fixture["path"]).resolve()
             assert digest(audio) == fixture["sha256"], "Fixture checksum mismatch"
-            with wave.open(str(audio)) as wav:
-                duration = wav.getnframes() / wav.getframerate()
+            duration = len(read_fixture_audio(audio)) / 16000
             command = [str(binary), "--models-dir", str(models), "transcribe", str(audio)]
             runs = [subprocess.run(command + ["--format", fmt], cwd=root, env=env,
                                    capture_output=True, text=True, check=True, timeout=180)
