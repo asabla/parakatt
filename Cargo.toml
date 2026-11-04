@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/parakatt-core"]
+members = ["crates/parakatt-core", "crates/parakatt-cli"]
 exclude = ["vendor/parakeet-rs"]
 resolver = "2"
 

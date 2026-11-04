@@ -1,0 +1,59 @@
+name: File CLI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  cli:
+    name: File CLI (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, ubuntu-24.04]
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@1.99.1
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2.9.3
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Check CLI
+        run: |
+          cargo clippy --locked -p parakatt-cli --all-targets -- -D warnings
+          cargo test --locked -p parakatt-cli
+          cargo build --locked --release -p parakatt-cli
+
+      - name: Install the pinned model for the Linux runtime check
+        if: runner.os == 'Linux'
+        run: cargo run --locked --release -p parakatt-core --example install_model -- target/cli-models parakeet-tdt-0.6b-v3
+
+      - name: Prepare public speech fixtures
+        if: runner.os == 'Linux'
+        run: python3 scripts/prepare-fixtures.py --languages en_us sv_se --count 1 --output target/cli-fixtures
+
+      - name: Check Linux CPU recognition and output isolation
+        if: runner.os == 'Linux'
+        run: python3 scripts/smoke-cli.py target/release/parakatt --models target/cli-models --fixtures target/cli-fixtures/manifest.json --output target/cli-smoke/linux.json
+
+      - name: Save Linux runtime evidence
+        if: runner.os == 'Linux' && always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: cli-linux-runtime
+          path: target/cli-smoke/*.json
+          if-no-files-found: warn
