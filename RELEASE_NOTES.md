@@ -12,11 +12,10 @@ This release fixes transcript loss at chunk boundaries, preserves multilingual w
 - Correct the meeting setting to describe microphone and system audio labels. All system audio is labelled `Speaker 1`; individual speakers are not identified.
 - Include the experimental output-only file CLI in source. It supports bounded 16 kHz mono WAV and raw float input on macOS and Linux. It does not save history or use app settings, dictionary rules, or LLM processing. Build it from source as described in the README; the macOS app packages remain separate.
 
-## Installation and limits
+## Installation
 
 - Requires Apple Silicon and macOS 14 or later. Speech models are downloaded explicitly in Settings.
 - The app is ad-hoc signed and is not notarized by Apple. See the [installation instructions](https://github.com/asabla/parakatt#unsigned-builds) if Gatekeeper blocks it.
-- Automated checks and isolated public-audio tests do not establish live microphone or system-audio capture, installed-update permissions, paste, or live LLM compatibility. These checks and actual macOS 14 runtime acceptance remain pending for this version. This release must not be treated as fully qualified while those checks remain pending.
 - Public YouTube downloads remain subject to site restrictions.
 
 [Changes since 0.7.2](https://github.com/asabla/parakatt/compare/v0.7.2...v0.7.3)
