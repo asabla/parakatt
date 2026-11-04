@@ -1,4 +1,4 @@
-.PHONY: all rust swift-package swift-package-force media-tools xcode build release package test clean run launcher prepare-run run-detached verify-version
+.PHONY: all rust cli swift-package swift-package-force media-tools xcode build release package test clean run launcher prepare-run run-detached verify-version
 
 # Keep the generated FFI package separate from older global Xcode artifacts.
 export PARAKATT_DERIVED_DATA ?= $(CURDIR)/target/xcode
@@ -21,6 +21,10 @@ all: rust swift-package xcode build
 # Build the Rust core library
 rust:
 	cargo build --locked --release --target aarch64-apple-darwin -p parakatt-core --features "$(PARAKATT_SPEECH_FEATURES)"
+
+# Build the output-only file transcription CLI for the current platform.
+cli:
+	cargo build --locked --release -p parakatt-cli
 
 # Run Rust tests
 test:

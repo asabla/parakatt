@@ -55,6 +55,34 @@ make run
 
 Make prefers tools in `target/tools/bin` and uses `target/xcode` for Xcode build output. This keeps generated bindings separate from older global Xcode artifacts. Set `PARAKATT_DERIVED_DATA` to use a different build directory.
 
+## Experimental file CLI
+
+The source tree includes an output-only file CLI for macOS and Linux. It uses the pinned Parakeet v3 model and CPU backend. It does not read app settings or credentials, save history, apply dictionary rules, or run LLM processing.
+
+Build it with the pinned Rust toolchain:
+
+```bash
+cargo build --locked --release -p parakatt-cli
+```
+
+Install the model explicitly before transcription. On macOS, the CLI can use the model installed through the app's Settings. Its default model root is `~/Library/Application Support/Parakatt/models`. On Linux, it is `$XDG_DATA_HOME/parakatt/models`, or `~/.local/share/parakatt/models` when that variable is unset. To install into another directory:
+
+```bash
+cargo run --locked --release -p parakatt-core --example install_model -- ./models parakeet-tdt-0.6b-v3
+target/release/parakatt --models-dir ./models transcribe speech.wav
+target/release/parakatt --models-dir ./models transcribe speech.wav --format json
+```
+
+Transcription verifies the model files and does not download missing files. Input must be mono at 16000 Hz, with at most 30 seconds of audio. Supported WAV formats are 16/24/32-bit integer PCM and 32-bit float. Use `--raw-f32le` for headerless little-endian float samples. Float samples must be finite and between -1 and 1. The file size is capped at 1,985,536 bytes, including metadata. Oversized, empty, and all-zero inputs return an error. Longer files must be split before use.
+
+Text output contains the recognized text followed by a newline. JSON output includes the file source and sentence timestamps:
+
+```json
+{"source":{"kind":"file","path":"speech.wav"},"model":"parakeet-tdt-0.6b-v3","backend":"cpu","text":"Example speech.","duration_secs":2.0,"segments":[{"text":"Example speech.","start_secs":0.0,"end_secs":1.8}]}
+```
+
+Output goes to stdout; errors and diagnostic messages go to stderr. Exit codes are `0` for success, `1` for input, model, or runtime errors, and `2` for invalid arguments. JSON requires a UTF-8 input path. The CLI has its own experimental version and is built from source; the macOS app release remains separate. CI checks macOS and Ubuntu 24.04 builds and runs English/Swedish CPU recognition on Linux.
+
 ## Permissions
 
 Parakatt requires the following macOS permissions:
