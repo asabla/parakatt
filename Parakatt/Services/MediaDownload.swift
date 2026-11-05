@@ -99,6 +99,7 @@ struct YouTubeSession: Sendable {
 }
 
 enum MediaLink {
+    static let youtubeMetadataTemplate = "%(.{duration,is_live,live_status})j"
     static func classify(_ value: String) throws -> (String, URL) {
         guard let url = URL(string: value.trimmingCharacters(in: .whitespacesAndNewlines)), ["http", "https"].contains(url.scheme?.lowercased() ?? ""), let host = url.host?.lowercased(), !host.isEmpty, url.user == nil, url.password == nil else {
             throw MediaImportError("Enter an HTTP or HTTPS link without embedded credentials.")
@@ -142,7 +143,7 @@ enum MediaLink {
         let scoped = session?.profile.startAccessingSecurityScopedResource() ?? false
         defer { if scoped { session?.profile.stopAccessingSecurityScopedResource() } }
         let base = try youtubeArguments(directory: directory, session: session)
-        let metadata = try MediaTools.run("yt-dlp", base + ["--skip-download", "--dump-single-json", "--", canonical.absoluteString], cancellation: cancellation, workingDirectory: directory)
+        let metadata = try MediaTools.run("yt-dlp", base + ["--skip-download", "--print", youtubeMetadataTemplate, "--", canonical.absoluteString], cancellation: cancellation, limit: 16 * 1024, workingDirectory: directory)
         let object = try JSONSerialization.jsonObject(with: metadata) as? [String: Any]
         guard let duration = object?["duration"] as? Double, duration > 0, object?["is_live"] as? Bool != true, object?["live_status"] as? String != "is_upcoming" else {
             throw MediaImportError("Live streams and scheduled videos are not supported.")

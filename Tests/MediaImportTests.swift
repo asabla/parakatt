@@ -55,6 +55,10 @@ final class MediaImportTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: result, encoding: .utf8), "fixture media")
         for name in ["metadata.args", "download.args"] {
             let arguments = try String(contentsOf: fixture.appendingPathComponent(name), encoding: .utf8).components(separatedBy: "\n")
+            if name == "metadata.args" {
+                XCTAssertTrue(arguments.contains(MediaLink.youtubeMetadataTemplate))
+                XCTAssertFalse(arguments.contains("--dump-single-json"))
+            }
             XCTAssertTrue(arguments.contains("--cookies-from-browser"))
             XCTAssertTrue(arguments.contains("--no-cookies"), "Do not save a cookie jar")
             XCTAssertFalse(arguments.contains("--no-cookies-from-browser"))
@@ -64,6 +68,25 @@ final class MediaImportTests: XCTestCase {
         XCTAssertThrowsError(try MediaLink.downloadYouTube(URL(fileURLWithPath: "/tmp/private"), directory: fixture, cancellation: MediaCancellation(), session: YouTubeSession(browser: .chrome, profile: fixture), progress: { _ in }))
         let foreign = try XCTUnwrap(URL(string: "https://example.com/video.mp4"))
         XCTAssertThrowsError(try MediaLink.downloadYouTube(foreign, directory: fixture, cancellation: MediaCancellation(), session: YouTubeSession(browser: .chrome, profile: fixture), progress: { _ in }))
+    }
+
+    func testYouTubeMetadataProjectionBoundsLargeVideoRecords() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let server = try MediaHTTPFixture()
+        defer { server.stop() }
+        let input = directory.appendingPathComponent("video.info.json")
+        let video = server.url("video.mp4").absoluteString
+        let record: [String: Any] = ["id": "large-metadata", "title": "Large metadata fixture", "duration": 123, "is_live": false, "live_status": "not_live", "url": video, "ext": "mp4", "extractor": "generic", "webpage_url": video, "description": String(repeating: "x", count: 5 * 1024 * 1024)]
+        try JSONSerialization.data(withJSONObject: record).write(to: input)
+        let data = try MediaTools.run("yt-dlp", ["--ignore-config", "--no-plugin-dirs", "--no-update", "--no-remote-components", "--no-cookies", "--no-cookies-from-browser", "--no-cache-dir", "--load-info-json", input.path, "--skip-download", "--print", MediaLink.youtubeMetadataTemplate], cancellation: MediaCancellation(), limit: 1024, workingDirectory: directory)
+        let metadata = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(Set(metadata.keys), ["duration", "is_live", "live_status"])
+        XCTAssertEqual(metadata["duration"] as? Int, 123)
+        XCTAssertEqual(metadata["is_live"] as? Bool, false)
+        XCTAssertEqual(metadata["live_status"] as? String, "not_live")
+        XCTAssertLessThan(data.count, 128, "Large descriptions, captions, formats and request headers must not reach the app's metadata buffer")
     }
 
     func testYouTubeFailureDrainsLargeStderrAndRemovesPrivateTemporaryFiles() throws {
