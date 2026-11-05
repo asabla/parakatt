@@ -164,6 +164,17 @@ impl Storage {
             .conn
             .unchecked_transaction()
             .map_err(|e| CoreError::IoError(e.to_string()))?;
+        let id = self.save_complete_inner(transcription, segments, summary)?;
+        tx.commit().map_err(|e| CoreError::IoError(e.to_string()))?;
+        Ok(id)
+    }
+
+    pub(crate) fn save_complete_inner(
+        &self,
+        transcription: &StoredTranscription,
+        segments: &[TimestampedSegment],
+        summary: &crate::processing::ProcessingSummary,
+    ) -> Result<String, CoreError> {
         let id = self.save(transcription)?;
         self.conn
             .execute(
@@ -173,7 +184,6 @@ impl Storage {
             .map_err(|e| CoreError::IoError(e.to_string()))?;
         self.save_segments(&id, segments, None)?;
         self.save_processing(&id, summary)?;
-        tx.commit().map_err(|e| CoreError::IoError(e.to_string()))?;
         Ok(id)
     }
     pub fn export_to(&self, path: &Path) -> Result<(), CoreError> {
@@ -226,7 +236,9 @@ impl Storage {
                 .map_err(|e| CoreError::IoError(e.to_string()))?;
             Ok(())
         })();
-        let _ = std::fs::remove_dir_all(staging);
+        if let Err(cleanup) = std::fs::remove_dir_all(staging) {
+            log::warn!("Could not remove temporary restore database: {cleanup}");
+        }
         result
     }
 
@@ -518,7 +530,7 @@ impl Storage {
                 .execute("DELETE FROM transcriptions WHERE id = ?1", params![id])
             {
                 Ok(rows) => {
-                    count += rows as u32;
+                    count += u32::from(rows != 0);
                 }
                 Err(e) => {
                     if let Err(rb) = self.conn.execute("ROLLBACK", []) {
@@ -695,7 +707,7 @@ impl Storage {
             .execute("COMMIT", [])
             .map_err(|e| CoreError::IoError(format!("Failed to commit retention delete: {e}")))?;
 
-        Ok(count as u32)
+        u32::try_from(count).map_err(|error| CoreError::IoError(error.to_string()))
     }
 
     /// Force a WAL checkpoint so all data is written to the main database file.

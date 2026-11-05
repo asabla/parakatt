@@ -17,7 +17,10 @@ pub fn read_audio(path: &Path, raw: bool) -> Result<Vec<f32>, String> {
     if !metadata.is_file() || metadata.len() > MAX_FILE_BYTES as u64 {
         return Err("Input exceeds the bounded audio file size limit".into());
     }
-    let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    let mut bytes = Vec::with_capacity(
+        usize::try_from(metadata.len())
+            .map_err(|_| "Input is too large for this platform".to_string())?,
+    );
     file.take(MAX_FILE_BYTES as u64 + 1)
         .read_to_end(&mut bytes)
         .map_err(|e| e.to_string())?;

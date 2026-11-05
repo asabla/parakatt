@@ -1,7 +1,7 @@
 //! Capture checkpoints are independent of model loading and speech chunk boundaries.
 use crate::{recovery::source_number, storage::Storage, ChunkSource, CoreError};
 use rusqlite::{params, OptionalExtension};
-fn io(e: rusqlite::Error) -> CoreError {
+fn io(e: impl std::fmt::Display) -> CoreError {
     CoreError::IoError(e.to_string())
 }
 impl Storage {
@@ -59,7 +59,8 @@ impl Storage {
         }
         self.expire_recovery_audio()?;
         let total: i64 = self.conn.query_row("SELECT COALESCE((SELECT SUM(length(audio)) FROM recording_chunks),0)+COALESCE((SELECT SUM(length(audio)) FROM capture_blocks),0)",[],|r|r.get(0)).map_err(io)?;
-        if total + (samples.len() * 4) as i64 > 512 * 1024 * 1024 {
+        let sample_count = i64::try_from(samples.len()).map_err(io)?;
+        if total + sample_count * 4 > 512 * 1024 * 1024 {
             self.capture_gap(id, true)?;
             return Err(CoreError::AudioError(
                 "Audio recovery storage is full. Recording stopped to protect existing audio."
@@ -67,7 +68,7 @@ impl Storage {
             ));
         }
         let bytes: Vec<u8> = samples.iter().flat_map(|s| s.to_le_bytes()).collect();
-        self.conn.execute("INSERT INTO capture_blocks(session_id,source,sample_start,sample_count,audio) SELECT ?1,?2,COALESCE(MAX(sample_start+sample_count),0),?3,?4 FROM capture_blocks WHERE session_id=?1 AND source=?2",params![id,source_number(source),samples.len() as i64,bytes]).map_err(io)?;
+        self.conn.execute("INSERT INTO capture_blocks(session_id,source,sample_start,sample_count,audio) SELECT ?1,?2,COALESCE(MAX(sample_start+sample_count),0),?3,?4 FROM capture_blocks WHERE session_id=?1 AND source=?2",params![id,source_number(source),sample_count,bytes]).map_err(io)?;
         Ok(())
     }
     pub fn capture_sources(&self, id: &str) -> Result<Vec<(u8, i64)>, CoreError> {
@@ -83,10 +84,13 @@ impl Storage {
         start: i64,
         count: usize,
     ) -> Result<Vec<f32>, CoreError> {
+        let end = start
+            .checked_add(i64::try_from(count).map_err(io)?)
+            .ok_or_else(|| io("Capture range exceeds supported size"))?;
         let mut out = Vec::new();
         let mut stmt=self.conn.prepare("SELECT sample_start,audio FROM capture_blocks WHERE session_id=?1 AND source=?2 AND sample_start < ?3 AND sample_start+sample_count > ?4 ORDER BY sample_start").map_err(io)?;
         let rows = stmt
-            .query_map(params![id, source, start + count as i64, start], |r| {
+            .query_map(params![id, source, end, start], |r| {
                 Ok((r.get::<_, i64>(0)?, r.get::<_, Option<Vec<u8>>>(1)?))
             })
             .map_err(io)?;
@@ -94,7 +98,7 @@ impl Storage {
             let (offset, bytes) = row.map_err(io)?;
             let bytes =
                 bytes.ok_or_else(|| CoreError::AudioError("Recovery audio has expired".into()))?;
-            let skip = start.saturating_sub(offset).max(0) as usize;
+            let skip = usize::try_from(start.saturating_sub(offset).max(0)).map_err(io)?;
             out.extend(
                 bytes
                     .as_chunks::<4>()

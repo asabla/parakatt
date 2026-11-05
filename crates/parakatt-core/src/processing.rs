@@ -67,6 +67,7 @@ pub struct ProcessingSession {
     id: String,
     pub operation: Mutex<()>,
     state: Mutex<State>,
+    committed: Mutex<bool>,
     wake: Condvar,
     cancellation: CancellationToken,
 }
@@ -76,6 +77,7 @@ impl ProcessingSession {
             id,
             operation: Mutex::new(()),
             state: Mutex::new(State::default()),
+            committed: Mutex::new(false),
             wake: Condvar::new(),
             cancellation: CancellationToken::new(),
         });
@@ -391,7 +393,41 @@ impl ProcessingSession {
             (!errors.is_empty()).then_some(errors),
         ))
     }
+    /// Acquire storage before this gate. Cancellation and the final write then
+    /// have one order, without blocking cancellation while waiting for storage.
+    pub(crate) fn commit<T>(
+        &self,
+        write: impl FnOnce() -> Result<T, CoreError>,
+    ) -> Result<T, CoreError> {
+        let mut committed = crate::util::lock_named(
+            &self.committed,
+            "processing commit",
+            CoreError::TranscriptionFailed,
+        )?;
+        if self.cancellation.is_cancelled() || *committed {
+            return Err(CoreError::TranscriptionFailed("Session is closed".into()));
+        }
+        let result = write()?;
+        *committed = true;
+        Ok(result)
+    }
+
     pub fn cancel(&self) {
+        let committed = match crate::util::lock_named(
+            &self.committed,
+            "processing commit",
+            CoreError::TranscriptionFailed,
+        ) {
+            Ok(committed) => committed,
+            Err(_) => {
+                self.cancellation.cancel();
+                self.wake.notify_all();
+                return;
+            }
+        };
+        if *committed {
+            return;
+        }
         self.cancellation.cancel();
         (match crate::util::lock_named(&self.state, "processing state", CoreError::LlmError) {
             Ok(state) => state,
@@ -410,6 +446,50 @@ impl ProcessingSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn commit_rejects_cancellation_and_duplicates_but_allows_retry_after_failure() {
+        let session = ProcessingSession::new("commit".into());
+        session.finish().unwrap();
+        assert!(session
+            .commit(|| Err::<(), _>(CoreError::IoError("write fixture".into())))
+            .is_err());
+        assert_eq!(session.commit(|| Ok(42)).unwrap(), 42);
+        assert!(session.commit(|| Ok(99)).is_err());
+        session.cancel();
+        assert!(!session.cancellation.is_cancelled());
+        let cancelled = ProcessingSession::new("cancelled".into());
+        cancelled.cancel();
+        assert!(cancelled
+            .commit(|| -> Result<(), CoreError> { panic!("Cancelled work must not write") })
+            .is_err());
+    }
+    #[test]
+    fn poisoned_commit_or_state_cannot_hang_cancellation() {
+        let session = ProcessingSession::new("poisoned commit".into());
+        session.finish().unwrap();
+        let copy = session.clone();
+        assert!(std::thread::spawn(move || {
+            let _guard = copy.committed.lock().unwrap();
+            panic!("commit lock fixture");
+        })
+        .join()
+        .is_err());
+        assert!(session.commit(|| Ok(())).is_err());
+        session.cancel();
+        assert!(session.cancellation.is_cancelled());
+        let session = ProcessingSession::new("poisoned state".into());
+        session.finish().unwrap();
+        let copy = session.clone();
+        assert!(std::thread::spawn(move || {
+            let _guard = copy.state.lock().unwrap();
+            panic!("state lock fixture");
+        })
+        .join()
+        .is_err());
+        session.cancel();
+        assert!(session.cancellation.is_cancelled());
+    }
+
     #[test]
     fn provider_panic_wakes_waiters_and_preserves_recognized_words() {
         struct Crash;

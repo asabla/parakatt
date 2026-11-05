@@ -81,6 +81,8 @@ path = "examples/test_llm_direct.rs"
 uniffi = { version = "=0.31.1", features = ["build"] }
 
 [features]
+# Offline input-contract harnesses; not enabled in shipped builds.
+fuzzing = []
 webgpu = ["parakeet-rs/webgpu"]
 
 [lints]
