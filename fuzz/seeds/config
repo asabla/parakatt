@@ -1,0 +1,3 @@
+[general]
+active_mode = "dictation"
+auto_paste = false

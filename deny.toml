@@ -21,6 +21,12 @@ allow = [
     "CDLA-Permissive-2.0",
 ]
 
+# The test-only libFuzzer runtime includes LLVM code under NCSA.
+[[licenses.exceptions]]
+name = "libfuzzer-sys"
+version = "=0.4.13"
+allow = ["NCSA"]
+
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"

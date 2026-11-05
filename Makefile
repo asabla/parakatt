@@ -1,4 +1,4 @@
-.PHONY: all rust cli swift-package swift-package-force media-tools xcode build release package test clean run launcher prepare-run run-detached verify-version quality
+.PHONY: all rust cli swift-package swift-package-force media-tools xcode build release package test clean run launcher prepare-run run-detached verify-version quality fuzz-check mutation-check
 
 # Keep the generated FFI package separate from older global Xcode artifacts.
 export PARAKATT_DERIVED_DATA ?= $(CURDIR)/target/xcode
@@ -39,6 +39,19 @@ quality:
 	env ruff format --check scripts
 	env actionlint
 	cargo deny --locked check licenses bans sources
+	cargo deny --manifest-path fuzz/Cargo.toml --locked check licenses bans sources
+
+# Run bounded input fuzzing with the pinned nightly and cargo-fuzz from CI.
+fuzz-check:
+	cargo fmt --manifest-path fuzz/Cargo.toml --check
+	cargo metadata --manifest-path fuzz/Cargo.toml --format-version 1 --locked > /dev/null
+	mkdir -p target/fuzz-corpus/input_contracts
+	cargo +nightly-2026-11-04 fuzz run input_contracts target/fuzz-corpus/input_contracts fuzz/seeds -- -runs=2000 -max_len=4096
+	git diff --exit-code -- fuzz/Cargo.lock
+
+# Check that contract tests reject deliberate changes to critical decisions.
+mutation-check:
+	cargo mutants --timeout 60 --build-timeout 300 --output target/mutation-contracts
 
 # Build Rust before fingerprinting and generating the matching Swift bindings.
 swift-package: rust

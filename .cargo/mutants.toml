@@ -1,0 +1,8 @@
+examine_globs = [
+    "crates/parakatt-core/src/config.rs",
+    "crates/parakatt-core/src/dictionary.rs",
+    "crates/parakatt-core/src/engine.rs",
+]
+examine_re = ["validate_profile_name|matches_context|dictionary_enabled|set_dictionary_rules"]
+# The explicit "always" arm and the fallback both return true.
+exclude_re = ['delete match arm "always" in matches_context']
