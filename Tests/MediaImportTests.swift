@@ -20,16 +20,16 @@ final class MediaImportTests: XCTestCase {
     }
     func testYouTubeBrowserArgumentsRequireExplicitSelection() throws {
         let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        XCTAssertEqual(YouTubeBrowser.anonymous.cookieArguments(home: home), ["--no-cookies-from-browser"])
-        let paths: [(YouTubeBrowser, String)] = [(.chrome, "Library/Application Support/Google/Chrome"), (.firefox, "Library/Application Support/Firefox/Profiles"), (.edge, "Library/Application Support/Microsoft Edge"), (.brave, "Library/Application Support/BraveSoftware/Brave-Browser"), (.safari, "Library/Containers/com.apple.Safari/Data/Library/Cookies/Cookies.binarycookies")]
+        XCTAssertEqual(YouTubeBrowser.anonymous.cookieArguments(profile: home), ["--no-cookies-from-browser"])
+        let paths: [(YouTubeBrowser, String)] = [(.chrome, "Library/Application Support/Google/Chrome"), (.firefox, "Library/Application Support/Firefox/Profiles"), (.edge, "Library/Application Support/Microsoft Edge"), (.brave, "Library/Application Support/BraveSoftware/Brave-Browser"), (.safari, "Library/Containers/com.apple.Safari/Data/Library/Cookies")]
         for (browser, path) in paths {
-            XCTAssertEqual(browser.cookieArguments(home: home), ["--cookies-from-browser", "\(browser.rawValue):\(home.appendingPathComponent(path).path)"])
+            let profile = home.appendingPathComponent(path, isDirectory: true)
+            XCTAssertEqual(browser.profileDirectory(home: home), profile)
+            let cookieSource = browser == .safari ? profile.appendingPathComponent("Cookies.binarycookies") : profile
+            XCTAssertEqual(browser.cookieArguments(profile: profile), ["--cookies-from-browser", "\(browser.rawValue):\(cookieSource.path)"])
         }
-        let legacy = home.appendingPathComponent("Library/Cookies/Cookies.binarycookies")
-        try FileManager.default.createDirectory(at: legacy.deletingLastPathComponent(), withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: home) }
-        try Data().write(to: legacy)
-        XCTAssertEqual(YouTubeBrowser.safari.cookieArguments(home: home), ["--cookies-from-browser", "safari:\(legacy.path)"])
+        let custom = home.appendingPathComponent("selected profile with spaces")
+        XCTAssertEqual(YouTubeBrowser.firefox.cookieArguments(profile: custom), ["--cookies-from-browser", "firefox:\(custom.path)"])
         let arguments = try MediaLink.youtubeArguments(directory: home)
         XCTAssertTrue(arguments.contains("--no-cookies-from-browser"))
         XCTAssertTrue(arguments.contains("--no-cookies"))
@@ -51,7 +51,7 @@ final class MediaImportTests: XCTestCase {
         """)
         defer { try? FileManager.default.removeItem(at: fixture); MediaTools.testDirectory = nil }
         let url = try XCTUnwrap(URL(string: "https://youtu.be/5N12hTixkBg?t=30"))
-        let result = try MediaLink.downloadYouTube(url, directory: fixture, cancellation: MediaCancellation(), browser: .chrome, progress: { _ in })
+        let result = try MediaLink.downloadYouTube(url, directory: fixture, cancellation: MediaCancellation(), session: YouTubeSession(browser: .chrome, profile: fixture), progress: { _ in })
         XCTAssertEqual(try String(contentsOf: result, encoding: .utf8), "fixture media")
         for name in ["metadata.args", "download.args"] {
             let arguments = try String(contentsOf: fixture.appendingPathComponent(name), encoding: .utf8).components(separatedBy: "\n")
@@ -61,7 +61,9 @@ final class MediaImportTests: XCTestCase {
             XCTAssertTrue(arguments.contains("https://www.youtube.com/watch?v=5N12hTixkBg"))
             XCTAssertFalse(arguments.contains(url.absoluteString))
         }
-        XCTAssertThrowsError(try MediaLink.downloadYouTube(URL(fileURLWithPath: "/tmp/private"), directory: fixture, cancellation: MediaCancellation(), browser: .chrome, progress: { _ in }))
+        XCTAssertThrowsError(try MediaLink.downloadYouTube(URL(fileURLWithPath: "/tmp/private"), directory: fixture, cancellation: MediaCancellation(), session: YouTubeSession(browser: .chrome, profile: fixture), progress: { _ in }))
+        let foreign = try XCTUnwrap(URL(string: "https://example.com/video.mp4"))
+        XCTAssertThrowsError(try MediaLink.downloadYouTube(foreign, directory: fixture, cancellation: MediaCancellation(), session: YouTubeSession(browser: .chrome, profile: fixture), progress: { _ in }))
     }
 
     func testYouTubeFailureDrainsLargeStderrAndRemovesPrivateTemporaryFiles() throws {
@@ -107,12 +109,12 @@ final class MediaImportTests: XCTestCase {
         defer { server.stop() }
         let arguments = ["--ignore-config", "--no-plugin-dirs", "--no-update", "--no-remote-components", "--no-cookies", "--no-cache-dir", "--skip-download", "--dump-single-json"]
         let url = server.url("video.mp4").absoluteString
-        _ = try MediaTools.run("yt-dlp", arguments + YouTubeBrowser.anonymous.cookieArguments(home: directory) + ["--", url], cancellation: MediaCancellation(), workingDirectory: directory)
+        _ = try MediaTools.run("yt-dlp", arguments + YouTubeBrowser.anonymous.cookieArguments(profile: profile) + ["--", url], cancellation: MediaCancellation(), workingDirectory: directory)
         XCTAssertFalse(received.wrappedValue, "Anonymous imports must not load a browser session")
-        _ = try MediaTools.run("yt-dlp", arguments + YouTubeBrowser.firefox.cookieArguments(home: directory) + ["--", url], cancellation: MediaCancellation(), workingDirectory: directory)
+        _ = try MediaTools.run("yt-dlp", arguments + YouTubeBrowser.firefox.cookieArguments(profile: profile) + ["--", url], cancellation: MediaCancellation(), workingDirectory: directory)
         XCTAssertTrue(received.wrappedValue, "The real helper must load the explicitly selected fixture profile despite its isolated HOME")
         let missingProfile = directory.appendingPathComponent("missing-browser-profile")
-        XCTAssertThrowsError(try MediaTools.run("yt-dlp", arguments + YouTubeBrowser.firefox.cookieArguments(home: missingProfile) + ["--", url], cancellation: MediaCancellation(), workingDirectory: directory)) { error in
+        XCTAssertThrowsError(try MediaTools.run("yt-dlp", arguments + YouTubeBrowser.firefox.cookieArguments(profile: missingProfile) + ["--", url], cancellation: MediaCancellation(), workingDirectory: directory)) { error in
             XCTAssertTrue(error.localizedDescription.contains("browser session could not be read"))
             XCTAssertFalse(error.localizedDescription.contains(missingProfile.path))
         }
@@ -131,7 +133,7 @@ final class MediaImportTests: XCTestCase {
         let core = try CoreBridge(modelsDir: fixture.appendingPathComponent("models").path, configDir: fixture.appendingPathComponent("config").path)
         let service = MediaImportService(bridge: core, root: fixture.appendingPathComponent("media"))
         defer { service.shutdown() }
-        service.addLink("https://youtu.be/5N12hTixkBg", mode: "dictation", browser: .firefox)
+        service.addLink("https://youtu.be/5N12hTixkBg", mode: "dictation", session: YouTubeSession(browser: .firefox, profile: fixture))
         let first = try XCTUnwrap(service.activeID)
         service.addLink("https://youtu.be/abcdefghijk", mode: "dictation")
         let second = try XCTUnwrap(service.jobs.first { $0.id != first }?.id)
@@ -143,7 +145,7 @@ final class MediaImportTests: XCTestCase {
         service.resume(first)
         try await waitForImports(service)
         XCTAssertTrue(try arguments(first).contains("--no-cookies-from-browser"))
-        service.resume(first, browser: .chrome)
+        service.resume(first, session: YouTubeSession(browser: .chrome, profile: fixture))
         try await waitForImports(service)
         XCTAssertTrue(try arguments(first).contains("--cookies-from-browser\nchrome:"))
         service.shutdown()

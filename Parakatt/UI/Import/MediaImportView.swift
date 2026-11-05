@@ -87,7 +87,10 @@ struct MediaImportView: View {
                 HStack {
                     Button("Cancel", role: .cancel) { browserRetry = nil }.keyboardShortcut(.cancelAction)
                     Spacer()
-                    Button("Retry") { service.resume(request.id, browser: retryBrowser); browserRetry = nil }
+                    Button("Choose Browser Folder…") {
+                        guard let session = service.chooseYouTubeSession(retryBrowser) else { return }
+                        service.resume(request.id, session: session); browserRetry = nil
+                    }
                 }
             }.padding(24).frame(width: 440)
         }
@@ -96,8 +99,19 @@ struct MediaImportView: View {
             Button("Cancel", role: .cancel) { confirmDiscard = nil }
         } message: { Text("This removes the transcript and app-owned media. External source files remain unchanged.") }
     }
-    private var browserSessionNotice: String { "This import can read cookies from the selected browser. Safari uses its default cookie store; other browsers use their most recently used profile. Sign in to YouTube there first. macOS may ask for access. Cookies are not kept in Parakatt history or backups. This choice applies to one attempt." }
-    private func addLink() { service.addLink(link, mode: mode, browser: browser); if service.error == nil { link = ""; browser = .anonymous } }
+    private var browserSessionNotice: String { "This import can read cookies from the selected browser. Sign in to YouTube first. Select its profile folder in the next window to grant access. If the folder has multiple profiles, the most recently used one is selected. Cookies are not kept in Parakatt history or backups. This choice applies to one attempt." }
+    private func addLink() {
+        do {
+            let (kind, _) = try MediaLink.classify(link)
+            var session: YouTubeSession?
+            if kind == "youtube", browser != .anonymous {
+                guard let selected = service.chooseYouTubeSession(browser) else { return }
+                session = selected
+            }
+            service.addLink(link, mode: mode, session: session)
+            if service.error == nil { link = ""; browser = .anonymous }
+        } catch { service.error = error.localizedDescription }
+    }
     private func chooseFiles() {
         let panel = NSOpenPanel(); panel.allowsMultipleSelection = true; panel.canChooseDirectories = false
         panel.allowedContentTypes = ["mp4", "mov", "mkv", "webm"].compactMap { UTType(filenameExtension: $0) }

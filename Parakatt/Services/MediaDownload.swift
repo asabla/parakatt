@@ -73,21 +73,29 @@ enum YouTubeBrowser: String, CaseIterable, Identifiable, Sendable {
         case .brave: return "Brave"
         }
     }
-    // The helper has an isolated HOME. Pass an explicit path only after a browser is selected.
-    func cookieArguments(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> [String] {
+    // Construct the initial picker location without probing protected browser data.
+    func profileDirectory(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
         let path: String
         switch self {
-        case .anonymous: return ["--no-cookies-from-browser"]
-        case .safari:
-            let legacy = "Library/Cookies/Cookies.binarycookies"
-            path = FileManager.default.fileExists(atPath: home.appendingPathComponent(legacy).path) ? legacy : "Library/Containers/com.apple.Safari/Data/Library/Cookies/Cookies.binarycookies"
+        case .anonymous: return home
+        case .safari: path = "Library/Containers/com.apple.Safari/Data/Library/Cookies"
         case .chrome: path = "Library/Application Support/Google/Chrome"
         case .firefox: path = "Library/Application Support/Firefox/Profiles"
         case .edge: path = "Library/Application Support/Microsoft Edge"
         case .brave: path = "Library/Application Support/BraveSoftware/Brave-Browser"
         }
-        return ["--cookies-from-browser", "\(rawValue):\(home.appendingPathComponent(path).path)"]
+        return home.appendingPathComponent(path, isDirectory: true)
     }
+    func cookieArguments(profile: URL) -> [String] {
+        guard self != .anonymous else { return ["--no-cookies-from-browser"] }
+        let source = self == .safari ? profile.appendingPathComponent("Cookies.binarycookies") : profile
+        return ["--cookies-from-browser", "\(rawValue):\(source.path)"]
+    }
+}
+
+struct YouTubeSession: Sendable {
+    let browser: YouTubeBrowser
+    let profile: URL
 }
 
 enum MediaLink {
@@ -109,8 +117,8 @@ enum MediaLink {
         }
         return ("direct", url)
     }
-    static func youtubeArguments(directory: URL, browser: YouTubeBrowser = .anonymous) throws -> [String] {
-        ["--ignore-config", "--no-plugin-dirs", "--no-playlist", "--no-update", "--no-remote-components", "--no-js-runtimes", "--js-runtimes", "deno:\(try MediaTools.executable("deno").path)", "--ffmpeg-location", MediaTools.directory.path, "--no-cache-dir", "--paths", directory.path, "--socket-timeout", "30", "--retries", "3", "--fragment-retries", "3", "--no-cookies"] + browser.cookieArguments()
+    static func youtubeArguments(directory: URL, session: YouTubeSession? = nil) throws -> [String] {
+        ["--ignore-config", "--no-plugin-dirs", "--no-playlist", "--no-update", "--no-remote-components", "--no-js-runtimes", "--js-runtimes", "deno:\(try MediaTools.executable("deno").path)", "--ffmpeg-location", MediaTools.directory.path, "--no-cache-dir", "--paths", directory.path, "--socket-timeout", "30", "--retries", "3", "--fragment-retries", "3", "--no-cookies"] + (session.map { $0.browser.cookieArguments(profile: $0.profile) } ?? ["--no-cookies-from-browser"])
     }
     static func downloadFailure(_ diagnostics: Data) -> MediaImportError {
         let text = String(decoding: diagnostics, as: UTF8.self).lowercased()
@@ -128,10 +136,12 @@ enum MediaLink {
         }
         return MediaImportError("The video could not be downloaded. Check that it is public and available. A Parakatt update may be required.")
     }
-    static func downloadYouTube(_ url: URL, directory: URL, cancellation: MediaCancellation, browser: YouTubeBrowser = .anonymous, progress: @escaping @Sendable (Double?) -> Void) throws -> URL {
+    static func downloadYouTube(_ url: URL, directory: URL, cancellation: MediaCancellation, session: YouTubeSession? = nil, progress: @escaping @Sendable (Double?) -> Void) throws -> URL {
         let (kind, canonical) = try classify(url.absoluteString)
         guard kind == "youtube" else { throw MediaImportError("Use an individual YouTube video link.") }
-        let base = try youtubeArguments(directory: directory, browser: browser)
+        let scoped = session?.profile.startAccessingSecurityScopedResource() ?? false
+        defer { if scoped { session?.profile.stopAccessingSecurityScopedResource() } }
+        let base = try youtubeArguments(directory: directory, session: session)
         let metadata = try MediaTools.run("yt-dlp", base + ["--skip-download", "--dump-single-json", "--", canonical.absoluteString], cancellation: cancellation, workingDirectory: directory)
         let object = try JSONSerialization.jsonObject(with: metadata) as? [String: Any]
         guard let duration = object?["duration"] as? Double, duration > 0, object?["is_live"] as? Bool != true, object?["live_status"] as? String != "is_upcoming" else {
