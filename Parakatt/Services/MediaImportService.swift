@@ -17,6 +17,8 @@ final class MediaImportService: ObservableObject {
     private var cancellation = MediaCancellation()
     private var shuttingDown = false
     private var playbackCancellations: [String: MediaCancellation] = [:]
+    // Consent belongs to one queued attempt. It is not stored with the job or reused on resume.
+    private var youtubeSessions: [String: YouTubeSession] = [:]
     private let bridge: CoreBridge
     let root: URL
     var canTranscribe: () -> Bool = { true }
@@ -50,18 +52,33 @@ final class MediaImportService: ObservableObject {
             _ = try bridge.attachMedia(job.id, job.attachment); refresh(); startNext()
         } catch { self.error = error.localizedDescription }
     }
-    func addLink(_ value: String, mode: String) {
+    func addLink(_ value: String, mode: String, session: YouTubeSession? = nil) {
         do {
             let (kind, url) = try MediaLink.classify(value)
-            _ = try bridge.createImport(kind: kind, input: url.absoluteString, title: kind == "youtube" ? "YouTube video" : (url.lastPathComponent.isEmpty ? "Linked video" : url.lastPathComponent), mode: mode)
+            let job = try bridge.createImport(kind: kind, input: url.absoluteString, title: kind == "youtube" ? "YouTube video" : (url.lastPathComponent.isEmpty ? "Linked video" : url.lastPathComponent), mode: mode)
+            if kind == "youtube" { youtubeSessions[job.id] = session }
             refresh(); startNext()
         } catch { self.error = error.localizedDescription }
     }
-    func resume(_ id: String) {
-        do { _ = try bridge.importState(id, "queued"); refresh(); startNext() }
+    func chooseYouTubeSession(_ browser: YouTubeBrowser) -> YouTubeSession? {
+        guard browser != .anonymous else { return nil }
+        let panel = NSOpenPanel()
+        panel.title = "Allow \(browser.label) session access for this import"
+        panel.message = "Select the browser profile folder to allow this import to read its cookies for YouTube. The choice applies to one import attempt."
+        panel.prompt = "Use Browser Session"
+        panel.canChooseDirectories = true; panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false; panel.canCreateDirectories = false
+        panel.directoryURL = browser.profileDirectory()
+        guard panel.runModal() == .OK, let profile = panel.url else { return nil }
+        return YouTubeSession(browser: browser, profile: profile)
+    }
+    func resume(_ id: String, session: YouTubeSession? = nil) {
+        guard activeID != id else { return }
+        do { _ = try bridge.importState(id, "queued"); youtubeSessions[id] = session; refresh(); startNext() }
         catch { self.error = "The import could not be resumed." }
     }
     func pause(_ id: String) {
+        youtubeSessions.removeValue(forKey: id)
         if activeID == id {
             cancellation.cancel(); task?.cancel()
             trackContinuation?.resume(throwing: CancellationError()); trackContinuation = nil; trackChoice = nil
@@ -72,6 +89,7 @@ final class MediaImportService: ObservableObject {
     func chooseTrack(_ track: Int32) { trackContinuation?.resume(returning: track); trackContinuation = nil; trackChoice = nil }
     func shutdown() {
         shuttingDown = true
+        youtubeSessions.removeAll()
         cancellation.cancel(immediately: true); task?.cancel()
         for token in playbackCancellations.values { token.cancel(immediately: true) }
         trackContinuation?.resume(throwing: CancellationError()); trackContinuation = nil; trackChoice = nil
@@ -85,9 +103,10 @@ final class MediaImportService: ObservableObject {
         guard !shuttingDown, task == nil, let job = jobs.first(where: { $0.state == "queued" }) else { return }
         activeID = job.id; transferProgress = nil; cancellation = MediaCancellation()
         let token = cancellation
+        let session = youtubeSessions.removeValue(forKey: job.id)
         task = Task { [weak self] in
             guard let self else { return }
-            await run(job, token: token)
+            await run(job, token: token, session: session)
             task = nil; activeID = nil; transferProgress = nil; refresh(); startNext()
         }
     }
@@ -98,7 +117,7 @@ final class MediaImportService: ObservableObject {
         guard !shuttingDown else { throw CancellationError() }
         _ = try bridge.importState(id, value, message: message); refresh()
     }
-    private func run(_ initial: ImportJob, token: MediaCancellation) async {
+    private func run(_ initial: ImportJob, token: MediaCancellation, session: YouTubeSession?) async {
         let id = initial.id
         do {
             try token.check()
@@ -115,7 +134,7 @@ final class MediaImportService: ObservableObject {
                 let progress: @Sendable (Double?) -> Void = { [weak self] value in Task { @MainActor [weak self] in if self?.activeID == id { self?.transferProgress = value } } }
                 let kind = job.kind
                 url = try await work {
-                    if kind == "youtube" { return try MediaLink.downloadYouTube(remote, directory: directory, cancellation: token, progress: progress) }
+                    if kind == "youtube" { return try MediaLink.downloadYouTube(remote, directory: directory, cancellation: token, session: session, progress: progress) }
                     let target = directory.appendingPathComponent("source.media")
                     try MediaDownload(destination: target, cancellation: token, progress: progress).fetch(remote)
                     return target
@@ -225,6 +244,7 @@ final class MediaImportService: ObservableObject {
         } catch { self.error = "The downloaded media could not be removed." }
     }
     func discard(_ id: String) {
+        youtubeSessions.removeValue(forKey: id)
         playbackCancellations[id]?.cancel()
         let pending = activeID == id ? task : nil
         if pending != nil { pause(id) }

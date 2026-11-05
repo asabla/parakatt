@@ -60,7 +60,46 @@ final class MediaDownload: NSObject, URLSessionDownloadDelegate, @unchecked Send
     }
 }
 
+enum YouTubeBrowser: String, CaseIterable, Identifiable, Sendable {
+    case anonymous, safari, chrome, firefox, edge, brave
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .anonymous: return "No browser session"
+        case .safari: return "Safari"
+        case .chrome: return "Chrome"
+        case .firefox: return "Firefox"
+        case .edge: return "Edge"
+        case .brave: return "Brave"
+        }
+    }
+    // Construct the initial picker location without probing protected browser data.
+    func profileDirectory(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
+        let path: String
+        switch self {
+        case .anonymous: return home
+        case .safari: path = "Library/Containers/com.apple.Safari/Data/Library/Cookies"
+        case .chrome: path = "Library/Application Support/Google/Chrome"
+        case .firefox: path = "Library/Application Support/Firefox/Profiles"
+        case .edge: path = "Library/Application Support/Microsoft Edge"
+        case .brave: path = "Library/Application Support/BraveSoftware/Brave-Browser"
+        }
+        return home.appendingPathComponent(path, isDirectory: true)
+    }
+    func cookieArguments(profile: URL) -> [String] {
+        guard self != .anonymous else { return ["--no-cookies-from-browser"] }
+        let source = self == .safari ? profile.appendingPathComponent("Cookies.binarycookies") : profile
+        return ["--cookies-from-browser", "\(rawValue):\(source.path)"]
+    }
+}
+
+struct YouTubeSession: Sendable {
+    let browser: YouTubeBrowser
+    let profile: URL
+}
+
 enum MediaLink {
+    static let youtubeMetadataTemplate = "%(.{duration,is_live,live_status})j"
     static func classify(_ value: String) throws -> (String, URL) {
         guard let url = URL(string: value.trimmingCharacters(in: .whitespacesAndNewlines)), ["http", "https"].contains(url.scheme?.lowercased() ?? ""), let host = url.host?.lowercased(), !host.isEmpty, url.user == nil, url.password == nil else {
             throw MediaImportError("Enter an HTTP or HTTPS link without embedded credentials.")
@@ -79,12 +118,32 @@ enum MediaLink {
         }
         return ("direct", url)
     }
-    static func youtubeArguments(directory: URL) throws -> [String] {
-        ["--ignore-config", "--no-plugin-dirs", "--no-playlist", "--no-update", "--no-remote-components", "--no-js-runtimes", "--js-runtimes", "deno:\(try MediaTools.executable("deno").path)", "--ffmpeg-location", MediaTools.directory.path, "--no-cache-dir", "--paths", directory.path, "--socket-timeout", "30", "--retries", "3", "--fragment-retries", "3", "--no-cookies", "--no-cookies-from-browser"]
+    static func youtubeArguments(directory: URL, session: YouTubeSession? = nil) throws -> [String] {
+        ["--ignore-config", "--no-plugin-dirs", "--no-playlist", "--no-update", "--no-remote-components", "--no-js-runtimes", "--js-runtimes", "deno:\(try MediaTools.executable("deno").path)", "--ffmpeg-location", MediaTools.directory.path, "--no-cache-dir", "--paths", directory.path, "--socket-timeout", "30", "--retries", "3", "--fragment-retries", "3", "--no-cookies"] + (session.map { $0.browser.cookieArguments(profile: $0.profile) } ?? ["--no-cookies-from-browser"])
     }
-    static func downloadYouTube(_ url: URL, directory: URL, cancellation: MediaCancellation, progress: @escaping @Sendable (Double?) -> Void) throws -> URL {
-        let base = try youtubeArguments(directory: directory)
-        let metadata = try MediaTools.run("yt-dlp", base + ["--skip-download", "--dump-single-json", "--", url.absoluteString], cancellation: cancellation, workingDirectory: directory)
+    static func downloadFailure(_ diagnostics: Data) -> MediaImportError {
+        let text = String(decoding: diagnostics, as: UTF8.self).lowercased()
+        if text.contains("failed to load cookies") || text.contains("cookies database") || text.contains("cookie database") || text.contains("failed to decrypt cookie") {
+            return MediaImportError("The browser session could not be read. Check that you are signed in to YouTube in the selected browser and that macOS permits Parakatt to read its data, then retry with that browser.")
+        }
+        if text.contains("sign in") || text.contains("login required") || text.contains("confirm your age") {
+            return MediaImportError("YouTube requires sign-in or has blocked this request. Use Retry with Browser to select a signed-in session. You can also use Locate File with a local copy of the video.")
+        }
+        if text.contains("http error 429") || text.contains("too many requests") {
+            return MediaImportError("YouTube has limited download requests. Try again later, or use Locate File with a local copy of the video.")
+        }
+        if text.contains("video unavailable") || text.contains("private video") || text.contains("video has been removed") {
+            return MediaImportError("This YouTube video is unavailable or restricted. Check access in your browser, then retry with that browser if you can watch it.")
+        }
+        return MediaImportError("The video could not be downloaded. Check that it is public and available. A Parakatt update may be required.")
+    }
+    static func downloadYouTube(_ url: URL, directory: URL, cancellation: MediaCancellation, session: YouTubeSession? = nil, progress: @escaping @Sendable (Double?) -> Void) throws -> URL {
+        let (kind, canonical) = try classify(url.absoluteString)
+        guard kind == "youtube" else { throw MediaImportError("Use an individual YouTube video link.") }
+        let scoped = session?.profile.startAccessingSecurityScopedResource() ?? false
+        defer { if scoped { session?.profile.stopAccessingSecurityScopedResource() } }
+        let base = try youtubeArguments(directory: directory, session: session)
+        let metadata = try MediaTools.run("yt-dlp", base + ["--skip-download", "--print", youtubeMetadataTemplate, "--", canonical.absoluteString], cancellation: cancellation, limit: 16 * 1024, workingDirectory: directory)
         let object = try JSONSerialization.jsonObject(with: metadata) as? [String: Any]
         guard let duration = object?["duration"] as? Double, duration > 0, object?["is_live"] as? Bool != true, object?["live_status"] as? String != "is_upcoming" else {
             throw MediaImportError("Live streams and scheduled videos are not supported.")
@@ -93,7 +152,7 @@ enum MediaLink {
         for file in try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) where file.lastPathComponent.hasPrefix("download.") {
             try FileManager.default.removeItem(at: file)
         }
-        _ = try MediaTools.run("yt-dlp", base + ["-f", "bv*+ba/b", "--merge-output-format", "mkv", "--no-continue", "--newline", "--progress-template", "download:bytes=%(progress.downloaded_bytes)s total=%(progress.total_bytes)s", "-o", "download.%(ext)s", "--", url.absoluteString], cancellation: cancellation, workingDirectory: directory, progress: { line in
+        _ = try MediaTools.run("yt-dlp", base + ["-f", "bv*+ba/b", "--merge-output-format", "mkv", "--no-continue", "--newline", "--progress-template", "download:bytes=%(progress.downloaded_bytes)s total=%(progress.total_bytes)s", "-o", "download.%(ext)s", "--", canonical.absoluteString], cancellation: cancellation, workingDirectory: directory, progress: { line in
             let fields = line.split(separator: " ").compactMap { Double($0.split(separator: "=").last ?? "") }
             progress(fields.count == 2 && fields[1] > 0 ? fields[0] / fields[1] : nil)
         })
