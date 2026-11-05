@@ -1423,8 +1423,9 @@ private struct LlmProviderRow: View {
 
 struct DictionarySettingsView: View {
     @EnvironmentObject var appState: AppState
-    @State private var domainWords: [String] = []
-    @State private var replacements: [Replacement] = []
+    @State private var draft = DictionaryDraft()
+    private var domainWords: [DictionaryDraft.Entry] { draft.entries.filter { $0.rule.pattern == $0.rule.replacement } }
+    private var replacements: [DictionaryDraft.Entry] { draft.entries.filter { $0.rule.pattern != $0.rule.replacement } }
     @State private var newDomainWord = ""
     @State private var newPattern = ""
     @State private var newReplacement = ""
@@ -1442,12 +1443,12 @@ struct DictionarySettingsView: View {
                         .foregroundStyle(.secondary)
 
                     FlowLayout(spacing: 6) {
-                        ForEach(domainWords, id: \.self) { word in
+                        ForEach(domainWords) { entry in
                             HStack(spacing: 4) {
-                                Text(word)
+                                Text(entry.rule.pattern)
                                     .font(.body.monospaced())
                                 Button {
-                                    domainWords.removeAll { $0 == word }
+                                    draft.remove(entry.id)
                                     save()
                                 } label: {
                                     Image(systemName: "xmark.circle.fill")
@@ -1485,17 +1486,17 @@ struct DictionarySettingsView: View {
                         VStack(spacing: 4) {
                             ForEach(replacements) { r in
                                 HStack {
-                                    Text(r.pattern)
+                                    Text(r.rule.pattern)
                                         .font(.body.monospaced())
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                     Image(systemName: "arrow.right")
                                         .foregroundStyle(.secondary)
                                         .font(.caption)
-                                    Text(r.replacement)
+                                    Text(r.rule.replacement)
                                         .font(.body.monospaced())
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                     Button {
-                                        replacements.removeAll { $0.id == r.id }
+                                        draft.remove(r.id)
                                         save()
                                     } label: {
                                         Image(systemName: "trash")
@@ -1533,8 +1534,8 @@ struct DictionarySettingsView: View {
 
     private func addDomainWord() {
         let word = newDomainWord.trimmingCharacters(in: .whitespaces)
-        guard !word.isEmpty, !domainWords.contains(word) else { return }
-        domainWords.append(word)
+        guard !word.isEmpty, !domainWords.contains(where: { $0.rule.pattern == word }) else { return }
+        draft.append(pattern: word, replacement: word)
         newDomainWord = ""
         save()
     }
@@ -1543,7 +1544,7 @@ struct DictionarySettingsView: View {
         let p = newPattern.trimmingCharacters(in: .whitespaces)
         let r = newReplacement.trimmingCharacters(in: .whitespaces)
         guard !p.isEmpty, !r.isEmpty else { return }
-        replacements.append(Replacement(pattern: p, replacement: r))
+        draft.append(pattern: p, replacement: r)
         newPattern = ""
         newReplacement = ""
         save()
@@ -1552,52 +1553,31 @@ struct DictionarySettingsView: View {
     // MARK: - Persistence (via Rust engine)
 
     private func load() {
-        let rules = appState.getDictionaryRules()
-        domainWords = []
-        replacements = []
-        for rule in rules {
-            if rule.pattern == rule.replacement {
-                // Domain word: pattern == replacement means "keep this word as-is"
-                domainWords.append(rule.pattern)
-            } else {
-                replacements.append(Replacement(pattern: rule.pattern, replacement: rule.replacement))
-            }
-        }
+        draft = DictionaryDraft(rules: appState.getDictionaryRules())
     }
 
     private func save() {
-        var rules: [ParakattCore.ReplacementRule] = []
-
-        // Domain words stored as identity replacements (pattern == replacement)
-        for word in domainWords {
-            rules.append(ParakattCore.ReplacementRule(
-                pattern: word,
-                replacement: word,
-                contextType: "always",
-                contextValue: nil,
-                enabled: true
-            ))
-        }
-
-        // Explicit replacements
-        for r in replacements {
-            rules.append(ParakattCore.ReplacementRule(
-                pattern: r.pattern,
-                replacement: r.replacement,
-                contextType: "always",
-                contextValue: nil,
-                enabled: true
-            ))
-        }
-
-        appState.setDictionaryRules(rules)
+        appState.setDictionaryRules(draft.entries.map(\.rule))
     }
 }
 
-struct Replacement: Identifiable {
-    let id = UUID()
-    let pattern: String
-    let replacement: String
+/// Retains rule order and metadata when a Settings entry is added or removed.
+struct DictionaryDraft {
+    struct Entry: Identifiable {
+        let id = UUID()
+        let rule: ParakattCore.ReplacementRule
+    }
+    private(set) var entries: [Entry]
+    init(rules: [ParakattCore.ReplacementRule] = []) {
+        entries = rules.map { Entry(rule: $0) }
+    }
+    mutating func append(pattern: String, replacement: String) {
+        entries.append(Entry(rule: ParakattCore.ReplacementRule(
+            pattern: pattern, replacement: replacement,
+            contextType: "always", contextValue: nil, enabled: true
+        )))
+    }
+    mutating func remove(_ id: UUID) { entries.removeAll { $0.id == id } }
 }
 
 // MARK: - Flow Layout (tag cloud)

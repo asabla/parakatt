@@ -9,11 +9,11 @@ final class SessionCancellationTests: XCTestCase {
     }
     func testCancelAbortsAcceptedSessionExactlyOnce() {
         let job = SessionCancellation()
-        var cancellations = 0
-        XCTAssertTrue(job.start({}, onCancel: { cancellations += 1 }))
+        let cancellations = Locked(wrappedValue: 0)
+        XCTAssertTrue(job.start({}, onCancel: { cancellations.wrappedValue += 1 }))
         job.cancel()
         job.cancel()
-        XCTAssertEqual(cancellations, 1)
+        XCTAssertEqual(cancellations.wrappedValue, 1)
     }
     func testCompletedSessionHasNoLateCancellationCallback() {
         let job = SessionCancellation()

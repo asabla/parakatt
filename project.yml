@@ -39,6 +39,9 @@ targets:
         PRODUCT_NAME: ParakattApp
         MACOSX_DEPLOYMENT_TARGET: "14.0"
         SWIFT_VERSION: "5.10"
+        SWIFT_STRICT_CONCURRENCY: complete
+        SWIFT_TREAT_WARNINGS_AS_ERRORS: true
+        GCC_TREAT_WARNINGS_AS_ERRORS: true
         CODE_SIGN_STYLE: Automatic
         ENABLE_HARDENED_RUNTIME: true
         DEFINES_MODULE: true
@@ -84,6 +87,9 @@ targets:
         CURRENT_PROJECT_VERSION: "5"
         MACOSX_DEPLOYMENT_TARGET: "14.0"
         SWIFT_VERSION: "5.10"
+        SWIFT_STRICT_CONCURRENCY: complete
+        SWIFT_TREAT_WARNINGS_AS_ERRORS: true
+        GCC_TREAT_WARNINGS_AS_ERRORS: true
         CODE_SIGN_STYLE: Automatic
         ENABLE_HARDENED_RUNTIME: true
         INFOPLIST_FILE: Parakatt/Info.plist
@@ -114,6 +120,9 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.parakatt.tests
         SWIFT_VERSION: "5.10"
+        SWIFT_STRICT_CONCURRENCY: complete
+        SWIFT_TREAT_WARNINGS_AS_ERRORS: true
+        GCC_TREAT_WARNINGS_AS_ERRORS: true
         MACOSX_DEPLOYMENT_TARGET: "14.0"
         GENERATE_INFOPLIST_FILE: true
         CODE_SIGN_STYLE: Automatic

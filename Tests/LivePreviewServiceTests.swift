@@ -2,13 +2,13 @@ import XCTest
 import ParakattCore
 @testable import ParakattApp
 
-private final class PreviewCoreStub: LivePreviewCore {
-    var available = true
-    var chunkSize: UInt32 = 4
-    var feedGate: DispatchSemaphore?
+private final class PreviewCoreStub: LivePreviewCore, @unchecked Sendable {
+    @Locked var available = true
+    @Locked var chunkSize: UInt32 = 4
+    @Locked var feedGate: DispatchSemaphore?
     let entered = DispatchSemaphore(value: 0)
-    var chunks: [[Float]] = []
-    var cancelled: [String] = []
+    @Locked var chunks: [[Float]] = []
+    @Locked var cancelled: [String] = []
     func shouldUseStreamingPreview() -> Bool { available }
     func streamingNativeChunkSamples() -> UInt32 { chunkSize }
     func startStreamingSession(sessionId: String) throws {}
@@ -23,6 +23,7 @@ private final class PreviewCoreStub: LivePreviewCore {
 }
 
 final class LivePreviewServiceTests: XCTestCase {
+    @MainActor
     func testFinishDrainsAndPadsTheFinalPartialMetadataSizedChunk() throws {
         let core = PreviewCoreStub()
         let service = LivePreviewService(bridge: core)
@@ -33,6 +34,7 @@ final class LivePreviewServiceTests: XCTestCase {
         wait(for: [done], timeout: 3)
         XCTAssertEqual(core.chunks, [[1, 2, 3, 4], [5, 0, 0, 0]])
     }
+    @MainActor
     func testCancelRejectsUpdatesFromPreviousGeneration() throws {
         let core = PreviewCoreStub()
         core.feedGate = DispatchSemaphore(value: 0)
@@ -49,6 +51,7 @@ final class LivePreviewServiceTests: XCTestCase {
         wait(for: [done], timeout: 3)
         XCTAssertTrue(core.cancelled.contains(previous))
     }
+    @MainActor
     func testOverflowDisablesPreviewAndReportsIt() throws {
         let core = PreviewCoreStub()
         let service = LivePreviewService(bridge: core)
@@ -59,6 +62,7 @@ final class LivePreviewServiceTests: XCTestCase {
         wait(for: [failed], timeout: 3)
         XCTAssertTrue(core.chunks.isEmpty)
     }
+    @MainActor
     func testDisabledAndUnloadedModelsDoNotStart() {
         let core = PreviewCoreStub()
         core.available = false

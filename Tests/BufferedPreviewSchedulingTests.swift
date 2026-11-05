@@ -4,13 +4,13 @@ import ParakattCore
 import XCTest
 @testable import ParakattApp
 
-private final class PreviewBridge: CoreBridge {
+private final class PreviewBridge: CoreBridge, @unchecked Sendable {
     private let lock = NSLock()
     private var updates = 0
     private var finishes = 0
     let release = DispatchSemaphore(value: 0)
-    var block = false
-    var failFirst = false
+    @Locked var block = false
+    @Locked var failFirst = false
 
     var counts: (Int, Int) {
         lock.lock(); defer { lock.unlock() }

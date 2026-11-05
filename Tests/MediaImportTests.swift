@@ -28,7 +28,7 @@ final class MediaImportTests: XCTestCase {
         XCTAssertTrue(vtt.hasPrefix("WEBVTT\n\n")); XCTAssertTrue(vtt.contains("01:01:01.234"))
         XCTAssertEqual(TranscriptExport.subtitles(segments: [], duration: 30, vtt: false), "")
     }
-    func testDecoderPreservesDelayAndChunkSampleCounts() throws {
+    func testDecoderPreservesDelayAndChunkSampleCounts() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -37,11 +37,11 @@ final class MediaImportTests: XCTestCase {
         _ = try MediaTools.run("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "color=c=black:s=64x64:r=10:d=4", "-itsoffset", "1", "-f", "lavfi", "-i", "sine=frequency=440:duration=2:sample_rate=48000", "-c:v", "mpeg4", "-c:a", "pcm_s16le", "-t", "4", url.path], cancellation: token)
         let info = try MediaTools.probe(url, cancellation: token)
         XCTAssertEqual(info.tracks.count, 1); XCTAssertEqual(info.duration, 4, accuracy: 0.01)
-        let first = try MediaTools.samples(url, track: 0, start: 0, duration: 2, cancellation: token)
+        let first = try await MediaTools.samples(url, track: 0, start: 0, duration: 2, cancellation: token)
         XCTAssertEqual(first.count, 32000)
         XCTAssertLessThan(first.prefix(15000).map { abs($0) }.max() ?? 1, 0.001)
         XCTAssertGreaterThan(first.suffix(12000).map { abs($0) }.max() ?? 0, 0.01)
-        let second = try MediaTools.samples(url, track: 0, start: 2, duration: 2, cancellation: token)
+        let second = try await MediaTools.samples(url, track: 0, start: 2, duration: 2, cancellation: token)
         XCTAssertEqual(second.count, 32000)
         XCTAssertGreaterThan(second.prefix(12000).map { abs($0) }.max() ?? 0, 0.01)
         XCTAssertLessThan(second.suffix(12000).map { abs($0) }.max() ?? 1, 0.001)
@@ -55,7 +55,7 @@ final class MediaImportTests: XCTestCase {
         let source = directory.appendingPathComponent("source.mkv")
         let token = MediaCancellation()
         _ = try MediaTools.run("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "color=c=black:s=64x64:r=10:d=4", "-itsoffset", "1", "-f", "lavfi", "-i", "sine=frequency=440:duration=2:sample_rate=48000", "-c:v", "mpeg4", "-c:a", "flac", "-t", "4", source.path], cancellation: token)
-        let samples = try MediaTools.samples(source, track: 0, start: 0, duration: 2, cancellation: token)
+        let samples = try await MediaTools.samples(source, track: 0, start: 0, duration: 2, cancellation: token)
         XCTAssertEqual(samples.count, 32000)
         XCTAssertLessThan(samples.prefix(15000).map { abs($0) }.max() ?? 1, 0.001)
         XCTAssertGreaterThan(samples.suffix(12000).map { abs($0) }.max() ?? 0, 0.01)
@@ -248,8 +248,9 @@ private final class MediaHTTPFixture {
         listener = try NWListener(using: .tcp, on: .any)
         let ready = DispatchSemaphore(value: 0)
         listener.stateUpdateHandler = { state in if case .ready = state { ready.signal() }; if case .failed = state { ready.signal() } }
+        let queue = self.queue
         listener.newConnectionHandler = { connection in
-            connection.start(queue: self.queue)
+            connection.start(queue: queue)
             connection.receive(minimumIncompleteLength: 1, maximumLength: 16384) { data, _, _, _ in
                 let request = String(decoding: data ?? Data(), as: UTF8.self)
                 let response: String

@@ -7,7 +7,7 @@ import ApplicationServices
 /// - Context-aware dictionary replacements
 /// - LLM context in AI-enhanced modes
 /// - Auto-activation rules
-struct AppContextInfo {
+struct AppContextInfo: Sendable {
     var appBundleId: String?
     var appName: String?
     var selectedText: String?
@@ -66,6 +66,7 @@ class ContextService {
     /// would otherwise crash on a programmer error).
     private func axElement(_ obj: AnyObject?) -> AXUIElement? {
         guard let obj, CFGetTypeID(obj) == AXUIElementGetTypeID() else { return nil }
+        // swiftlint:disable:next force_cast // CF type ID is checked above.
         return (obj as! AXUIElement)
     }
 }

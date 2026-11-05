@@ -5,10 +5,12 @@ import Foundation
 /// Captures microphone audio in 16kHz mono Float32 format.
 ///
 /// Uses the system default input unless the user selects a device explicitly.
-class AudioCaptureService {
-    var onAudioSamples: (([Float]) -> Void)?
+// Engine/converter state uses engineLock, pre-roll uses prerollLock, and
+// callback counters/delivery use Locked. Lifecycle controls run on the main actor.
+final class AudioCaptureService: @unchecked Sendable {
+    @Locked var onAudioSamples: (@Sendable ([Float]) -> Void)?
     /// Called when the audio device list changes (device plugged/unplugged).
-    var onDeviceChanged: (() -> Void)?
+    @MainActor var onDeviceChanged: (@MainActor @Sendable () -> Void)?
 
     private var audioEngine: AVAudioEngine?
     private var converter: AVAudioConverter?
@@ -31,7 +33,7 @@ class AudioCaptureService {
     /// When true the tap callback fills `prerollRing` instead of
     /// invoking `onAudioSamples`. Flipped to false at the start of
     /// `startCapture()` after the ring has been drained.
-    private var deliveryEnabled = true
+    @Locked private var deliveryEnabled = true
     /// Retained `Unmanaged.toOpaque()` pointer for the device-change
     /// listener's C callback. Stored so we can release it on teardown
     /// instead of relying on `passUnretained`, which would let us
@@ -82,7 +84,7 @@ class AudioCaptureService {
     /// arrives in time). This bounds how long the macOS mic indicator
     /// stays lit while the app is warm. Pass nil to keep warm
     /// indefinitely (legacy behavior).
-    func prewarm(windowSecs: TimeInterval? = nil) {
+    @MainActor func prewarm(windowSecs: TimeInterval? = nil) {
         guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else { return }
         engineLock.lock()
         let alreadyOn = audioEngine != nil
@@ -152,7 +154,7 @@ class AudioCaptureService {
     /// If `prewarm()` was previously called, the 500 ms ring buffer
     /// is drained to `onAudioSamples` first so the recording starts
     /// half a second before the hotkey was actually pressed.
-    func startCapture() throws {
+    @MainActor func startCapture() throws {
         do { try MicrophoneAuthorization.requireAccess() }
         catch { stopCapture(); throw error }
         // Fast path: if we're currently warm (engine running, not
@@ -264,7 +266,7 @@ class AudioCaptureService {
     }
 
     /// Stop the current recording session and tear down the audio engine.
-    func stopCapture() {
+    @MainActor func stopCapture() {
         scheduleWarmWindowTeardown(after: nil)
         engineLock.lock()
         let hasEngine = audioEngine != nil
@@ -280,7 +282,7 @@ class AudioCaptureService {
     }
 
     /// Set the input device by UID. Pass nil for system default.
-    func setInputDevice(uid: String?) {
+    @MainActor func setInputDevice(uid: String?) {
         selectedDeviceUID = uid
     }
 
@@ -330,7 +332,7 @@ class AudioCaptureService {
             )
             var name: CFString = "" as CFString
             var nameSize = UInt32(MemoryLayout<CFString>.size)
-            AudioObjectGetPropertyData(deviceID, &nameAddress, 0, nil, &nameSize, &name)
+            _ = withUnsafeMutablePointer(to: &name) { AudioObjectGetPropertyData(deviceID, &nameAddress, 0, nil, &nameSize, $0) }
 
             // Get device UID
             var uidAddress = AudioObjectPropertyAddress(
@@ -340,7 +342,7 @@ class AudioCaptureService {
             )
             var uid: CFString = "" as CFString
             var uidSize = UInt32(MemoryLayout<CFString>.size)
-            AudioObjectGetPropertyData(deviceID, &uidAddress, 0, nil, &uidSize, &uid)
+            _ = withUnsafeMutablePointer(to: &uid) { AudioObjectGetPropertyData(deviceID, &uidAddress, 0, nil, &uidSize, $0) }
 
             let uidStr = uid as String
             let nameStr = name as String
@@ -430,7 +432,7 @@ class AudioCaptureService {
 
     /// Handle device list changes: if an explicitly-selected device was removed,
     /// fall back to system default and restart capture.
-    fileprivate func handleDeviceChange() {
+    @MainActor fileprivate func handleDeviceChange() {
         guard let uid = selectedDeviceUID else { return }
 
         let devices = Self.listInputDevices()
@@ -574,8 +576,8 @@ class AudioCaptureService {
         deliverSamples(from: outBuf)
     }
 
-    private var rawCallbackCount = 0
-    private var tapCallbackCount = 0
+    @Locked private var rawCallbackCount = 0
+    @Locked private var tapCallbackCount = 0
 
     private func deliverSamples(from buffer: AVAudioPCMBuffer) {
         guard let data = buffer.floatChannelData else { return }
@@ -646,7 +648,8 @@ class AudioCaptureService {
         )
         var uid: CFString = "" as CFString
         var uidSize = UInt32(MemoryLayout<CFString>.size)
-        guard AudioObjectGetPropertyData(deviceID, &uidAddress, 0, nil, &uidSize, &uid) == noErr else {
+        let status = withUnsafeMutablePointer(to: &uid) { AudioObjectGetPropertyData(deviceID, &uidAddress, 0, nil, &uidSize, $0) }
+        guard status == noErr else {
             return nil
         }
         return uid as String
@@ -683,7 +686,7 @@ class AudioCaptureService {
             )
             var devUID: CFString = "" as CFString
             var uidSize = UInt32(MemoryLayout<CFString>.size)
-            AudioObjectGetPropertyData(deviceID, &uidAddress, 0, nil, &uidSize, &devUID)
+            _ = withUnsafeMutablePointer(to: &devUID) { AudioObjectGetPropertyData(deviceID, &uidAddress, 0, nil, &uidSize, $0) }
 
             if (devUID as String) == uid {
                 // Set this device as the engine's input
@@ -761,7 +764,7 @@ class AudioCaptureService {
         )
         var name: CFString = "" as CFString
         var nameSize = UInt32(MemoryLayout<CFString>.size)
-        let nameStatus = AudioObjectGetPropertyData(deviceID, &nameAddress, 0, nil, &nameSize, &name)
+        let nameStatus = withUnsafeMutablePointer(to: &name) { AudioObjectGetPropertyData(deviceID, &nameAddress, 0, nil, &nameSize, $0) }
         guard nameStatus == noErr else { return nil }
         return name as String
     }

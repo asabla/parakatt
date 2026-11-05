@@ -9,12 +9,14 @@ import Foundation
 /// Delivers 16kHz mono Float32 samples through the same callback interface
 /// as AudioCaptureService.
 @available(macOS 14.2, *)
-class SystemAudioCaptureService {
-    var onAudioSamples: (([Float]) -> Void)?
+// Tap callbacks use callbackQueue; converter/device snapshots use stateLock.
+// Lifecycle calls and device rebuilds run on the main actor.
+final class SystemAudioCaptureService: @unchecked Sendable {
+    @Locked var onAudioSamples: (@Sendable ([Float]) -> Void)?
     /// Periodic health signal reflecting what the tap is actually delivering.
     /// Emitted every ~2s from the capture callback queue. Lets the UI distinguish
     /// "tap created but delivering nothing" from "audio is flowing cleanly".
-    var onHealth: ((SystemAudioHealth) -> Void)?
+    @Locked var onHealth: (@Sendable (SystemAudioHealth) -> Void)?
 
     private var tapID: AudioObjectID = AudioObjectID.max
     private var aggregateDeviceID: AudioObjectID = AudioObjectID.max
@@ -46,7 +48,7 @@ class SystemAudioCaptureService {
     /// Start capturing system audio.
     /// - Parameter processID: If provided, capture audio from this process only.
     ///   If nil, capture all system audio (excluding Parakatt itself).
-    func startCapture(processID: pid_t? = nil) throws {
+    @MainActor func startCapture(processID: pid_t? = nil) throws {
         stopCapture()
 
         // 1. Create the process tap.
@@ -151,7 +153,7 @@ class SystemAudioCaptureService {
         registerOutputChangeListener()
     }
 
-    func stopCapture() {
+    @MainActor func stopCapture() {
         stateLock.lock()
         let hasTap = tapID != AudioObjectID.max
         stateLock.unlock()
@@ -292,8 +294,9 @@ class SystemAudioCaptureService {
             return
         }
         inputBuffer.frameLength = AVAudioFrameCount(samples.count)
+        guard let channels = inputBuffer.floatChannelData, !samples.isEmpty else { return }
         samples.withUnsafeBufferPointer { ptr in
-            inputBuffer.floatChannelData![0].update(from: ptr.baseAddress!, count: samples.count)
+            if let address = ptr.baseAddress { channels[0].update(from: address, count: samples.count) }
         }
 
         let ratio = targetSampleRate / sourceSampleRate
@@ -380,7 +383,7 @@ class SystemAudioCaptureService {
         )
         let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
             guard let self else { return }
-            self.callbackQueue.async { [weak self] in
+            DispatchQueue.main.async { [weak self] in
                 self?.rebuildAfterOutputChange()
             }
         }
@@ -416,7 +419,7 @@ class SystemAudioCaptureService {
     /// Called from the output-change listener. Tears down the current tap +
     /// aggregate and re-runs startCapture with the remembered processID so
     /// the new default output becomes the tap's main sub-device.
-    private func rebuildAfterOutputChange() {
+    @MainActor private func rebuildAfterOutputChange() {
         stateLock.lock()
         let isActive = tapID != AudioObjectID.max
         let pid = activeProcessID
@@ -495,7 +498,7 @@ class SystemAudioCaptureService {
         )
         var uid: CFString = "" as CFString
         var size = UInt32(MemoryLayout<CFString>.size)
-        let err = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &uid)
+        let err = withUnsafeMutablePointer(to: &uid) { AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, $0) }
         guard err == noErr else {
             throw SystemAudioCaptureError.deviceUIDNotFound
         }
@@ -510,7 +513,7 @@ class SystemAudioCaptureService {
         )
         var name: Unmanaged<CFString>?
         var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
-        let err = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &name)
+        let err = withUnsafeMutablePointer(to: &name) { AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, $0) }
         guard err == noErr, let cf = name?.takeRetainedValue() else { return nil }
         return cf as String
     }
@@ -531,7 +534,7 @@ class SystemAudioCaptureService {
 
 /// Health snapshot emitted periodically from the system-audio tap so the UI
 /// can distinguish "flowing" from "tap exists but delivers nothing".
-enum SystemAudioHealth {
+enum SystemAudioHealth: Sendable {
     /// Audio is flowing with signal above the silence threshold.
     case ok(rmsDbfs: Double)
     /// Buffers are arriving with data but the level is below the silence

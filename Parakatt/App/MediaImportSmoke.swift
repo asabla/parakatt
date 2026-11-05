@@ -3,7 +3,7 @@ import ParakattCore
 import VLCKit
 
 /// Runs only under the existing explicit maintenance mode with isolated data.
-func mediaImportSmoke(core: CoreBridge, source: URL) throws -> [String: Any] {
+func mediaImportSmoke(core: CoreBridge, source: URL) async throws -> [String: Any] {
     let token = MediaCancellation()
     var versions: [String: String] = [:]
     for (name, argument) in [("yt-dlp", "--version"), ("deno", "--version"), ("ffmpeg", "-version"), ("ffprobe", "-version")] {
@@ -20,7 +20,7 @@ func mediaImportSmoke(core: CoreBridge, source: URL) throws -> [String: Any] {
     var maxSamples = 0
     while job.processedUntil + 0.00001 < job.attachment.durationSecs {
         let offset = job.nextChunk == 0 ? 0 : max(0, job.processedUntil - 2)
-        let samples = try MediaTools.samples(source, track: job.attachment.audioTrack, start: offset, duration: min(30, job.attachment.durationSecs - offset), cancellation: token)
+        let samples = try await MediaTools.samples(source, track: job.attachment.audioTrack, start: offset, duration: min(30, job.attachment.durationSecs - offset), cancellation: token)
         maxSamples = max(maxSamples, samples.count)
         job = try core.importChunk(job.id, samples: samples, offset: offset)
     }

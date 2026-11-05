@@ -43,7 +43,7 @@ func runPerformanceFixtureIfRequested() -> Bool {
             var memory: [String: UInt64] = ["history_start": fixtureResidentBytes()]
             var gaps: [Double] = []
             var previous = CFAbsoluteTimeGetCurrent()
-            let timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60, repeats: true) { _ in
+            let timer = MainActorTimer.scheduledTimer(withTimeInterval: 1.0 / 60, repeats: true) {
                 let now = CFAbsoluteTimeGetCurrent()
                 gaps.append(now - previous)
                 previous = now

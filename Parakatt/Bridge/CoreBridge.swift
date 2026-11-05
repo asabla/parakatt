@@ -4,7 +4,9 @@ import ParakattCore
 /// Thin wrapper around the UniFFI-generated Rust Engine.
 ///
 /// Adapts between the Swift service layer and the generated Rust bindings.
-class CoreBridge {
+// The only stored state is UniFFI's Sendable Engine. Internal test subclasses
+// must restate Sendable and synchronize any state they add.
+class CoreBridge: @unchecked Sendable {
     private let engine: Engine
 
     func createImport(kind: String, input: String, title: String, mode: String) throws -> ImportJob { try engine.createImportJob(kind: kind, input: input, title: title, mode: mode) }

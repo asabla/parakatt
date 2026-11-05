@@ -221,10 +221,8 @@ class AppState: ObservableObject {
 
     // MARK: - Audio buffer
 
-    private var audioBuffer = FloatQueue()
-    private var captureJournal: CaptureJournal?
     private let speechWork = WorkCapacity(limit: 2)
-    private let audioBufferLock = NSLock()
+    private let audioInput = RecordingAudioState()
 
     // MARK: - Incremental push-to-talk session
 
@@ -277,12 +275,7 @@ class AppState: ObservableObject {
     private var processingPollTimer: Timer?
     private var previewFailedForRecording = false
     private var speechGeneration = UUID()
-    private var livePreview: LivePreviewService?
-    /// True while the streaming preview is active for the current
-    /// recording. Used by appendAudioSamples to decide whether to
-    /// also feed the buffered v3 path.
-    private var livePreviewActive = false
-
+    var hotkeyRecordingID: UUID? { isRecording ? speechGeneration : nil }
     // MARK: - Lifecycle
 
     init(bridge: CoreBridge? = nil) {
@@ -361,11 +354,11 @@ class AppState: ObservableObject {
                 }
                 preview.onError = { [weak self] msg in
                     NSLog("[Parakatt] LivePreview disabled: %@", msg)
-                    self?.livePreviewActive = false
+                    self?.audioInput.previewActive = false
                     self?.previewFailedForRecording = true
                     self?.errorMessage = msg
                 }
-                livePreview = preview
+                audioInput.preview = preview
             }
 
             settings.recoveryAudio = bridge?.getRecoveryAudio() ?? false
@@ -426,7 +419,7 @@ class AppState: ObservableObject {
             else { preview = models.first { $0.downloaded && $0.id == "nemotron-speech-streaming-en-0.6b" } }
             do {
                 if let offline { try bridge.loadModel(offline.id) }
-                DispatchQueue.main.async {
+                DispatchQueue.main.async { [self] in
                     guard let self, self.modelLoadGeneration == generation else { return }
                     self.isModelLoaded = offline != nil
                     self.recording.modelStatus = offline == nil ? "Transcription model unavailable" : "Transcription model ready"
@@ -443,7 +436,7 @@ class AppState: ObservableObject {
                     try bridge.loadModel(preview.id)
                 }
             } catch {
-                DispatchQueue.main.async {
+                DispatchQueue.main.async { [self] in
                     guard let self, self.modelLoadGeneration == generation else { return }
                     self.errorMessage = error.localizedDescription
                     if !self.isModelLoaded { self.finalModelGate.update(.failed(error.localizedDescription)) }
@@ -456,7 +449,7 @@ class AppState: ObservableObject {
     func shutdown() {
         mediaImports?.shutdown()
         shortProcessing?.cancel()
-        livePreview?.cancel()
+        audioInput.preview?.cancel()
         stopRecording()
         if let sessionId = pttSessionId {
             bridge?.cancelSession(sessionId: sessionId)
@@ -490,12 +483,12 @@ class AppState: ObservableObject {
         pttSessionId = nil
         pttChunkIndex = 0
         pttAccumulatedText = nil
-        silentCallbackCount = 0
+        audioInput.silentCallbacks = 0
         lastStreamingSampleCount = 0
-        audioBufferLock.lock()
-        audioBuffer.removeAll()
-        audioBuffer.append(contentsOf: samples)
-        audioBufferLock.unlock()
+        audioInput.lock.lock()
+        audioInput.buffer.removeAll()
+        audioInput.buffer.append(contentsOf: samples)
+        audioInput.lock.unlock()
         isRecording = true
         if incremental { startIncrementalSession() }
         if preview { updateLiveTranscription() }
@@ -529,26 +522,26 @@ class AppState: ObservableObject {
         // Set immediately after guard to prevent race with rapid start/stop.
         isRecording = true
 
-        sampleCount = 0
-        silentCallbackCount = 0
+        audioInput.sampleCount = 0
+        audioInput.silentCallbacks = 0
         silenceDetected = false
         audioClippingDetected = false
-        longRecordingWarned = false
+        audioInput.longRecordingWarned = false
         pttSessionId = nil
         pttChunkIndex = 0
         pttChunkTimer?.invalidate()
         pttChunkTimer = nil
         pttAccumulatedText = nil
 
-        audioBufferLock.lock()
-        audioBuffer.removeAll()
-        audioBufferLock.unlock()
+        audioInput.lock.lock()
+        audioInput.buffer.removeAll()
+        audioInput.lock.unlock()
 
         do {
             try prepareRecordingContext(contextService?.currentContext())
             if let bridge {
                 let generation = speechGeneration
-                captureJournal = try CaptureJournal(bridge: bridge, id: generation.uuidString, source: "push_to_talk", mode: recordingContext.mode) { [weak self] message in
+                audioInput.journal = try CaptureJournal(bridge: bridge, id: generation.uuidString, source: "push_to_talk", mode: recordingContext.mode) { [weak self] message in
                     guard let self, self.speechGeneration == generation else { return }
                     self.errorMessage = message
                     self.recording.captureWarning = message
@@ -560,7 +553,7 @@ class AppState: ObservableObject {
             recording.captureWarning = nil
             lastCaptureCallback = CFAbsoluteTimeGetCurrent()
             captureHealthTimer?.invalidate()
-            captureHealthTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            captureHealthTimer = MainActorTimer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] in
                 Task { @MainActor in
                     guard let self, self.isRecording else { return }
                     let warning = CFAbsoluteTimeGetCurrent() - self.lastCaptureCallback > 2
@@ -580,17 +573,17 @@ class AppState: ObservableObject {
             // who didn't download Nemotron, or first launch), this
             // gracefully falls back to the buffered v3 + LA-2 path
             // via the throwaway streaming preview below.
-            if let preview = livePreview, preview.isStreamingAvailable {
+            if let preview = audioInput.preview, preview.isStreamingAvailable {
                 do {
                     _ = try preview.start()
-                    livePreviewActive = true
+                    audioInput.previewActive = true
                     NSLog("[Parakatt] Live preview: streaming path active")
                 } catch {
-                    livePreviewActive = false
+                    audioInput.previewActive = false
                     NSLog("[Parakatt] Live preview start failed: %@ — falling back to buffered preview", error.localizedDescription)
                 }
             } else {
-                livePreviewActive = false
+                audioInput.previewActive = false
             }
 
             // Start throwaway buffered preview for immediate feedback.
@@ -600,10 +593,10 @@ class AppState: ObservableObject {
             startStreamingUpdates()
 
             // After 5s, transition to incremental session-based processing.
-            pttChunkTimer = Timer.scheduledTimer(
+            pttChunkTimer = MainActorTimer.scheduledTimer(
                 withTimeInterval: firstChunkDelaySecs,
                 repeats: false
-            ) { [weak self] _ in
+            ) { [weak self] in
                 self?.startIncrementalSession()
             }
 
@@ -611,7 +604,7 @@ class AppState: ObservableObject {
                   isModelLoaded ? 1 : 0, firstChunkDelaySecs)
         } catch {
             isRecording = false
-            let journal = captureJournal
+            let journal = audioInput.journal
             transcriptionQueue.async { journal?.finish() }
             errorMessage = "Failed to start recording: \(error.localizedDescription)"
             NSLog("[Parakatt] Recording FAILED: %@", error.localizedDescription)
@@ -665,7 +658,7 @@ class AppState: ObservableObject {
     /// Called after the capture drain grace period to stop capture and process remaining audio.
     private func finishStopRecording() {
         audioCaptureService?.stopCapture()
-        let journal = captureJournal
+        let journal = audioInput.journal
         transcriptionQueue.async { journal?.finish() }
         // Re-prewarm so the next hotkey press doesn't pay the macOS
         // mic cold-start cost (which can be 2-5s after a few seconds
@@ -682,9 +675,9 @@ class AppState: ObservableObject {
         // Tear down the live preview session and grab its final
         // committed text. This becomes the canonical preview while
         // the commit pipeline finishes processing the buffer tail.
-        if livePreviewActive {
-            livePreviewActive = false
-            livePreview?.stop { [weak self] finalText in
+        if audioInput.previewActive {
+            audioInput.previewActive = false
+            audioInput.preview?.stop { [weak self] finalText in
                 guard let self, !self.isRecording, self.isProcessing, !finalText.isEmpty else { return }
                 self.livePreviewCommitted = finalText
                 self.livePreviewTentative = ""
@@ -713,19 +706,20 @@ class AppState: ObservableObject {
             // Keep liveTranscription visible while processing the tail.
             NSLog("[Parakatt] Recording stopped (incremental session, processing tail)")
 
-            audioBufferLock.lock()
-            let remainingSamples = Array(audioBuffer)
-            audioBuffer.removeAll()
-            audioBufferLock.unlock()
+            audioInput.lock.lock()
+            let remainingSamples = Array(audioInput.buffer)
+            audioInput.buffer.removeAll()
+            audioInput.lock.unlock()
 
             let context = recordingContext.application
             let mode = recordingContext.mode
             let currentIndex = pttChunkIndex
-            let journal = captureJournal
+            let journal = audioInput.journal
 
+            let bridge = self.bridge
             transcriptionQueue.async { [weak self] in
-                guard let self, let bridge = self.bridge else {
-                    DispatchQueue.main.async { self?.isProcessing = false }
+                guard let self, let bridge else {
+                    DispatchQueue.main.async { [self] in self?.isProcessing = false }
                     return
                 }
 
@@ -809,10 +803,10 @@ class AppState: ObservableObject {
             liveTranscription = nil
             NSLog("[Parakatt] Recording stopped (short, single-shot)")
 
-            audioBufferLock.lock()
-            let samples = Array(audioBuffer)
-            audioBuffer.removeAll()
-            audioBufferLock.unlock()
+            audioInput.lock.lock()
+            let samples = Array(audioInput.buffer)
+            audioInput.buffer.removeAll()
+            audioInput.lock.unlock()
 
             guard !samples.isEmpty else {
                 NSLog("[Parakatt] stopRecording: NO AUDIO IN BUFFER")
@@ -850,9 +844,9 @@ class AppState: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
             guard let self else { return }
 
-            self.audioBufferLock.lock()
-            let samples = self.audioBuffer
-            self.audioBufferLock.unlock()
+            self.audioInput.lock.lock()
+            let samples = self.audioInput.buffer
+            self.audioInput.lock.unlock()
 
             let maxAmp = samples.map { abs($0) }.max() ?? 0
             let rms = samples.isEmpty ? 0 : sqrt(samples.map { $0 * $0 }.reduce(0, +) / Float(samples.count))
@@ -880,12 +874,12 @@ class AppState: ObservableObject {
               osVersion.majorVersion, osVersion.minorVersion, osVersion.patchVersion)
 
         let testCapture = SystemAudioCaptureService()
-        var collectedSamples: [Float] = []
+        let collectedSamples = Locked(wrappedValue: [Float]())
         let sampleLock = NSLock()
 
         testCapture.onAudioSamples = { samples in
             sampleLock.lock()
-            collectedSamples.append(contentsOf: samples)
+            collectedSamples.wrappedValue.append(contentsOf: samples)
             sampleLock.unlock()
         }
 
@@ -902,7 +896,7 @@ class AppState: ObservableObject {
             testCapture.stopCapture()
 
             sampleLock.lock()
-            let samples = collectedSamples
+            let samples = collectedSamples.wrappedValue
             sampleLock.unlock()
 
             let maxAmp = samples.map { abs($0) }.max() ?? 0
@@ -979,7 +973,7 @@ class AppState: ObservableObject {
         do { try bridge?.setGenerationSettings(settings); configureLlm() }
         catch { errorMessage = error.localizedDescription }
     }
-    func thinkingControls(completion: @escaping ([String]) -> Void) {
+    func thinkingControls(completion: @escaping @MainActor @Sendable ([String]) -> Void) {
         guard let bridge, llmProvider == "ollama", !llmModel.isEmpty else { completion([]); return }
         let base = llmBaseUrl, model = llmModel
         DispatchQueue.global(qos: .userInitiated).async {
@@ -1013,7 +1007,7 @@ class AppState: ObservableObject {
         do { try bridge?.setLlmContextEnabled(enabled); settings.llmContextEnabled = enabled }
         catch { errorMessage = error.localizedDescription }
     }
-    func testLlmPipeline(completion: @escaping (String) -> Void) {
+    func testLlmPipeline(completion: @escaping @MainActor @Sendable (String) -> Void) {
         guard let bridge else { completion("Engine unavailable"); return }
         DispatchQueue.global(qos: .userInitiated).async {
             let message: String
@@ -1321,11 +1315,9 @@ class AppState: ObservableObject {
         meetingElapsedTime = 0
 
         // Start elapsed time updates.
-        meetingElapsedTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+        meetingElapsedTimer = MainActorTimer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] in
             guard let self else { return }
-            if #available(macOS 14.2, *) {
-                self.meetingElapsedTime = self.meetingSession?.elapsedTime ?? 0
-            }
+            self.meetingElapsedTime = self.meetingSession?.elapsedTime ?? 0
         }
 
         do {
@@ -1472,7 +1464,7 @@ class AppState: ObservableObject {
         catch { errorMessage = "Could not change audio recovery: \(error.localizedDescription)" }
     }
 
-    func queryRecovery(completion: @escaping ([RecordingDraft]) -> Void) {
+    func queryRecovery(completion: @escaping @MainActor @Sendable ([RecordingDraft]) -> Void) {
         guard let bridge else { completion([]); return }
         DispatchQueue.global(qos: .utility).async {
             let drafts = (try? bridge.recordingDrafts()) ?? []
@@ -1483,9 +1475,9 @@ class AppState: ObservableObject {
     func cancelRecordingRecovery(id: String) { bridge?.cancelSession(sessionId: id) }
     func cancelHistoryProcessing(id: String) { bridge?.cancelHistoryProcessing(id: id) }
 
-    func changeHistory(_ work: @escaping (CoreBridge) throws -> Void, completion: @escaping (String?) -> Void) {
+    func changeHistory(_ work: @escaping @Sendable (CoreBridge) throws -> Void, completion: @escaping @MainActor @Sendable (String?) -> Void) {
         guard let bridge else { completion("The engine is unavailable."); return }
-        DispatchQueue.global(qos: .userInitiated).async {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let error: String?
             do { try work(bridge); error = nil } catch let failure { error = failure.localizedDescription }
             DispatchQueue.main.async { [weak self] in
@@ -1495,7 +1487,7 @@ class AppState: ObservableObject {
         }
     }
 
-    func queryHistoryPage(search: String?, source: String?, offset: UInt32, completion: @escaping (Result<[StoredTranscription], Error>) -> Void) {
+    func queryHistoryPage(search: String?, source: String?, offset: UInt32, completion: @escaping @MainActor @Sendable (Result<[StoredTranscription], Error>) -> Void) {
         guard let bridge else { completion(.failure(NSError(domain: "Parakatt", code: 1, userInfo: [NSLocalizedDescriptionKey: "The engine is unavailable."]))); return }
         DispatchQueue.global(qos: .userInitiated).async {
             let result = Result { try bridge.listTranscriptions(query: TranscriptionQuery(searchText: search, sourceFilter: source, limit: 101, offset: offset)) }
@@ -1503,7 +1495,7 @@ class AppState: ObservableObject {
         }
     }
 
-    func queryHistory(search: String?, source: String?, completion: @escaping ([StoredTranscription]) -> Void) {
+    func queryHistory(search: String?, source: String?, completion: @escaping @MainActor @Sendable ([StoredTranscription]) -> Void) {
         guard let bridge else { completion([]); return }
         DispatchQueue.global(qos: .userInitiated).async {
             let query = TranscriptionQuery(searchText: search, sourceFilter: source, limit: 500, offset: 0)
@@ -1512,7 +1504,7 @@ class AppState: ObservableObject {
         }
     }
 
-    func queryDetail(id: String, completion: @escaping (Result<HistoryDetailData, Error>) -> Void) {
+    func queryDetail(id: String, completion: @escaping @MainActor @Sendable (Result<HistoryDetailData, Error>) -> Void) {
         guard let bridge else { completion(.failure(NSError(domain: "Parakatt", code: 1, userInfo: [NSLocalizedDescriptionKey: "The engine is unavailable."]))); return }
         DispatchQueue.global(qos: .userInitiated).async {
             let result = Result {
@@ -1525,13 +1517,13 @@ class AppState: ObservableObject {
         }
     }
 
-    func queryModels(completion: @escaping ([ParakattCore.ModelInfo]) -> Void) {
+    func queryModels(completion: @escaping @MainActor @Sendable ([ParakattCore.ModelInfo]) -> Void) {
         guard let bridge else { completion([]); return }
         let generation = UUID()
         modelQueryGeneration = generation
         DispatchQueue.global(qos: .utility).async { [weak self] in
             let rows = bridge.listModels()
-            DispatchQueue.main.async {
+            DispatchQueue.main.async { [self] in
                 guard self?.modelQueryGeneration == generation else { return }
                 completion(rows)
             }
@@ -1543,22 +1535,22 @@ class AppState: ObservableObject {
         do {
             try bridge?.setStreamingPreviewEnabled(enabled)
             if !enabled {
-                livePreview?.cancel()
-                livePreviewActive = false
+                audioInput.preview?.cancel()
+                audioInput.previewActive = false
                 stopStreamingUpdates()
                 livePreviewCommitted = ""
                 livePreviewTentative = ""
             } else if isRecording {
                 previewFailedForRecording = false
-                if let livePreview, livePreview.isStreamingAvailable {
-                    try livePreview.start()
-                    livePreviewActive = true
+                if let preview = audioInput.preview, preview.isStreamingAvailable {
+                    try preview.start()
+                    audioInput.previewActive = true
                 } else { startStreamingUpdates() }
             } else { reloadSpeechModels() }
         } catch { errorMessage = error.localizedDescription }
     }
 
-    func querySpeechStatus(completion: @escaping (SpeechRuntimeStatus) -> Void) {
+    func querySpeechStatus(completion: @escaping @MainActor @Sendable (SpeechRuntimeStatus) -> Void) {
         guard let bridge else { return }
         DispatchQueue.global(qos: .utility).async {
             let status = bridge.speechRuntimeStatus()
@@ -1642,6 +1634,7 @@ class AppState: ObservableObject {
         }
         isModelLoaded = false
         finalModelGate.update(.loading)
+        let bridge = self.bridge
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let signpostID = OSSignpostID(log: signpostLog)
             os_signpost(.begin, log: signpostLog, name: "LoadModel", signpostID: signpostID, "%{public}s", modelId)
@@ -1649,7 +1642,7 @@ class AppState: ObservableObject {
 
             guard let self else { return }
             do {
-                try self.bridge?.loadModel(modelId)
+                try bridge?.loadModel(modelId)
                 DispatchQueue.main.async {
                     self.isModelLoaded = true
                     self.finalModelGate.update(.ready)
@@ -1698,19 +1691,19 @@ class AppState: ObservableObject {
             do {
                 try bridge.deleteModel(modelId)
                 let models = bridge.listModels()
-                DispatchQueue.main.async {
+                DispatchQueue.main.async { [self] in
                     guard let self else { return }
                     if self.activeModelId == modelId { self.isModelLoaded = false; self.activeModelId = nil }
                     self.needsModelDownload = !models.contains { $0.providerType == "parakeet" && $0.downloaded }
                     self.modelInventoryRevision &+= 1
                 }
-            } catch { DispatchQueue.main.async { self?.errorMessage = error.localizedDescription } }
+            } catch { DispatchQueue.main.async { [self] in self?.errorMessage = error.localizedDescription } }
         }
     }
 
     private func startDownloadPolling() {
         downloadPollTimer?.invalidate()
-        downloadPollTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
+        downloadPollTimer = MainActorTimer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] in
             self?.pollDownloadProgress()
         }
     }
@@ -1763,8 +1756,8 @@ class AppState: ObservableObject {
     private func watchProcessing(sessionID: String) {
         processingPollTimer?.invalidate()
         processingEvents = TranscriptEventStore(sessionID: sessionID)
-        processingPollTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            guard let self, let bridge = self.bridge else { return }
+        processingPollTimer = MainActorTimer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] in
+            guard let self, let bridge else { return }
             let events = bridge.pollTranscriptionEvents(sessionId: sessionID)
             if self.processingEvents?.apply(events) == true {
                 self.pttAccumulatedText = self.processingEvents?.text
@@ -1791,7 +1784,7 @@ class AppState: ObservableObject {
         isProcessing = true
         let generation = speechGeneration
         let job = SessionCancellation()
-        let journal = captureJournal
+        let journal = audioInput.journal
         shortProcessing = job
         let selection = recordingContext
 
@@ -1799,13 +1792,14 @@ class AppState: ObservableObject {
         NSLog("[Parakatt] Processing %d samples (%.1fs), maxAmp=%.4f, mode=%@, llm=%@",
               samples.count, Double(samples.count) / 16000.0, maxAmp, activeMode, llmProvider.isEmpty ? "none" : llmProvider)
 
+        let bridge = self.bridge
         transcriptionQueue.async { [weak self] in
             let signpostID = OSSignpostID(log: signpostLog)
             os_signpost(.begin, log: signpostLog, name: "Transcribe", signpostID: signpostID, "samples: %d", samples.count)
             defer { os_signpost(.end, log: signpostLog, name: "Transcribe", signpostID: signpostID) }
 
-            guard let self, let bridge = self.bridge else {
-                DispatchQueue.main.async { self?.isProcessing = false }
+            guard let self, let bridge else {
+                DispatchQueue.main.async { [self] in self?.isProcessing = false }
                 return
             }
 
@@ -1902,10 +1896,10 @@ class AppState: ObservableObject {
         // dispatchPttChunk: dispatch when (a) buffer ≥ pttMinChunkSecs
         // AND (the speaker has been silent ≥ pttPauseSilenceCallbacks
         // OR buffer ≥ pttMaxChunkSecs).
-        pttChunkTimer = Timer.scheduledTimer(
+        pttChunkTimer = MainActorTimer.scheduledTimer(
             withTimeInterval: pttDispatchTickSecs,
             repeats: true
-        ) { [weak self] _ in
+        ) { [weak self] in
             self?.dispatchPttChunk()
         }
 
@@ -1939,33 +1933,33 @@ class AppState: ObservableObject {
         let maxSamples = Int(pttMaxChunkSecs * Double(sttSampleRate))
         let overlapSamples = Int(overlapDurationSecs * Double(sttSampleRate))
 
-        audioBufferLock.lock()
-        let bufferLen = audioBuffer.count
+        audioInput.lock.lock()
+        let bufferLen = audioInput.buffer.count
         let incomingOverlap = pttChunkIndex >= 2 ? overlapSamples : 0
         guard bufferLen >= minSamples + incomingOverlap else {
-            audioBufferLock.unlock()
+            audioInput.lock.unlock()
             return
         }
-        let speakerPaused = silentCallbackCount >= pttPauseSilenceCallbacks
+        let speakerPaused = audioInput.silentCallbacks >= pttPauseSilenceCallbacks
         let bufferAtCap = bufferLen >= maxSamples
         guard speakerPaused || bufferAtCap else {
-            audioBufferLock.unlock()
+            audioInput.lock.unlock()
             return
         }
 
-        guard speechWork.reserve() else { audioBufferLock.unlock(); return }
+        guard speechWork.reserve() else { audioInput.lock.unlock(); return }
         // Take up to maxSamples worth — variable-length chunks.
         let take = min(bufferLen, maxSamples)
-        let chunkSamples = Array(audioBuffer.prefix(take))
+        let chunkSamples = Array(audioInput.buffer.prefix(take))
         // First chunk has no prior chunk to overlap with — consume everything
         // to prevent the tail from re-processing the same audio.
         let consumed = pttChunkIndex == 0
             ? chunkSamples.count
             : max(0, chunkSamples.count - overlapSamples)
         if consumed > 0 {
-            audioBuffer.removeFirst(consumed)
+            audioInput.buffer.removeFirst(consumed)
         }
-        audioBufferLock.unlock()
+        audioInput.lock.unlock()
 
         // The audio buffer just shrank — the buffered preview's
         // LA-2 is now operating on a shorter hypothesis than its
@@ -1986,9 +1980,10 @@ class AppState: ObservableObject {
         let mode = recordingContext.mode
 
         let capacity = speechWork
+        let bridge = self.bridge
         transcriptionQueue.async { [weak self] in
             defer { capacity.release() }
-            guard let self, let bridge = self.bridge else { return }
+            guard let self, let bridge else { return }
 
             self.pttChunkLock.lock()
             defer { self.pttChunkLock.unlock() }
@@ -2038,7 +2033,7 @@ class AppState: ObservableObject {
     private func startStreamingUpdates() {
         streamingTimer?.invalidate()
         lastStreamingSampleCount = 0
-        streamingTimer = Timer.scheduledTimer(withTimeInterval: streamingInterval, repeats: true) { [weak self] _ in
+        streamingTimer = MainActorTimer.scheduledTimer(withTimeInterval: streamingInterval, repeats: true) { [weak self] in
             self?.updateLiveTranscription()
         }
     }
@@ -2074,12 +2069,12 @@ class AppState: ObservableObject {
         // we don't need to also run the buffered preview — they
         // both publish to livePreviewCommitted/Tentative and one
         // will dominate. Skip to save CPU.
-        if livePreviewActive || previewFailedForRecording || bridge.streamingPreviewEnabled() == false { return }
+        if audioInput.previewActive || previewFailedForRecording || bridge.streamingPreviewEnabled() == false { return }
 
         // Snapshot the current buffer (unprocessed tail during incremental mode)
-        audioBufferLock.lock()
-        let snapshot = Array(audioBuffer)
-        audioBufferLock.unlock()
+        audioInput.lock.lock()
+        let snapshot = Array(audioInput.buffer)
+        audioInput.lock.unlock()
 
         guard snapshot.count >= minSamplesForStreaming else { return }
 
@@ -2222,31 +2217,27 @@ class AppState: ObservableObject {
 
     // MARK: - Audio buffer
 
-    private var sampleCount = 0
     /// Number of consecutive near-silent audio callbacks.
-    private var silentCallbackCount = 0
     /// Threshold: callbacks are ~every 100ms, so 50 = ~5 seconds of silence.
     private let silenceCallbackThreshold = 50
     /// After this many consecutive silent callbacks (~10 s) we stop
     /// feeding the streaming preview model to save CPU/battery. The
     /// silence→speech transition trigger in appendAudioSamples will
     /// resume it on the next sound.
-    private var lastMeterUpdate: CFAbsoluteTime = 0
     private let livePreviewSleepCallbacks: Int = 100
 
     /// Threshold for warning about long push-to-talk recordings (5 minutes).
     private let longRecordingWarningSamples = 5 * 60 * 16000
-    private var longRecordingWarned = false
 
-    private func appendAudioSamples(_ samples: [Float]) {
-        captureJournal?.append(samples, source: .mixed)
-        audioBufferLock.lock()
-        let overflow = audioBuffer.count + samples.count > 60 * 16000
-        if !overflow { audioBuffer.append(contentsOf: samples) }
-        let total = audioBuffer.count
-        audioBufferLock.unlock()
+    nonisolated private func appendAudioSamples(_ samples: [Float]) {
+        audioInput.journal?.append(samples, source: .mixed)
+        audioInput.lock.lock()
+        let overflow = audioInput.buffer.count + samples.count > 60 * 16000
+        if !overflow { audioInput.buffer.append(contentsOf: samples) }
+        let total = audioInput.buffer.count
+        audioInput.lock.unlock()
         if overflow {
-            captureJournal?.markSpeechGap()
+            audioInput.journal?.markSpeechGap()
             DispatchQueue.main.async { [weak self] in
                 self?.errorMessage = "Speech processing could not keep up. Recording is incomplete; review recovery in History."
                 self?.stopRecording()
@@ -2262,13 +2253,13 @@ class AppState: ObservableObject {
         // (~10 s) we skip feeding the model entirely. The silence→
         // speech transition trigger below will kick the service
         // again as soon as audio resumes.
-        if livePreviewActive && silentCallbackCount < livePreviewSleepCallbacks {
-            livePreview?.enqueue(samples)
+        if audioInput.previewActive && audioInput.silentCallbacks < livePreviewSleepCallbacks {
+            audioInput.preview?.enqueue(samples)
         }
 
         // Warn once when push-to-talk exceeds 5 minutes.
-        if total > longRecordingWarningSamples && !longRecordingWarned {
-            longRecordingWarned = true
+        if total > longRecordingWarningSamples && !audioInput.longRecordingWarned {
+            audioInput.longRecordingWarned = true
             let durationMins = Double(total) / 16000.0 / 60.0
             NSLog("[Parakatt] WARNING: Push-to-talk recording exceeds %.0f minutes — consider using meeting mode for long recordings", durationMins)
         }
@@ -2278,23 +2269,25 @@ class AppState: ObservableObject {
         let rms = sqrt(sumOfSquares / Float(max(samples.count, 1)))
         // Normalize: typical speech RMS ~0.01-0.1, scale up for display
         let normalized = min(rms * 10, 1.0)
-        let smoothed = 0.3 * currentAudioLevel + 0.7 * normalized
+        let smoothed = 0.3 * audioInput.smoothedLevel + 0.7 * normalized
+        audioInput.smoothedLevel = smoothed
         // Track silence: if RMS is near zero, count consecutive silent callbacks.
         // Detect a "speech resumed after silence" transition so we can
         // kick the live preview immediately instead of waiting for the
         // next streaming-timer tick. Without this, the user got 0 to 2
         // seconds of "nothing happening" UI after they started speaking
         // again following a pause.
-        let wasSilentBefore = silentCallbackCount > 5
+        let wasSilentBefore = audioInput.silentCallbacks > 5
         if rms < 0.001 {
-            silentCallbackCount += 1
+            audioInput.silentCallbacks += 1
         } else {
-            silentCallbackCount = 0
+            audioInput.silentCallbacks = 0
         }
         let speechResumed = wasSilentBefore && rms >= 0.001
-        if speechResumed && isRecording {
+        if speechResumed {
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
+                guard self.isRecording else { return }
                 // Bypass the "buffer hasn't grown enough" gate by
                 // resetting the watermark; we want this pass to run
                 // even if only ~one frame of new audio has arrived.
@@ -2306,19 +2299,19 @@ class AppState: ObservableObject {
         let maxAmp = samples.lazy.map { abs($0) }.max() ?? 0
         let clipping = maxAmp >= 0.99
         let meterNow = CFAbsoluteTimeGetCurrent()
-        if meterNow - lastMeterUpdate >= 0.05 {
-            lastMeterUpdate = meterNow
+        if meterNow - audioInput.lastMeterUpdate >= 0.05 {
+            audioInput.lastMeterUpdate = meterNow
             DispatchQueue.main.async {
                 self.lastCaptureCallback = meterNow
                 self.currentAudioLevel = smoothed
-                self.silenceDetected = self.silentCallbackCount >= self.silenceCallbackThreshold
+                self.silenceDetected = self.audioInput.silentCallbacks >= self.silenceCallbackThreshold
                 if clipping { self.audioClippingDetected = true }
             }
         }
 
-        sampleCount += 1
-        if sampleCount % 50 == 1 {
-            NSLog("[Parakatt] Audio callback #%d, buffer: %d samples (%.1fs)", sampleCount, total, Double(total) / 16000.0)
+        audioInput.sampleCount += 1
+        if audioInput.sampleCount % 50 == 1 {
+            NSLog("[Parakatt] Audio callback #%d, buffer: %d samples (%.1fs)", audioInput.sampleCount, total, Double(total) / 16000.0)
         }
     }
 

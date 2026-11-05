@@ -1,7 +1,7 @@
 import Foundation
 
 /// FIFO storage with an advancing read index. The owner provides synchronization.
-struct FloatQueue: RandomAccessCollection {
+struct FloatQueue: RandomAccessCollection, Sendable {
     typealias Index = Int
     var startIndex: Int { 0 }
     var endIndex: Int { count }

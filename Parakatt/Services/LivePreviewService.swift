@@ -1,7 +1,7 @@
 import Foundation
 import ParakattCore
 
-protocol LivePreviewCore: AnyObject {
+protocol LivePreviewCore: AnyObject, Sendable {
     func shouldUseStreamingPreview() -> Bool
     func streamingNativeChunkSamples() -> UInt32
     func startStreamingSession(sessionId: String) throws
@@ -12,9 +12,10 @@ protocol LivePreviewCore: AnyObject {
 extension CoreBridge: LivePreviewCore {}
 
 /// Serial session lifecycle. Audio admission is bounded and never waits for inference.
-final class LivePreviewService {
-    var onUpdate: ((String, String, String) -> Void)?
-    var onError: ((String) -> Void)?
+// Session state is protected by lock. Callbacks belong to the main actor.
+final class LivePreviewService: @unchecked Sendable {
+    @MainActor var onUpdate: (@MainActor @Sendable (String, String, String) -> Void)?
+    @MainActor var onError: (@MainActor @Sendable (String) -> Void)?
     private let bridge: LivePreviewCore
     private let workQueue = DispatchQueue(label: "parakatt.livepreview.worker", qos: .userInitiated)
     private let lock = NSLock()
@@ -103,7 +104,7 @@ final class LivePreviewService {
         }
     }
 
-    func stop(completion: @escaping (String) -> Void = { _ in }) {
+    @MainActor func stop(completion: @escaping @MainActor @Sendable (String) -> Void = { _ in }) {
         lock.lock()
         accepting = false
         let id = sessionID

@@ -32,15 +32,16 @@ final class MediaPlayback: ObservableObject {
 
     // The closure lets tests control preparation without changing the player lifecycle.
     func load(track: Int32 = 0, duration: Double = 0, timeout: TimeInterval = 20,
-              prepare: @escaping (MediaCancellation, @escaping (MediaPlaybackProgress) -> Void) async throws -> URL) {
+              prepare: @escaping (MediaCancellation, @escaping @Sendable (MediaPlaybackProgress) -> Void) async throws -> URL) {
         stop(); loading = true; error = nil; preparation = .checkingSource(0)
         self.duration = duration
         let token = self.token
-        task = Task {
+        task = Task { [weak self] in
+            guard let self else { return }
             defer { if self.token === token { task = nil } }
             do {
                 let url = try await prepare(token, { [weak self] progress in
-                    Task { @MainActor in
+                    Task { @MainActor [weak self] in
                         guard let self, self.token === token, !token.isCancelled, self.loading else { return }
                         self.preparation = progress
                     }

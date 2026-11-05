@@ -83,7 +83,12 @@ final class MediaToolProgress: @unchecked Sendable {
 
 enum MediaTools {
     #if DEBUG
-    static var testDirectory: URL?
+    private static let testDirectoryLock = NSLock()
+    nonisolated(unsafe) private static var storedTestDirectory: URL?
+    static var testDirectory: URL? {
+        get { testDirectoryLock.lock(); defer { testDirectoryLock.unlock() }; return storedTestDirectory }
+        set { testDirectoryLock.lock(); defer { testDirectoryLock.unlock() }; storedTestDirectory = newValue }
+    }
     #endif
     static var directory: URL {
         #if DEBUG
@@ -116,7 +121,7 @@ enum MediaTools {
         }
     }
     /// stdout and stderr are drained concurrently, with bounded retained output.
-    static func run(_ name: String, _ arguments: [String], cancellation: MediaCancellation, limit: Int = 4 * 1024 * 1024, workingDirectory: URL? = nil, stallTimeout: TimeInterval? = nil, progress: ((String) -> Void)? = nil) throws -> Data {
+    static func run(_ name: String, _ arguments: [String], cancellation: MediaCancellation, limit: Int = 4 * 1024 * 1024, workingDirectory: URL? = nil, stallTimeout: TimeInterval? = nil, progress: (@Sendable (String) -> Void)? = nil) throws -> Data {
         try cancellation.check()
         let process = Process(); process.executableURL = try executable(name); process.arguments = arguments
         process.currentDirectoryURL = workingDirectory
@@ -204,9 +209,9 @@ enum MediaTools {
         try cancellation.check(); progress?(1)
         return hash.finalize().map { String(format: "%02x", $0) }.joined()
     }
-    static func samples(_ url: URL, track: Int32, start: Double, duration: Double, cancellation: MediaCancellation) throws -> [Float] {
+    static func samples(_ url: URL, track: Int32, start: Double, duration: Double, cancellation: MediaCancellation) async throws -> [Float] {
         try cancellation.check()
-        do { return try nativeSamples(url, track: track, start: start, duration: duration, cancellation: cancellation) }
+        do { return try await nativeSamples(url, track: track, start: start, duration: duration, cancellation: cancellation) }
         catch is CancellationError { throw CancellationError() }
         catch { }
         let data = try run("ffmpeg", ["-nostdin", "-v", "error", "-ss", String(start), "-i", url.path, "-map", "0:a:\(track)", "-vn", "-t", String(duration), "-af", "aresample=16000:async=1:first_pts=0", "-ac", "1", "-ar", "16000", "-f", "f32le", "pipe:1"], cancellation: cancellation)
@@ -215,9 +220,9 @@ enum MediaTools {
         if samples.count < count { samples.append(contentsOf: repeatElement(0, count: count - samples.count)) }
         return Array(samples.prefix(count))
     }
-    private static func nativeSamples(_ url: URL, track: Int32, start: Double, duration: Double, cancellation: MediaCancellation) throws -> [Float] {
+    private static func nativeSamples(_ url: URL, track: Int32, start: Double, duration: Double, cancellation: MediaCancellation) async throws -> [Float] {
         let asset = AVURLAsset(url: url)
-        let tracks = asset.tracks(withMediaType: .audio)
+        let tracks = try await asset.loadTracks(withMediaType: .audio)
         guard tracks.indices.contains(Int(track)) else { throw MediaImportError("Audio track is unavailable.") }
         let reader = try AVAssetReader(asset: asset)
         reader.timeRange = CMTimeRange(start: CMTime(seconds: start, preferredTimescale: 16_000), duration: CMTime(seconds: duration, preferredTimescale: 16_000))
@@ -232,7 +237,10 @@ enum MediaTools {
             guard let block = CMSampleBufferGetDataBuffer(buffer) else { throw MediaImportError("Invalid decoded audio.") }
             let length = CMBlockBufferGetDataLength(block)
             var data = Data(count: length)
-            let status = data.withUnsafeMutableBytes { CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: length, destination: $0.baseAddress!) }
+            let status = data.withUnsafeMutableBytes { bytes -> OSStatus in
+                guard let address = bytes.baseAddress else { return kCMBlockBufferBadLengthParameterErr }
+                return CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: length, destination: address)
+            }
             guard status == kCMBlockBufferNoErr else { throw MediaImportError("Invalid decoded audio.") }
             let offset = Int(((CMSampleBufferGetPresentationTimeStamp(buffer).seconds - start) * 16_000).rounded())
             data.withUnsafeBytes { bytes in

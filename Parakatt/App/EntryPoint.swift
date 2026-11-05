@@ -6,6 +6,7 @@ import Foundation
 /// and calls this function to start the application. This decoupling keeps
 /// the launcher binary identical across versions so macOS TCC permissions
 /// persist after updates.
+@MainActor
 @_cdecl("parakatt_main")
 public func parakattMain() {
     ParakattApp.main()

@@ -26,7 +26,7 @@ class PermissionService {
         let alreadyPrompted = UserDefaults.standard.bool(forKey: Self.accessibilityPromptedKey)
         if !alreadyPrompted {
             NSLog("[Parakatt] Accessibility: prompting user...")
-            let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
+            let options = ["AXTrustedCheckOptionPrompt" as CFString: true] as CFDictionary
             AXIsProcessTrustedWithOptions(options)
             UserDefaults.standard.set(true, forKey: Self.accessibilityPromptedKey)
         } else {
