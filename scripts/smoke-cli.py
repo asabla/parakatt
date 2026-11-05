@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Check output-only CLI recognition with two pinned public speech fixtures."""
+
 import argparse
 import hashlib
 import json
@@ -13,7 +14,9 @@ import tempfile
 
 # The pinned fixtures use IEEE float WAV, unsupported by Python <3.15's wave
 # reader. Reuse the existing fixture decoder rather than the host's wave API.
-read_fixture_audio = runpy.run_path(str(Path(__file__).with_name("prepare-edge-fixtures.py")))["read_audio"]
+read_fixture_audio = runpy.run_path(str(Path(__file__).with_name("prepare-edge-fixtures.py")))[
+    "read_audio"
+]
 
 
 def digest(path):
@@ -43,9 +46,18 @@ def check(binary, models, manifest):
             assert digest(audio) == fixture["sha256"], "Fixture checksum mismatch"
             duration = len(read_fixture_audio(audio)) / 16000
             command = [str(binary), "--models-dir", str(models), "transcribe", str(audio)]
-            runs = [subprocess.run(command + ["--format", fmt], cwd=root, env=env,
-                                   capture_output=True, text=True, check=True, timeout=180)
-                    for fmt in ("text", "json")]
+            runs = [
+                subprocess.run(
+                    command + ["--format", fmt],
+                    cwd=root,
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    timeout=180,
+                )
+                for fmt in ("text", "json")
+            ]
             transcript = json.loads(runs[1].stdout)
             assert transcript["source"] == {"kind": "file", "path": str(audio)}
             assert transcript["backend"] == "cpu"
@@ -62,14 +74,28 @@ def check(binary, models, manifest):
                 assert segment["text"].strip()
                 previous = end
             assert snapshot(root) == before, "CLI wrote application state"
-            results.append({"fixture": fixture["id"], "audio_sha256": fixture["sha256"],
-                            "duration_secs": duration, "segments": len(transcript["segments"]),
-                            "text_sha256": hashlib.sha256(transcript["text"].encode()).hexdigest(),
-                            "text_json_equal": True, "isolated_state_unchanged": True})
-    return {"platform": platform.platform(), "architecture": platform.machine(),
-            "binary_sha256": digest(binary), "backend": "cpu", "model": transcript["model"],
-            "dataset": fixtures["dataset"], "revision": fixtures["revision"],
-            "license": fixtures["license"], "results": results}
+            results.append(
+                {
+                    "fixture": fixture["id"],
+                    "audio_sha256": fixture["sha256"],
+                    "duration_secs": duration,
+                    "segments": len(transcript["segments"]),
+                    "text_sha256": hashlib.sha256(transcript["text"].encode()).hexdigest(),
+                    "text_json_equal": True,
+                    "isolated_state_unchanged": True,
+                }
+            )
+    return {
+        "platform": platform.platform(),
+        "architecture": platform.machine(),
+        "binary_sha256": digest(binary),
+        "backend": "cpu",
+        "model": transcript["model"],
+        "dataset": fixtures["dataset"],
+        "revision": fixtures["revision"],
+        "license": fixtures["license"],
+        "results": results,
+    }
 
 
 if __name__ == "__main__":

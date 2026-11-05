@@ -1,4 +1,5 @@
 """Verify release assets and prepare the same metadata in CI and tag builds."""
+
 import argparse
 import hashlib
 from pathlib import Path
@@ -12,8 +13,11 @@ from release_version import synchronize
 def prepare(root, dist):
     version, _ = synchronize(root, check=True)
     synchronize(root, check=True, tag=f"v{version}")
-    names = [f"Parakatt-{version}-arm64.dmg", f"Parakatt-{version}-arm64.zip",
-             f"Parakatt-{version}-media-sources.zip"]
+    names = [
+        f"Parakatt-{version}-arm64.dmg",
+        f"Parakatt-{version}-arm64.zip",
+        f"Parakatt-{version}-media-sources.zip",
+    ]
     for name in names:
         if not (dist / name).is_file():
             raise ValueError(f"Missing release asset: {name}")
@@ -22,7 +26,7 @@ def prepare(root, dist):
     for name in names:
         with (dist / name).open("rb") as stream:
             checksums.append(f"{hashlib.file_digest(stream, 'sha256').hexdigest()}  {name}\n")
-    (dist / "SHA256SUMS").write_text(''.join(checksums))
+    (dist / "SHA256SUMS").write_text("".join(checksums))
     (dist / "parakatt.rb").write_text(cask_for_dmg(root, dist / names[0]))
     shutil.copyfile(root / "RELEASE_NOTES.md", dist / "RELEASE_NOTES.md")
     print(f"Prepared release metadata for {version}")

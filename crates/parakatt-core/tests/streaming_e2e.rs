@@ -1,3 +1,4 @@
+#![allow(clippy::expect_used, reason = "test and example fixture setup")]
 //! End-to-end integration tests for the cache-aware streaming
 //! preview pipeline.
 //!

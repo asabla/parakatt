@@ -50,7 +50,7 @@ final class MaintenanceProfileTests: XCTestCase {
         let log = OSLog(subsystem: "com.parakatt.maintenance", category: .pointsOfInterest)
         var gaps: [Double] = []
         var previous = CFAbsoluteTimeGetCurrent()
-        let timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60, repeats: true) { _ in
+        let timer = MainActorTimer.scheduledTimer(withTimeInterval: 1.0 / 60, repeats: true) {
             let now = CFAbsoluteTimeGetCurrent()
             gaps.append(now - previous)
             previous = now

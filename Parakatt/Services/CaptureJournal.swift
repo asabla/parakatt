@@ -2,7 +2,8 @@ import Foundation
 import ParakattCore
 
 /// Bounds queued work before it owns an audio array. Owners release after work finishes.
-final class WorkCapacity {
+// The lock protects the reservation counter; the limit is immutable.
+final class WorkCapacity: @unchecked Sendable {
     private let lock = NSLock()
     private var used = 0
     let limit: Int
@@ -22,7 +23,8 @@ final class WorkCapacity {
 
 /// Writes on its own queue, with at most two seconds of pending audio in memory.
 /// Call finish from a worker after capture stops, before final session persistence.
-final class CaptureJournal {
+// Failure state is locked; audio writes are confined to queue.
+final class CaptureJournal: @unchecked Sendable {
     private let queue = DispatchQueue(label: "Parakatt.capture-recovery", qos: .utility)
     private let queueKey = DispatchSpecificKey<Bool>()
     private let capacity = WorkCapacity(limit: 32_000)
@@ -31,8 +33,8 @@ final class CaptureJournal {
     private let bridge: CoreBridge
     let id: String
     private let enabled: Bool
-    private let onFailure: (String) -> Void
-    init(bridge: CoreBridge, id: String, source: String, mode: String, onFailure: @escaping (String) -> Void) throws {
+    private let onFailure: @MainActor @Sendable (String) -> Void
+    init(bridge: CoreBridge, id: String, source: String, mode: String, onFailure: @escaping @MainActor @Sendable (String) -> Void) throws {
         self.bridge = bridge; self.id = id; self.onFailure = onFailure
         enabled = bridge.getRecoveryAudio()
         queue.setSpecific(key: queueKey, value: true)

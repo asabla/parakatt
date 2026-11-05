@@ -137,7 +137,7 @@ struct TranscriptionDetailView: View {
         }
     }
 
-    private func performHistoryChange(_ work: @escaping (CoreBridge) throws -> Void) {
+    private func performHistoryChange(_ work: @escaping @Sendable (CoreBridge) throws -> Void) {
         operationBusy = true
         operationError = nil
         appState.changeHistory(work) { error in

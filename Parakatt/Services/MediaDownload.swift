@@ -4,12 +4,12 @@ import Foundation
 final class MediaDownload: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
     private let destination: URL
     private let cancellation: MediaCancellation
-    private let progress: (Double?) -> Void
+    private let progress: @Sendable (Double?) -> Void
     private let done = DispatchSemaphore(value: 0)
     private var failure: Error?
     private var receivedFile = false
     private var lastProgress: TimeInterval = 0
-    init(destination: URL, cancellation: MediaCancellation, progress: @escaping (Double?) -> Void) {
+    init(destination: URL, cancellation: MediaCancellation, progress: @escaping @Sendable (Double?) -> Void) {
         self.destination = destination; self.cancellation = cancellation; self.progress = progress
     }
     func fetch(_ url: URL) throws {
@@ -74,14 +74,15 @@ enum MediaLink {
             else if ["shorts", "embed", "live"].contains(parts.first.map(String.init) ?? ""), parts.count == 2 { id = String(parts[1]) }
             else { id = nil }
             guard let id, id.range(of: "^[A-Za-z0-9_-]{11}$", options: .regularExpression) != nil else { throw MediaImportError("Use an individual YouTube video link. Playlists are not supported.") }
-            return ("youtube", URL(string: "https://www.youtube.com/watch?v=\(id)")!)
+            guard let canonical = URL(string: "https://www.youtube.com/watch?v=\(id)") else { throw MediaImportError("Invalid video link.") }
+            return ("youtube", canonical)
         }
         return ("direct", url)
     }
     static func youtubeArguments(directory: URL) throws -> [String] {
         ["--ignore-config", "--no-plugin-dirs", "--no-playlist", "--no-update", "--no-remote-components", "--no-js-runtimes", "--js-runtimes", "deno:\(try MediaTools.executable("deno").path)", "--ffmpeg-location", MediaTools.directory.path, "--no-cache-dir", "--paths", directory.path, "--socket-timeout", "30", "--retries", "3", "--fragment-retries", "3", "--no-cookies", "--no-cookies-from-browser"]
     }
-    static func downloadYouTube(_ url: URL, directory: URL, cancellation: MediaCancellation, progress: @escaping (Double?) -> Void) throws -> URL {
+    static func downloadYouTube(_ url: URL, directory: URL, cancellation: MediaCancellation, progress: @escaping @Sendable (Double?) -> Void) throws -> URL {
         let base = try youtubeArguments(directory: directory)
         let metadata = try MediaTools.run("yt-dlp", base + ["--skip-download", "--dump-single-json", "--", url.absoluteString], cancellation: cancellation, workingDirectory: directory)
         let object = try JSONSerialization.jsonObject(with: metadata) as? [String: Any]

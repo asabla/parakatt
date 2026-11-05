@@ -1,3 +1,4 @@
+#![allow(clippy::expect_used, reason = "test and example fixture setup")]
 /// E2E test for LLM integration.
 ///
 /// Tests: model listing, LLM configuration, and transcription with post-processing.

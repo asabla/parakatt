@@ -91,8 +91,8 @@ final class MediaImportService: ObservableObject {
             task = nil; activeID = nil; transferProgress = nil; refresh(); startNext()
         }
     }
-    private func work<T>(_ body: @escaping () throws -> T) async throws -> T {
-        try await Task.detached(priority: .utility) { try body() }.value
+    private func work<T: Sendable>(_ body: @escaping @Sendable () async throws -> T) async throws -> T {
+        try await Task.detached(priority: .utility) { try await body() }.value
     }
     private func state(_ id: String, _ value: String, _ message: String = "") throws {
         guard !shuttingDown else { throw CancellationError() }
@@ -112,9 +112,10 @@ final class MediaImportService: ObservableObject {
                 guard job.nextChunk == 0 else { throw MediaImportError("The downloaded source is missing. Locate the same video to resume, or start a new import.") }
                 try state(id, "downloading")
                 guard let remote = URL(string: job.input) else { throw MediaImportError("The saved media link is invalid.") }
-                let progress: (Double?) -> Void = { [weak self] value in Task { @MainActor in if self?.activeID == id { self?.transferProgress = value } } }
+                let progress: @Sendable (Double?) -> Void = { [weak self] value in Task { @MainActor [weak self] in if self?.activeID == id { self?.transferProgress = value } } }
+                let kind = job.kind
                 url = try await work {
-                    if job.kind == "youtube" { return try MediaLink.downloadYouTube(remote, directory: directory, cancellation: token, progress: progress) }
+                    if kind == "youtube" { return try MediaLink.downloadYouTube(remote, directory: directory, cancellation: token, progress: progress) }
                     let target = directory.appendingPathComponent("source.media")
                     try MediaDownload(destination: target, cancellation: token, progress: progress).fetch(remote)
                     return target
@@ -140,6 +141,7 @@ final class MediaImportService: ObservableObject {
             job.attachment.path = url.path; job.attachment.fingerprint = fingerprint; job.attachment.audioTrack = track
             job.attachment.durationSecs = (info.duration * 16_000).rounded() / 16_000
             job = try bridge.attachMedia(id, job.attachment)
+            let selectedTrack = track
             try state(id, "transcribing")
             let bridge = self.bridge
             while true {
@@ -153,7 +155,7 @@ final class MediaImportService: ObservableObject {
                 let offset = job.nextChunk == 0 ? 0 : max(0, job.processedUntil - 2)
                 let length = min(30, job.attachment.durationSecs - offset)
                 guard try sourceIdentity(url) == originalAttributes else { try bridge.invalidateImportSource(id); throw MediaImportError("The source changed during transcription. Start a new import.") }
-                let samples = try await work { try MediaTools.samples(url, track: track, start: offset, duration: length, cancellation: token) }
+                let samples = try await work { try await MediaTools.samples(url, track: selectedTrack, start: offset, duration: length, cancellation: token) }
                 try token.check()
                 while !canTranscribe() { try await Task.sleep(nanoseconds: 300_000_000); try token.check() }
                 guard try sourceIdentity(url) == originalAttributes else { try bridge.invalidateImportSource(id); throw MediaImportError("The source changed during transcription. Start a new import.") }
@@ -233,7 +235,7 @@ final class MediaImportService: ObservableObject {
         }
     }
     func attachment(_ id: String) -> ImportJob? { try? bridge.importJob(id) }
-    func playbackURL(_ id: String, token: MediaCancellation, progress: @escaping (MediaPlaybackProgress) -> Void = { _ in }) async throws -> URL {
+    func playbackURL(_ id: String, token: MediaCancellation, progress: @escaping @Sendable (MediaPlaybackProgress) -> Void = { _ in }) async throws -> URL {
         guard !shuttingDown else { throw CancellationError() }
         playbackCancellations[id]?.cancel()
         playbackCancellations[id] = token

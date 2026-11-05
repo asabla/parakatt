@@ -1,30 +1,66 @@
 #!/usr/bin/env python3
 """Exercise bundled tools, media decoding, local STT and history with an isolated PATH."""
-import argparse, json, os, pathlib, subprocess, tempfile
-parser=argparse.ArgumentParser()
-parser.add_argument('app',type=pathlib.Path)
-parser.add_argument('media',type=pathlib.Path)
-parser.add_argument('--models',type=pathlib.Path)
-parser.add_argument('--output',type=pathlib.Path)
-parser.add_argument('--playback', action='store_true', help='Check direct playback, displayed frames, seeking and reloading without transcribing')
-parser.add_argument('--headless', action='store_true', help='Validate decoded frames without a GPU display (requires --playback)')
-args=parser.parse_args()
-if args.headless and not args.playback: parser.error('--headless requires --playback')
-with tempfile.TemporaryDirectory(prefix='parakatt-media-smoke-') as directory:
-    env=dict(os.environ,PARAKATT_SMOKE_TEST='1',PARAKATT_DATA_ROOT=directory,PARAKATT_SMOKE_MEDIA=str(args.media.resolve()),PATH='/usr/bin:/bin:/usr/sbin:/sbin',HOME=directory)
-    env.pop('PARAKATT_SMOKE_HEADLESS', None)
-    if args.headless: env['PARAKATT_SMOKE_HEADLESS']='1'
+
+import argparse
+import json
+import os
+import pathlib
+import subprocess
+import tempfile
+
+parser = argparse.ArgumentParser()
+parser.add_argument("app", type=pathlib.Path)
+parser.add_argument("media", type=pathlib.Path)
+parser.add_argument("--models", type=pathlib.Path)
+parser.add_argument("--output", type=pathlib.Path)
+parser.add_argument(
+    "--playback",
+    action="store_true",
+    help="Check direct playback, displayed frames, seeking and reloading without transcribing",
+)
+parser.add_argument(
+    "--headless",
+    action="store_true",
+    help="Validate decoded frames without a GPU display (requires --playback)",
+)
+args = parser.parse_args()
+if args.headless and not args.playback:
+    parser.error("--headless requires --playback")
+with tempfile.TemporaryDirectory(prefix="parakatt-media-smoke-") as directory:
+    env = dict(
+        os.environ,
+        PARAKATT_SMOKE_TEST="1",
+        PARAKATT_DATA_ROOT=directory,
+        PARAKATT_SMOKE_MEDIA=str(args.media.resolve()),
+        PATH="/usr/bin:/bin:/usr/sbin:/sbin",
+        HOME=directory,
+    )
+    env.pop("PARAKATT_SMOKE_HEADLESS", None)
+    if args.headless:
+        env["PARAKATT_SMOKE_HEADLESS"] = "1"
     if args.playback:
-        env.pop('PARAKATT_SMOKE_MEDIA')
-        env['PARAKATT_SMOKE_PLAYBACK']=str(args.media.resolve())
-    if args.models: env['PARAKATT_SMOKE_MODEL_ROOT']=str(args.models.resolve())
-    with (pathlib.Path(directory)/'run.log').open('w') as output:
-        completed=subprocess.run([str(args.app.resolve()/'Contents/MacOS/Parakatt')],env=env,stdout=output,stderr=output,timeout=1800)
-    report=json.loads((pathlib.Path(directory)/'startup.json').read_text())
-    section, state = ('playback', 'ready') if args.playback else ('media', 'completed')
-    if completed.returncode or 'error' in report or report.get(section,{}).get('state')!=state:
-        raise SystemExit(json.dumps(report,indent=2))
-    if args.playback and report['playback'].get('video_output') != ('headless' if args.headless else 'window'): raise SystemExit('Playback validation used the wrong output mode')
-    if not args.playback and report['media']['max_audio_samples']>480000: raise SystemExit('Audio buffer exceeded its bound')
-    if args.output: args.output.write_text(json.dumps(report,indent=2)+'\n')
-    print(json.dumps(report,indent=2))
+        env.pop("PARAKATT_SMOKE_MEDIA")
+        env["PARAKATT_SMOKE_PLAYBACK"] = str(args.media.resolve())
+    if args.models:
+        env["PARAKATT_SMOKE_MODEL_ROOT"] = str(args.models.resolve())
+    with (pathlib.Path(directory) / "run.log").open("w") as output:
+        completed = subprocess.run(
+            [str(args.app.resolve() / "Contents/MacOS/Parakatt")],
+            env=env,
+            stdout=output,
+            stderr=output,
+            timeout=1800,
+        )
+    report = json.loads((pathlib.Path(directory) / "startup.json").read_text())
+    section, state = ("playback", "ready") if args.playback else ("media", "completed")
+    if completed.returncode or "error" in report or report.get(section, {}).get("state") != state:
+        raise SystemExit(json.dumps(report, indent=2))
+    if args.playback and report["playback"].get("video_output") != (
+        "headless" if args.headless else "window"
+    ):
+        raise SystemExit("Playback validation used the wrong output mode")
+    if not args.playback and report["media"]["max_audio_samples"] > 480000:
+        raise SystemExit("Audio buffer exceeded its bound")
+    if args.output:
+        args.output.write_text(json.dumps(report, indent=2) + "\n")
+    print(json.dumps(report, indent=2))

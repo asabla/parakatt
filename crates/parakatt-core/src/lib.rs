@@ -1,7 +1,10 @@
 pub mod audio;
 mod capture_recovery;
+#[cfg_attr(not(test), deny(clippy::unwrap_used, clippy::indexing_slicing))]
 pub mod config;
+#[cfg_attr(not(test), deny(clippy::unwrap_used, clippy::indexing_slicing))]
 mod credentials;
+#[cfg_attr(not(test), deny(clippy::unwrap_used, clippy::indexing_slicing))]
 pub mod dictionary;
 pub mod download;
 pub mod engine;

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Check release layout, deployment targets, and the stable launcher identity."""
+
 import argparse
 from pathlib import Path
 import plistlib
@@ -13,46 +14,64 @@ root = Path(__file__).resolve().parents[1]
 app = args.app.resolve()
 with (app / "Contents/Info.plist").open("rb") as stream:
     info = plistlib.load(stream)
-for field, filename in (("CFBundleShortVersionString", "VERSION"), ("CFBundleVersion", "BUILD_NUMBER")):
+for field, filename in (
+    ("CFBundleShortVersionString", "VERSION"),
+    ("CFBundleVersion", "BUILD_NUMBER"),
+):
     expected = (root / filename).read_text().strip()
     if info.get(field) != expected:
         raise SystemExit(f"Packaged {field} is {info.get(field)!r}; expected {expected!r}")
 print("Verified packaged version and build number")
-subprocess.run(["python3", str(root / "scripts/verify-launcher.py"), str(app / "Contents/MacOS/Parakatt")], check=True)
+subprocess.run(
+    ["python3", str(root / "scripts/verify-launcher.py"), str(app / "Contents/MacOS/Parakatt")],
+    check=True,
+)
 failures, binaries = [], []
 for path in app.rglob("*"):
-    if path.is_symlink() or not path.is_file(): continue
-    with path.open("rb") as stream: magic = stream.read(4)
-    if magic not in (b"\xcf\xfa\xed\xfe", b"\xfe\xed\xfa\xcf", b"\xca\xfe\xba\xbe"): continue
+    if path.is_symlink() or not path.is_file():
+        continue
+    with path.open("rb") as stream:
+        magic = stream.read(4)
+    if magic not in (b"\xcf\xfa\xed\xfe", b"\xfe\xed\xfa\xcf", b"\xca\xfe\xba\xbe"):
+        continue
     binaries.append(path)
     build = subprocess.check_output(["xcrun", "vtool", "-show-build", str(path)], text=True)
     for version in re.findall(r"minos\s+([\d.]+)", build):
         parts = tuple(map(int, version.split(".")))
-        if parts > (14, 0): failures.append(f"{path.name} requires macOS {version}")
+        if parts > (14, 0):
+            failures.append(f"{path.name} requires macOS {version}")
     links = subprocess.check_output(["otool", "-L", str(path)], text=True).splitlines()[1:]
     for link in links:
-        if not link[:1].isspace(): continue  # Universal binaries repeat an architecture header.
+        if not link[:1].isspace():
+            continue  # Universal binaries repeat an architecture header.
         name = link.strip().split(" (", 1)[0]
         if name.startswith("/") and not name.startswith(("/System/Library/", "/usr/lib/")):
             failures.append(f"Non-system absolute library dependency: {name}")
         if "libwebgpu_dawn" in name and not list(app.rglob("libwebgpu_dawn.dylib")):
             failures.append("WebGPU native runtime is missing from the app")
-if not binaries: failures.append("No app binaries found")
-if failures: raise SystemExit("\n".join(failures))
+if not binaries:
+    failures.append("No app binaries found")
+if failures:
+    raise SystemExit("\n".join(failures))
 print(f"Verified {len(binaries)} Mach-O binaries and macOS 14 deployment targets")
 
 helpers = app / "Contents/Helpers/MediaTools"
 for name in ("yt-dlp", "deno", "ffmpeg", "ffprobe"):
     helper = helpers / name
-    if not helper.is_file(): raise SystemExit(f"Missing bundled media tool: {name}")
+    if not helper.is_file():
+        raise SystemExit(f"Missing bundled media tool: {name}")
     subprocess.run(["codesign", "--verify", str(helper)], check=True)
-if not (app / "Contents/Resources/MediaTools/licenses").is_dir(): raise SystemExit("Missing media license notices")
+if not (app / "Contents/Resources/MediaTools/licenses").is_dir():
+    raise SystemExit("Missing media license notices")
 print("Verified self-contained media tool layout")
 
 playback = app / "Contents/Frameworks/VLCKit.framework"
-if not (playback / "VLCKit").is_file(): raise SystemExit("Missing bundled video playback framework")
+if not (playback / "VLCKit").is_file():
+    raise SystemExit("Missing bundled video playback framework")
 subprocess.run(["codesign", "--verify", "--strict", str(playback)], check=True)
 for name in ("VLCKit-LGPL-2.1.txt",):
-    if not (app / "Contents/Resources/MediaTools/licenses" / name).is_file(): raise SystemExit("Missing playback license notice: " + name)
-if not (app / "Contents/Resources/MediaTools/playback-engine.json").is_file(): raise SystemExit("Missing playback engine version manifest")
+    if not (app / "Contents/Resources/MediaTools/licenses" / name).is_file():
+        raise SystemExit("Missing playback license notice: " + name)
+if not (app / "Contents/Resources/MediaTools/playback-engine.json").is_file():
+    raise SystemExit("Missing playback engine version manifest")
 print("Verified bundled playback engine and notices")

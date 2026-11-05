@@ -1,4 +1,4 @@
-.PHONY: all rust cli swift-package swift-package-force media-tools xcode build release package test clean run launcher prepare-run run-detached verify-version
+.PHONY: all rust cli swift-package swift-package-force media-tools xcode build release package test clean run launcher prepare-run run-detached verify-version quality
 
 # Keep the generated FFI package separate from older global Xcode artifacts.
 export PARAKATT_DERIVED_DATA ?= $(CURDIR)/target/xcode
@@ -29,6 +29,16 @@ cli:
 # Run Rust tests
 test:
 	cargo test --locked
+
+# Run the source checks used by CI. Install pinned tools before running this target.
+quality:
+	cargo fmt --check
+	cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+	env swiftlint lint --strict --no-cache
+	env ruff check scripts
+	env ruff format --check scripts
+	env actionlint
+	cargo deny --locked check licenses bans sources
 
 # Build Rust before fingerprinting and generating the matching Swift bindings.
 swift-package: rust

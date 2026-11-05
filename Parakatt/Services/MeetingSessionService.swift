@@ -8,40 +8,42 @@ import ParakattCore
 /// The accumulated transcript is available in real time and is persisted
 /// on session finish.
 @available(macOS 14.2, *)
-class MeetingSessionService {
+// Audio arrays use the stream/buffer locks. Shared scalar state uses Locked.
+// UI callbacks and lifecycle entry points are isolated to the main actor.
+final class MeetingSessionService: @unchecked Sendable {
     // MARK: - Callbacks
 
     private let transcriptionQueue = DispatchQueue(label: "Parakatt.meeting.transcription", qos: .userInitiated)
     /// Called when a new chunk is transcribed (new text, accumulated text, segments).
-    var onProcessedText: ((String) -> Void)?
-    private var processingTimer: Timer?
-    private var processingEvents: TranscriptEventStore?
+    @MainActor var onProcessedText: ((String) -> Void)?
+    @MainActor private var processingTimer: Timer?
+    @MainActor private var processingEvents: TranscriptEventStore?
     private let cancellationLock = NSLock()
     private var cancellationRequested = false
     private var cancelled: Bool {
         get { cancellationLock.lock(); defer { cancellationLock.unlock() }; return cancellationRequested }
         set { cancellationLock.lock(); cancellationRequested = newValue; cancellationLock.unlock() }
     }
-    var onChunkTranscribed: ((String, String, [TimestampedSegment]) -> Void)?
+    @MainActor var onChunkTranscribed: ((String, String, [TimestampedSegment]) -> Void)?
     /// Called when the session finishes with the final result.
-    var onSessionFinished: ((TranscriptionResult) -> Void)?
+    @MainActor var onSessionFinished: ((TranscriptionResult) -> Void)?
     /// Called if an error occurs during the session.
-    var onError: ((String) -> Void)?
-    var onSessionFailed: ((String) -> Void)?
+    @MainActor var onError: ((String) -> Void)?
+    @MainActor var onSessionFailed: ((String) -> Void)?
     /// Called after each chunk dispatch with per-source signal levels. Lets
     /// the UI detect "only own voice captured" conditions while a meeting is
     /// still running (micRms > silence, systemRms at/near zero).
     /// `dbfs` values, or nil if that source delivered zero samples this window.
-    var onChunkHealth: ((_ micDbfs: Double?, _ systemDbfs: Double?) -> Void)?
+    @MainActor var onChunkHealth: ((_ micDbfs: Double?, _ systemDbfs: Double?) -> Void)?
     /// Forwards periodic health from the system-audio tap itself. Emitted
     /// ~every 2s from the capture callback queue; hop to main before touching
     /// UI state. Useful for distinguishing "tap delivers empty buffers" from
     /// "tap delivers near-zero signal" from "all good".
-    var onSystemAudioHealth: ((SystemAudioHealth) -> Void)?
+    @MainActor var onSystemAudioHealth: ((SystemAudioHealth) -> Void)?
     /// Peak mic amplitude for the last capture window, 0…1. Emitted every
     /// mic callback so the UI has a live audio-level indicator during the
     /// 28s before the first chunk transcribes.
-    var onMicLevel: ((Float) -> Void)?
+    @MainActor var onMicLevel: ((Float) -> Void)?
     /// Publicly visible chunk cadence so the UI can show a progress bar.
     var chunkIntervalSecs: Double { chunkDurationSecs - overlapDurationSecs }
     var firstChunkSecs: Double { chunkDurationSecs }
@@ -63,7 +65,7 @@ class MeetingSessionService {
     private static let maxBufferSamples: Int = 5 * 60 * 16_000
     /// Throttle for the overflow log line so a wedged STT thread doesn't
     /// produce 100+ identical warnings per second.
-    private var lastBufferOverflowLogAt: CFAbsoluteTime = 0
+    @Locked private var lastBufferOverflowLogAt: CFAbsoluteTime = 0
 
     // MARK: - Audio sources
 
@@ -75,7 +77,7 @@ class MeetingSessionService {
     private let sessionId: String
     private let bridge: CoreBridge
 
-    private var captureJournal: CaptureJournal?
+    @Locked private var captureJournal: CaptureJournal?
     private let speechWork = WorkCapacity(limit: 2)
     private var mixBuffer: [Float] = []
     /// When `dualStreamEnabled`, these hold the same wall-clock window as
@@ -85,48 +87,48 @@ class MeetingSessionService {
     private var systemChunkBuffer: [Float] = []
     /// Whether this session should dispatch mic and system as separate
     /// chunks (captured at `start()` from the speaker-labels setting).
-    private var dualStreamEnabled: Bool = false
+    @Locked private var dualStreamEnabled: Bool = false
     private let bufferLock = NSLock()
-    private var chunkIndex: UInt32 = 0
-    private var isActive = false
-    private var chunkTimer: Timer?
-    private var startTime: Date?
+    @Locked private var chunkIndex: UInt32 = 0
+    @Locked private var isActive = false
+    @MainActor private var chunkTimer: Timer?
+    @MainActor private var startTime: Date?
     /// Absolute timestamp at which capture started. Used as the reference
     /// point when a source has never delivered samples — otherwise the
     /// `lastSystemReceivedAt > 0` check in mixPendingSamples treats a
     /// never-delivering source as "not stale" and mic samples pile up.
-    private var captureStartedAt: CFAbsoluteTime = 0
+    @Locked private var captureStartedAt: CFAbsoluteTime = 0
     /// Watchdog timer that fires every 2s independent of the system-audio
     /// tap's IOProc. On macOS 26 we've observed the tap register cleanly
     /// but never deliver callbacks — this timer surfaces that via
     /// onSystemAudioHealth so the UI doesn't sit at "Starting…" forever.
-    private var healthWatchdog: Timer?
+    @MainActor private var healthWatchdog: Timer?
 
     /// Mode and context used for per-chunk LLM processing.
-    private var activeMode: String = "dictation"
-    private var activeContext: AppContextInfo?
+    @Locked private var activeMode: String = "dictation"
+    @Locked private var activeContext: AppContextInfo?
     /// Remembered target process ID (if any) so pause/resume captures from
     /// the same source the session originally started with.
-    private var activeProcessID: pid_t?
+    @Locked private var activeProcessID: pid_t?
 
     /// Accumulated full transcript (updated after each chunk).
-    private(set) var accumulatedText: String = ""
+    @Locked private(set) var accumulatedText: String = ""
 
     /// Number of chunks that have been dispatched (mic+sys mixed).
-    private var chunksDispatched: Int = 0
+    @Locked private var chunksDispatched: Int = 0
     /// Number of chunks that failed during processChunk. Used to detect
     /// the "every chunk silently failed" pathology that issue #23 was
     /// about — if all chunks fail, the user gets an error on stop()
     /// instead of a quietly empty transcript.
-    private var chunksFailed: Int = 0
+    @Locked private var chunksFailed: Int = 0
 
     /// Elapsed time since session start.
-    var elapsedTime: TimeInterval {
+    @MainActor var elapsedTime: TimeInterval {
         guard let startTime else { return 0 }
         return Date().timeIntervalSince(startTime)
     }
 
-    init(bridge: CoreBridge) {
+    @MainActor init(bridge: CoreBridge) {
         self.bridge = bridge
         self.sessionId = UUID().uuidString
     }
@@ -138,7 +140,7 @@ class MeetingSessionService {
     ///   - processID: Specific process to capture system audio from, or nil for all.
     ///   - mode: The active transcription mode (used for per-chunk LLM processing).
     ///   - context: App context (used for per-chunk LLM processing).
-    func start(
+    @MainActor func start(
         processID: pid_t? = nil,
         mode: String = "dictation",
         context: AppContextInfo? = nil,
@@ -164,7 +166,7 @@ class MeetingSessionService {
         // Start session in the Rust engine.
         try bridge.startSession(sessionId: sessionId, source: "meeting", mode: mode)
         processingEvents = TranscriptEventStore(sessionID: sessionId)
-        processingTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+        processingTimer = MainActorTimer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] in
             guard let self, !self.cancelled else { return }
             if self.processingEvents?.apply(self.bridge.pollTranscriptionEvents(sessionId: self.sessionId)) == true {
                 self.onProcessedText?(self.processingEvents?.text ?? "")
@@ -224,10 +226,10 @@ class MeetingSessionService {
 
         // Start the chunk dispatch timer on the main run loop.
         let chunkInterval = chunkDurationSecs - overlapDurationSecs
-        chunkTimer = Timer.scheduledTimer(
+        chunkTimer = MainActorTimer.scheduledTimer(
             withTimeInterval: chunkInterval,
             repeats: true
-        ) { [weak self] _ in
+        ) { [weak self] in
             self?.dispatchChunk()
         }
 
@@ -235,10 +237,10 @@ class MeetingSessionService {
         // On macOS 26.3+ we've seen the tap register without ever delivering
         // a callback; without this watchdog the UI would stay at .unknown
         // until the first chunk dispatches 28s later.
-        healthWatchdog = Timer.scheduledTimer(
+        healthWatchdog = MainActorTimer.scheduledTimer(
             withTimeInterval: 2.0,
             repeats: true
-        ) { [weak self] _ in
+        ) { [weak self] in
             self?.tickHealthWatchdog()
         }
 
@@ -250,7 +252,7 @@ class MeetingSessionService {
     /// mix buffer still gets processed — but no new audio is captured until
     /// resume() is called. The session state (accumulated text, segments)
     /// is preserved.
-    func pause() {
+    @MainActor func pause() {
         guard isActive else { return }
         micCapture.stopCapture()
         systemCapture.stopCapture()
@@ -259,7 +261,7 @@ class MeetingSessionService {
 
     /// Resume audio capture. Re-installs the sample callbacks and restarts
     /// both mic and system captures.
-    func resume() throws {
+    @MainActor func resume() throws {
         guard isActive else { return }
         micCapture.onAudioSamples = { [weak self] samples in
             self?.appendMicSamples(samples)
@@ -284,7 +286,7 @@ class MeetingSessionService {
     }
 
     /// Stop the meeting and finalize the transcription.
-    func stop(mode: String, context: AppContextInfo?) {
+    @MainActor func stop(mode: String, context: AppContextInfo?) {
         guard isActive else { return }
         isActive = false
 
@@ -421,26 +423,26 @@ class MeetingSessionService {
             if let llmErr = result.llmError {
                 NSLog("[Parakatt] Final chunk %d LLM degraded (raw text used): %@", currentIndex, llmErr)
             }
+            chunksDispatched += 1
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                self.chunksDispatched += 1
                 self.accumulatedText = acc
                 if !self.cancelled { self.onChunkTranscribed?(result.text, acc, result.segments) }
             }
             NSLog("[Parakatt] Final chunk %d processed: %d samples", currentIndex, chunkSamples.count)
         } catch {
             NSLog("[Parakatt] Final chunk %d failed: %@", currentIndex, error.localizedDescription)
+            chunksDispatched += 1
+            chunksFailed += 1
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                self.chunksDispatched += 1
-                self.chunksFailed += 1
                 self.onError?("Final chunk \(currentIndex) failed: \(error.localizedDescription)")
             }
         }
     }
 
     /// Cancel the session without saving.
-    func cancel() {
+    @MainActor func cancel() {
         cancelled = true
         processingTimer?.invalidate()
         processingEvents?.close()
@@ -494,9 +496,9 @@ class MeetingSessionService {
     /// Absolute timestamp of the last delivered sample from each source.
     /// Protected by the respective per-source lock (written under lock,
     /// read inside mixPendingSamples which holds both).
-    private var lastMeterUpdate: CFAbsoluteTime = 0
-    private var lastMicReceivedAt: CFAbsoluteTime = 0
-    private var lastSystemReceivedAt: CFAbsoluteTime = 0
+    @Locked private var lastMeterUpdate: CFAbsoluteTime = 0
+    @Locked private var lastMicReceivedAt: CFAbsoluteTime = 0
+    @Locked private var lastSystemReceivedAt: CFAbsoluteTime = 0
 
     /// Running per-source RMS accumulators for the current chunk window.
     /// Reset at each dispatchChunk. Used to surface per-source health to the UI.
@@ -721,7 +723,7 @@ class MeetingSessionService {
 
     // MARK: - Chunk dispatch
 
-    private func dispatchChunk() {
+    @MainActor private func dispatchChunk() {
         if dualStreamEnabled {
             dispatchSourceChunks()
             return
@@ -782,16 +784,16 @@ class MeetingSessionService {
                 if let llmErr = result.llmError {
                     NSLog("[Parakatt] Chunk %d LLM degraded (raw text used): %@", currentIndex, llmErr)
                 }
+                self.chunksDispatched += 1
                 DispatchQueue.main.async {
-                    self.chunksDispatched += 1
                     self.accumulatedText = acc
                     if !self.cancelled { self.onChunkTranscribed?(result.text, acc, result.segments) }
                 }
             } catch {
                 NSLog("[Parakatt] Chunk %d failed: %@", currentIndex, error.localizedDescription)
+                self.chunksDispatched += 1
+                self.chunksFailed += 1
                 DispatchQueue.main.async {
-                    self.chunksDispatched += 1
-                    self.chunksFailed += 1
                     // Surface every chunk failure to the UI. The
                     // previous behavior was to swallow these into
                     // NSLog, which is exactly the silent-failure mode
@@ -807,7 +809,7 @@ class MeetingSessionService {
     /// per-source buffers and send mic + system to Rust as separate
     /// chunks tagged with their source. Rust's session manager shares
     /// the offset across sources for the matching `sliceIndex`.
-    private func dispatchSourceChunks() {
+    @MainActor private func dispatchSourceChunks() {
         flushPendingSamples()
         emitPerSourceChunkHealth()
 
@@ -896,14 +898,17 @@ class MeetingSessionService {
             }
 
             allSegments.sort { $0.startSecs < $1.startSecs }
+            let completedSegments = allSegments
+            let completedText = combinedText
+            let completedFailures = failedSources
             let acc = (try? self.bridge.getSessionText(sessionId: self.sessionId)) ?? ""
+            self.chunksDispatched += 1
+            if !completedFailures.isEmpty { self.chunksFailed += 1 }
             DispatchQueue.main.async {
-                self.chunksDispatched += 1
-                if !failedSources.isEmpty { self.chunksFailed += 1 }
                 self.accumulatedText = acc
-                if !self.cancelled { self.onChunkTranscribed?(combinedText, acc, allSegments) }
-                if !failedSources.isEmpty {
-                    let sources = failedSources.joined(separator: " and ")
+                if !self.cancelled { self.onChunkTranscribed?(completedText, acc, completedSegments) }
+                if !completedFailures.isEmpty {
+                    let sources = completedFailures.joined(separator: " and ")
                     guard !self.cancelled else { return }
                     self.onError?("Slice \(currentIndex): \(sources) dropped")
                 }
@@ -998,7 +1003,7 @@ class MeetingSessionService {
     /// successfully but never fire handleAudioCallback. Without this
     /// watchdog the only signal would be the per-chunk RMS, which doesn't
     /// land until t=28s when the first chunk dispatches.
-    private func tickHealthWatchdog() {
+    @MainActor private func tickHealthWatchdog() {
         guard isActive, captureStartedAt > 0 else { return }
         let now = CFAbsoluteTimeGetCurrent()
         let refSys = lastSystemReceivedAt > 0 ? lastSystemReceivedAt : captureStartedAt

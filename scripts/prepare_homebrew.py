@@ -1,4 +1,5 @@
 """Generate a cask from the exact release DMG and optionally open a tap pull request."""
+
 import argparse
 import base64
 import hashlib
@@ -28,12 +29,18 @@ def api(endpoint, method="GET", payload=None):
     command = ["gh", "api", endpoint, "--method", method]
     if payload is not None:
         command += ["--input", "-"]
-    return json.loads(subprocess.check_output(command, input=json.dumps(payload) if payload is not None else None, text=True))
+    return json.loads(
+        subprocess.check_output(
+            command, input=json.dumps(payload) if payload is not None else None, text=True
+        )
+    )
 
 
 def update_tap(version, cask):
     if not os.environ.get("GH_TOKEN"):
-        raise ValueError("Set GH_TOKEN to a token with contents and pull-request write access to the tap")
+        raise ValueError(
+            "Set GH_TOKEN to a token with contents and pull-request write access to the tap"
+        )
     repo = api(f"repos/{TAP}")
     default = repo["default_branch"]
     current = api(f"repos/{TAP}/contents/Casks/parakatt.rb?ref={default}")
@@ -44,21 +51,37 @@ def update_tap(version, cask):
     branches = api(f"repos/{TAP}/git/matching-refs/heads/{branch}")
     if not any(item["ref"] == f"refs/heads/{branch}" for item in branches):
         base = api(f"repos/{TAP}/git/ref/heads/{default}")
-        api(f"repos/{TAP}/git/refs", "POST", {"ref": f"refs/heads/{branch}", "sha": base["object"]["sha"]})
+        api(
+            f"repos/{TAP}/git/refs",
+            "POST",
+            {"ref": f"refs/heads/{branch}", "sha": base["object"]["sha"]},
+        )
     existing = api(f"repos/{TAP}/contents/Casks/parakatt.rb?ref={branch}")
     if base64.b64decode(existing["content"]).decode() != cask:
-        api(f"repos/{TAP}/contents/Casks/parakatt.rb", "PUT", {
-            "message": f"chore: update Parakatt to {version}", "branch": branch,
-            "sha": existing["sha"], "content": base64.b64encode(cask.encode()).decode(),
-        })
+        api(
+            f"repos/{TAP}/contents/Casks/parakatt.rb",
+            "PUT",
+            {
+                "message": f"chore: update Parakatt to {version}",
+                "branch": branch,
+                "sha": existing["sha"],
+                "content": base64.b64encode(cask.encode()).decode(),
+            },
+        )
     pulls = api(f"repos/{TAP}/pulls?head=asabla:{branch}&state=open")
     if pulls:
         print(pulls[0]["html_url"])
         return
-    pull = api(f"repos/{TAP}/pulls", "POST", {
-        "title": f"chore: update Parakatt to {version}", "head": branch, "base": default,
-        "body": f"Update Parakatt to [{version}](https://github.com/asabla/parakatt/releases/tag/v{version}). The SHA-256 checksum comes from the DMG uploaded by the release workflow.",
-    })
+    pull = api(
+        f"repos/{TAP}/pulls",
+        "POST",
+        {
+            "title": f"chore: update Parakatt to {version}",
+            "head": branch,
+            "base": default,
+            "body": f"Update Parakatt to [{version}](https://github.com/asabla/parakatt/releases/tag/v{version}). The SHA-256 checksum comes from the DMG uploaded by the release workflow.",
+        },
+    )
     print(pull["html_url"])
 
 

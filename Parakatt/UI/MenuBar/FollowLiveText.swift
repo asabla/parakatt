@@ -7,19 +7,21 @@ private struct ScrollIntent: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView { let view = NSView(); context.coordinator.view = view; return view }
     func updateNSView(_ view: NSView, context: Context) { context.coordinator.onScroll = onScroll }
     func makeCoordinator() -> Coordinator { Coordinator(onScroll) }
+    @MainActor
     final class Coordinator {
         weak var view: NSView?
         var onScroll: () -> Void
-        var monitor: Any?
+        var monitor: EventMonitorToken?
         init(_ callback: @escaping () -> Void) {
             onScroll = callback
-            monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            monitor = EventMonitorToken(NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+                MainActor.assumeIsolated {
                 if let self, let view = self.view, view.window === event.window,
                    view.bounds.contains(view.convert(event.locationInWindow, from: nil)) { self.onScroll() }
+                }
                 return event
-            }
+            })
         }
-        deinit { if let monitor { NSEvent.removeMonitor(monitor) } }
     }
 }
 struct FollowLiveText: View {

@@ -9,18 +9,10 @@ import Carbon
 /// 3. Fall back to clipboard paste via AppleScript System Events
 ///
 /// Logs which strategy was used for debugging.
-class TextInsertionService {
+@MainActor
+final class TextInsertionService {
 
-    /// Pending clipboard restore work item, captured so we can cancel
-    /// it from `deinit` if the service is torn down before the timer
-    /// fires (otherwise the closure outlives `self` and races on
-    /// `savedItems`).
-    private var pendingRestore: DispatchWorkItem?
-
-    deinit {
-        pendingRestore?.cancel()
-        pendingRestore = nil
-    }
+    private let clipboard = ClipboardTransaction()
 
     /// Insert text into the focused application. Returns false if all strategies fail.
     @discardableResult
@@ -72,6 +64,7 @@ class TextInsertionService {
             return false
         }
         // Force-cast safe: type ID verified immediately above.
+        // swiftlint:disable:next force_cast // CF type ID is checked above.
         let axElement = element as! AXUIElement
 
         var settable: DarwinBoolean = false
@@ -146,47 +139,54 @@ class TextInsertionService {
 
     // MARK: - Clipboard helpers
 
-    private var savedItems: [(NSPasteboard.PasteboardType, Data)]?
-    /// changeCount captured right after we write our transcription to the clipboard.
-    private var changeCountAfterSet: Int = 0
+    private func setClipboard(_ text: String) { clipboard.set(text) }
+    private func scheduleClipboardRestore() { clipboard.scheduleRestore() }
+}
 
-    private func setClipboard(_ text: String) {
-        let pasteboard = NSPasteboard.general
+/// Preserves every representation and item without replacing a later user copy.
+@MainActor
+final class ClipboardTransaction {
+    private let pasteboard: NSPasteboard
+    private var savedItems: [[(NSPasteboard.PasteboardType, Data)]]?
+    private var expectedChange: Int?
+    private var pendingRestore: Task<Void, Never>?
 
-        savedItems = pasteboard.pasteboardItems?.compactMap { item -> (NSPasteboard.PasteboardType, Data)? in
-            guard let type = item.types.first,
-                  let data = item.data(forType: type) else { return nil }
-            return (type, data)
+    init(pasteboard: NSPasteboard = .general) { self.pasteboard = pasteboard }
+    deinit { pendingRestore?.cancel() }
+
+    func set(_ text: String) {
+        pendingRestore?.cancel()
+        // Consecutive insertions still restore the clipboard from before the first one.
+        if expectedChange != pasteboard.changeCount {
+            savedItems = pasteboard.pasteboardItems?.map { item in
+                item.types.compactMap { type in item.data(forType: type).map { (type, $0) } }
+            } ?? []
         }
-
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
-        changeCountAfterSet = pasteboard.changeCount
-        usleep(20_000) // 20ms to ensure pasteboard is ready (was 50ms)
+        expectedChange = pasteboard.changeCount
     }
 
-    private func scheduleClipboardRestore() {
-        let expectedCount = changeCountAfterSet
-        let items = savedItems
-
-        // Cancel any in-flight restore so we don't race two fires.
+    func restore() {
         pendingRestore?.cancel()
-        let work = DispatchWorkItem { [weak self] in
-            let pasteboard = NSPasteboard.general
-            // Only restore if nothing else has touched the clipboard since we set it.
-            if pasteboard.changeCount == expectedCount {
-                pasteboard.clearContents()
-                if let items = items {
-                    for (type, data) in items {
-                        pasteboard.setData(data, forType: type)
-                    }
-                }
-            }
-            self?.pendingRestore = nil
+        pendingRestore = nil
+        defer { expectedChange = nil; savedItems = nil }
+        guard expectedChange == pasteboard.changeCount, let savedItems else { return }
+        let items = savedItems.map { representations in
+            let item = NSPasteboardItem()
+            for (type, data) in representations { item.setData(data, forType: type) }
+            return item
         }
-        pendingRestore = work
-        // 1.0s instead of 0.5s gives slow machines a more reliable
-        // window before the user might manually copy something else.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: work)
+        pasteboard.clearContents()
+        pasteboard.writeObjects(items)
+    }
+
+    func scheduleRestore() {
+        pendingRestore?.cancel()
+        pendingRestore = Task { @MainActor [weak self] in
+            do { try await Task.sleep(nanoseconds: 1_000_000_000) }
+            catch { return }
+            self?.restore()
+        }
     }
 }

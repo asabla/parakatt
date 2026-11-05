@@ -6,98 +6,87 @@ import HotKey
 /// Supports two modes:
 /// - **Hold**: Press key to start recording, release modifier to stop.
 /// - **Toggle**: Press key to start recording, press again to stop.
-class HotkeyService {
-    private weak var appState: AppState?
-    private var hotKey: HotKey?
-    private var flagsMonitor: Any?
-    private var isRecording = false
+@MainActor
+protocol HotkeyRecording: AnyObject {
+    var isRecording: Bool { get }
+    var hotkeyRecordingID: UUID? { get }
+    func startRecording()
+    func stopRecording()
+}
+extension AppState: HotkeyRecording {}
 
+@MainActor
+final class HotkeyService {
+    private weak var appState: (any HotkeyRecording)?
+    private var hotKey: HotKey?
+    private var flagsMonitor: EventMonitorToken?
+    private var localFlagsMonitor: EventMonitorToken?
+    private var holdRecordingID: UUID?
+    private let registerEvents: Bool
     private var configuredKey: Key
     private var configuredModifiers: NSEvent.ModifierFlags
     private var isToggleMode: Bool
 
-    init(appState: AppState, key: Key = .space, modifiers: NSEvent.ModifierFlags = [.option], mode: String = "hold") {
+    init(appState: any HotkeyRecording, key: Key = .space, modifiers: NSEvent.ModifierFlags = [.option], mode: String = "hold", registerEvents: Bool = true) {
         self.appState = appState
         self.configuredKey = key
         self.configuredModifiers = modifiers
         self.isToggleMode = mode == "toggle"
-        setupHotKey()
-        setupFlagsMonitor()
+        self.registerEvents = registerEvents
+        setupEvents()
     }
 
-    deinit {
-        hotKey = nil
-        if let m = flagsMonitor { NSEvent.removeMonitor(m) }
-    }
-
-    /// Reconfigure the hotkey at runtime (e.g. from settings).
     func reconfigure(key: Key, modifiers: NSEvent.ModifierFlags, mode: String) {
         hotKey = nil
-        if let m = flagsMonitor { NSEvent.removeMonitor(m) }
         flagsMonitor = nil
-        isRecording = false
-
+        localFlagsMonitor = nil
+        if let holdRecordingID, appState?.hotkeyRecordingID == holdRecordingID { appState?.stopRecording() }
+        holdRecordingID = nil
         configuredKey = key
         configuredModifiers = modifiers
         isToggleMode = mode == "toggle"
-
-        setupHotKey()
-        setupFlagsMonitor()
-
-        NSLog("[Parakatt] Hotkey reconfigured: %@ + %@ (%@)",
-              modifierSymbols(configuredModifiers), "\(configuredKey)", isToggleMode ? "toggle" : "hold")
+        setupEvents()
     }
 
-    private func setupHotKey() {
+    func handleKeyDown() {
+        guard let appState else { return }
+        if isToggleMode {
+            if appState.isRecording { appState.stopRecording() }
+            else { appState.startRecording() }
+        } else if !appState.isRecording {
+            appState.startRecording()
+            holdRecordingID = appState.hotkeyRecordingID
+        }
+    }
+
+    func handleModifierChange(_ modifiers: NSEvent.ModifierFlags) {
+        guard !isToggleMode, let id = holdRecordingID, !modifiers.contains(configuredModifiers) else { return }
+        holdRecordingID = nil
+        if appState?.hotkeyRecordingID == id { appState?.stopRecording() }
+    }
+
+    nonisolated func enqueueKeyDown() {
+        DispatchQueue.main.async { [weak self] in self?.handleKeyDown() }
+    }
+
+    nonisolated func enqueueModifierChange(_ modifiers: NSEvent.ModifierFlags) {
+        DispatchQueue.main.async { [weak self] in self?.handleModifierChange(modifiers) }
+    }
+
+    private func setupEvents() {
+        guard registerEvents else { return }
         hotKey = HotKey(key: configuredKey, modifiers: configuredModifiers)
-
         hotKey?.keyDownHandler = { [weak self] in
-            guard let self else { return }
-
-            if self.isToggleMode {
-                // Toggle mode: press to start, press again to stop
-                if self.isRecording {
-                    self.isRecording = false
-                    NSLog("[Parakatt] ⏹ Hotkey toggle — stopping recording")
-                    DispatchQueue.main.async {
-                        self.appState?.stopRecording()
-                    }
-                } else {
-                    self.isRecording = true
-                    NSLog("[Parakatt] ▶ Hotkey toggle — recording started")
-                    DispatchQueue.main.async {
-                        self.appState?.startRecording()
-                    }
-                }
-            } else {
-                // Hold mode: press to start, release modifier to stop
-                guard !self.isRecording else { return }
-                self.isRecording = true
-                NSLog("[Parakatt] ▶ Hotkey hold — recording started")
-                DispatchQueue.main.async {
-                    self.appState?.startRecording()
-                }
-            }
+            self?.enqueueKeyDown()
         }
-    }
-
-    private func setupFlagsMonitor() {
-        // Only needed for hold mode — detect modifier release to stop recording
-        flagsMonitor = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
-            guard let self, self.isRecording, !self.isToggleMode else { return }
-
-            // Check if configured modifier(s) are no longer held
-            if !event.modifierFlags.contains(self.configuredModifiers) {
-                self.isRecording = false
-                NSLog("[Parakatt] ⏹ Modifier released — stopping recording")
-                DispatchQueue.main.async {
-                    self.appState?.stopRecording()
-                }
-            }
-        }
-
-        NSLog("[Parakatt] Hotkey: %@ + %@ (%@)",
-              modifierSymbols(configuredModifiers), "\(configuredKey)", isToggleMode ? "toggle" : "hold")
+        flagsMonitor = EventMonitorToken(NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+            self?.enqueueModifierChange(event.modifierFlags)
+        })
+        localFlagsMonitor = EventMonitorToken(NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+            // Queue local releases behind pending key-down events, as with global releases.
+            self?.enqueueModifierChange(event.modifierFlags)
+            return event
+        })
     }
 
     // MARK: - Key/modifier string mapping
@@ -217,4 +206,15 @@ class HotkeyService {
         if flags.contains(.command) { parts.append("⌘ Command") }
         return parts
     }
+}
+
+/// An immutable AppKit registration token. It is only returned to removeMonitor.
+/// AppKit permits removing the registration when its owner is released.
+final class EventMonitorToken: @unchecked Sendable {
+    private let token: Any
+    init?(_ token: Any?) {
+        guard let token else { return nil }
+        self.token = token
+    }
+    deinit { NSEvent.removeMonitor(token) }
 }

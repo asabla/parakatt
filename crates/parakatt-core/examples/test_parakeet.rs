@@ -1,3 +1,4 @@
+#![allow(clippy::expect_used, reason = "test and example fixture setup")]
 use parakatt_core::engine::Engine;
 use parakatt_core::*;
 

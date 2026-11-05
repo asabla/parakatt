@@ -1,3 +1,4 @@
+#![allow(clippy::expect_used, reason = "test and example fixture setup")]
 /// Transcribe a raw f32 audio file captured by the Swift test.
 ///
 /// Usage: cargo run --example test_audio_file -p parakatt-core [path]

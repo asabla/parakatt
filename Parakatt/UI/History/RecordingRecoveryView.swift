@@ -57,7 +57,7 @@ struct RecordingRecoveryView: View {
             }
         } message: { Text("The recovery text and retained audio will be removed. Existing history entries remain.") }
     }
-    private func run(_ id: String, work: @escaping (CoreBridge) throws -> Void) {
+    private func run(_ id: String, work: @escaping @Sendable (CoreBridge) throws -> Void) {
         busyID = id
         error = nil
         appState.changeHistory(work) { failure in

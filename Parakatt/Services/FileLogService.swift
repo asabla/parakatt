@@ -7,7 +7,8 @@ import Foundation
 ///
 /// This supplements (not replaces) NSLog — NSLog continues to write to Console.app/stderr
 /// as normal, while this service maintains a persistent log file for troubleshooting.
-class FileLogService {
+// FileHandle and DateFormatter are accessed only on queue after initialization.
+final class FileLogService: @unchecked Sendable {
     static let shared = FileLogService()
 
     private let logDir: URL
@@ -23,7 +24,7 @@ class FileLogService {
     }()
 
     private init() {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support")
         logDir = appSupport.appendingPathComponent("Parakatt/logs")
         logFile = logDir.appendingPathComponent("parakatt.log")
         setupLogFile()

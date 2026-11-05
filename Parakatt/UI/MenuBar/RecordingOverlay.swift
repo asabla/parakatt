@@ -347,8 +347,10 @@ class RecordingOverlayController {
             context.timingFunction = CAMediaTimingFunction(name: .easeIn)
             panel?.animator().alphaValue = 0.0
         }, completionHandler: { [weak self] in
-            self?.panel?.orderOut(nil)
-            self?.panel?.alphaValue = 1.0
+            Task { @MainActor in
+                self?.panel?.orderOut(nil)
+                self?.panel?.alphaValue = 1.0
+            }
         })
     }
 

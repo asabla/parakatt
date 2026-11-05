@@ -1,0 +1,40 @@
+name: Code Quality
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Source and Dependency Policy
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.1.0
+        with:
+          python-version: "3.13"
+      - name: Check Python sources
+        run: |
+          python3 -m pip install -r requirements-quality.txt
+          ruff check scripts
+          ruff format --check scripts
+          python3 -m unittest discover -s scripts -p 'test_*.py'
+      - name: Check workflow definitions
+        run: |
+          mkdir -p target/tools/bin
+          curl --fail --location --retry 3 --output target/actionlint.tar.gz \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
+          echo '8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  target/actionlint.tar.gz' | sha256sum --check
+          tar -xzf target/actionlint.tar.gz -C target/tools/bin actionlint
+          target/tools/bin/actionlint
+      - uses: dtolnay/rust-toolchain@1.99.1
+      - uses: Swatinem/rust-cache@v2.9.3
+      - name: Check dependency licenses and sources
+        run: |
+          cargo install cargo-deny --version 0.20.2 --locked
+          cargo deny --locked check licenses bans sources

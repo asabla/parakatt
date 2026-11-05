@@ -256,6 +256,7 @@ impl Config {
 
     /// Save the current config as a named profile.
     pub fn save_profile(&self, config_dir: &Path, name: &str) -> Result<(), CoreError> {
+        validate_profile_name(name)?;
         if self.llm.openai.api_key.is_some() || self.llm.anthropic.api_key.is_some() {
             return Err(CoreError::ConfigError(
                 "Complete credential migration before saving a profile".into(),
@@ -285,14 +286,7 @@ impl Config {
         config_dir: &Path,
         name: &str,
     ) -> Result<(), CoreError> {
-        if name.is_empty()
-            || name.contains('/')
-            || name.contains('\\')
-            || name == "."
-            || name == ".."
-        {
-            return Err(CoreError::ConfigError("Invalid profile name".into()));
-        }
+        validate_profile_name(name)?;
         let directory = config_dir.join("profiles");
         std::fs::create_dir_all(&directory).map_err(|e| CoreError::IoError(e.to_string()))?;
         let text =
@@ -302,6 +296,7 @@ impl Config {
 
     /// Load a named profile, replacing the current config.
     pub fn load_profile(config_dir: &Path, name: &str) -> Result<Self, CoreError> {
+        validate_profile_name(name)?;
         let path = config_dir.join("profiles").join(format!("{name}.toml"));
         if !path.exists() {
             return Err(CoreError::ConfigError(format!("Profile not found: {name}")));
@@ -335,6 +330,7 @@ impl Config {
 
     /// Delete a named profile.
     pub fn delete_profile(config_dir: &Path, name: &str) -> Result<(), CoreError> {
+        validate_profile_name(name)?;
         let path = config_dir.join("profiles").join(format!("{name}.toml"));
         if path.exists() {
             std::fs::remove_file(&path)
@@ -354,6 +350,18 @@ impl Default for Config {
             modes: crate::modes::default_modes(),
         }
     }
+}
+
+fn validate_profile_name(name: &str) -> Result<(), CoreError> {
+    if name.trim().is_empty()
+        || name.contains(['/', '\\'])
+        || name.chars().any(char::is_control)
+        || name == "."
+        || name == ".."
+    {
+        return Err(CoreError::ConfigError("Invalid profile name".into()));
+    }
+    Ok(())
 }
 
 fn config_path(config_dir: &Path) -> PathBuf {
@@ -384,6 +392,57 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), CoreError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn profile_paths_cannot_escape_the_profiles_directory() {
+        let directory = tempfile::tempdir().unwrap();
+        let config = Config::default();
+        config.save(directory.path()).unwrap();
+        let original = std::fs::read(directory.path().join("config.toml")).unwrap();
+        for name in [
+            "",
+            " ",
+            ".",
+            "..",
+            "../config",
+            "..\\config",
+            "/tmp/profile",
+            "a/b",
+            "a\n",
+        ] {
+            assert!(
+                config.save_profile(directory.path(), name).is_err(),
+                "{name:?}"
+            );
+            assert!(
+                Config::load_profile(directory.path(), name).is_err(),
+                "{name:?}"
+            );
+            assert!(
+                Config::delete_profile(directory.path(), name).is_err(),
+                "{name:?}"
+            );
+            assert!(
+                config
+                    .write_migrated_profile(directory.path(), name)
+                    .is_err(),
+                "{name:?}"
+            );
+            assert_eq!(
+                std::fs::read(directory.path().join("config.toml")).unwrap(),
+                original
+            );
+        }
+        config
+            .save_profile(directory.path(), "Svenska möten.1")
+            .unwrap();
+        Config::load_profile(directory.path(), "Svenska möten.1").unwrap();
+        Config::delete_profile(directory.path(), "Svenska möten.1").unwrap();
+        assert_eq!(
+            std::fs::read(directory.path().join("config.toml")).unwrap(),
+            original
+        );
+    }
 
     #[test]
     fn test_default_config_roundtrip() {

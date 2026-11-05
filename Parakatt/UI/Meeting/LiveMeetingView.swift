@@ -359,6 +359,6 @@ private struct TranscriptScrollPosition: Equatable {
     var bottom: CGFloat = 0
 }
 private struct TranscriptBottomKey: PreferenceKey {
-    static var defaultValue = TranscriptScrollPosition()
+    static let defaultValue = TranscriptScrollPosition()
     static func reduce(value: inout TranscriptScrollPosition, nextValue: () -> TranscriptScrollPosition) { value = nextValue() }
 }
