@@ -10,3 +10,12 @@ strip = "symbols"
 
 [patch.crates-io]
 parakeet-rs = { path = "vendor/parakeet-rs" }
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[workspace.lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+panic = "deny"
+expect_used = "deny"

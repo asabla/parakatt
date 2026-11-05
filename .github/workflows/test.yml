@@ -82,8 +82,18 @@ jobs:
           path: dependency-advisories.json
 
   swift:
-    name: Swift Build & Tests
+    name: Swift Build & Tests${{ matrix.suffix }}
     runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - sanitizer: none
+            suffix: ""
+          - sanitizer: thread
+            suffix: " (Thread Sanitizer)"
+          - sanitizer: address
+            suffix: " (Address Sanitizer)"
     steps:
       - name: Checkout
         uses: actions/checkout@v7.0.1
@@ -109,6 +119,11 @@ jobs:
           ./scripts/install-xcodegen.sh
           cargo install cargo-swift --version 0.11.1 --locked
 
+      - name: Check Swift sources
+        run: |
+          python3 scripts/install-swiftlint.py
+          target/tools/bin/swiftlint lint --strict --no-cache
+
       - name: Build Rust core
         run: make rust
 
@@ -122,35 +137,46 @@ jobs:
         run: make xcode
 
       - name: Run Swift tests
+        env:
+          NSUnbufferedIO: "YES"
+          TEST_RUNNER_PARAKATT_TEST_HEADLESS_PLAYBACK: "1"
+          SANITIZER: ${{ matrix.sanitizer }}
         run: |
           set -o pipefail
+          checks=(-only-testing:ParakattTests)
+          if [[ "$SANITIZER" == thread ]]; then
+            checks+=(-enableThreadSanitizer YES)
+          elif [[ "$SANITIZER" == address ]]; then
+            checks+=(-enableAddressSanitizer YES)
+          fi
           xcodebuild test \
             -project Parakatt.xcodeproj \
             -scheme Parakatt \
             -derivedDataPath target/xcode \
             -destination 'platform=macOS' \
-            -only-testing:ParakattTests \
+            "${checks[@]}" \
             CODE_SIGN_IDENTITY="-" \
             CODE_SIGNING_REQUIRED=NO
-        env:
-          NSUnbufferedIO: "YES"
-          TEST_RUNNER_PARAKATT_TEST_HEADLESS_PLAYBACK: "1"
 
       - name: Build and verify release package
+        if: matrix.sanitizer == 'none'
         run: |
           make package
           ls dist/*.zip dist/*.dmg
 
       - name: Verify DMG and prepare release metadata
+        if: matrix.sanitizer == 'none'
         run: python3 scripts/prepare_release.py
 
       - name: Check bundled video playback
+        if: matrix.sanitizer == 'none'
         run: |
           APP="$(python3 scripts/build-products.py Release)/Parakatt.app"
           "$APP/Contents/Helpers/MediaTools/ffmpeg" -v error -f lavfi -i testsrc2=size=128x72:rate=10:duration=6 -f lavfi -i sine=duration=6 -c:v mpeg4 -c:a flac target/playback-fixture.mkv
           python3 scripts/smoke-media.py "$APP" target/playback-fixture.mkv --playback --headless
 
       - name: Save release candidate
+        if: matrix.sanitizer == 'none'
         uses: actions/upload-artifact@v7.0.2
         with:
           name: parakatt-release-candidate-arm64

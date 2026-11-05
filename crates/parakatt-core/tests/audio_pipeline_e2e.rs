@@ -1,3 +1,4 @@
+#![allow(clippy::expect_used, reason = "test and example fixture setup")]
 //! End-to-end audio pipeline tests for VAD-aware preprocessing.
 //!
 //! These exercise `audio::preprocess` and `vad::EnergyVad` with

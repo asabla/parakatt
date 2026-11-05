@@ -36,6 +36,10 @@ impl ModelManifest {
         )
     }
 }
+#[expect(
+    clippy::expect_used,
+    reason = "embedded manifest schema is validated by model tests"
+)]
 pub fn manifests() -> &'static [ModelManifest] {
     static MANIFESTS: OnceLock<Vec<ModelManifest>> = OnceLock::new();
     MANIFESTS.get_or_init(|| {

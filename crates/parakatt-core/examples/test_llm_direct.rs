@@ -1,3 +1,4 @@
+#![allow(clippy::expect_used, reason = "test and example fixture setup")]
 /// Direct LLM test — sends text to the LLM without STT.
 /// Tests that the LLM actually processes and modifies text.
 ///

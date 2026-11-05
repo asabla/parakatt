@@ -47,15 +47,18 @@ pub struct HttpProvider {
     pub think: Option<bool>,
     pub thinking_level: Option<String>,
 }
-fn runtime() -> &'static tokio::runtime::Runtime {
-    static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
-    RUNTIME.get_or_init(|| {
-        tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(2)
-            .enable_all()
-            .build()
-            .expect("LLM runtime")
-    })
+fn runtime() -> Result<&'static tokio::runtime::Runtime, CoreError> {
+    static RUNTIME: OnceLock<Result<tokio::runtime::Runtime, String>> = OnceLock::new();
+    RUNTIME
+        .get_or_init(|| {
+            tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(2)
+                .enable_all()
+                .build()
+                .map_err(|error| error.to_string())
+        })
+        .as_ref()
+        .map_err(|error| CoreError::LlmError(format!("Cannot start LLM runtime: {error}")))
 }
 impl HttpProvider {
     pub fn new(base: &str, model: &str, key: Option<String>, wire: Wire) -> Self {
@@ -230,7 +233,14 @@ impl LlmProvider for HttpProvider {
             model: "Not tested".into(),
             completion: "Not tested".into(),
         };
-        let probe = runtime().block_on(async {
+        let runtime = match runtime() {
+            Ok(runtime) => runtime,
+            Err(error) => {
+                report.connection = error.to_string();
+                return report;
+            }
+        };
+        let probe = runtime.block_on(async {
             let client = reqwest::Client::builder()
                 .timeout(Duration::from_secs(15))
                 .build()
@@ -290,7 +300,7 @@ impl LlmProvider for HttpProvider {
             system_prompt: "Reply with only READY. This is a synthetic connection test.".into(),
             context: None,
         };
-        let result = runtime().block_on(async {
+        let result = runtime.block_on(async {
             tokio::time::timeout(Duration::from_secs(60), self.attempt(&request, &|_| {})).await
         });
         match result {
@@ -332,7 +342,7 @@ impl LlmProvider for HttpProvider {
         } else {
             60
         };
-        runtime().block_on(async {
+        runtime()?.block_on(async {
             let work = async {
                 for attempt in 0..3 {
                     match self.attempt(request, observer).await {
@@ -360,7 +370,10 @@ impl LlmProvider for HttpProvider {
         }
     }
     fn is_available(&self) -> bool {
-        runtime().block_on(async {
+        let Ok(runtime) = runtime() else {
+            return false;
+        };
+        runtime.block_on(async {
             let Ok(client) = reqwest::Client::builder()
                 .timeout(Duration::from_secs(10))
                 .build()

@@ -2,6 +2,7 @@
 name = "parakatt-core"
 version = "0.7.3"
 edition = "2021"
+license = "MIT"
 description = "Core engine for Parakatt voice-to-text application"
 
 [lib]
@@ -81,3 +82,6 @@ uniffi = { version = "=0.31.1", features = ["build"] }
 
 [features]
 webgpu = ["parakeet-rs/webgpu"]
+
+[lints]
+workspace = true

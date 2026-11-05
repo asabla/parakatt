@@ -112,6 +112,10 @@ pub fn validated_backend(settings: &SpeechSettings) -> SpeechBackend {
     let revision = &crate::models::model_file_set("parakeet-tdt-0.6b-v3")
         .unwrap()
         .revision;
+    #[expect(
+        clippy::expect_used,
+        reason = "embedded backend matrix schema is validated by speech tests"
+    )]
     let matrix: Matrix = serde_json::from_str(include_str!("../backend-validation.json"))
         .expect("backend validation schema");
     select_backend(settings, &matrix, hardware, os_build, revision)

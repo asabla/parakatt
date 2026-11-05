@@ -82,8 +82,9 @@ pub fn download_model(
 /// Explicit benchmark-only candidates. These are not selectable by the app.
 pub fn download_candidate(root: &Path, id: &str) -> Result<(), CoreError> {
     let candidates: Vec<models::ModelManifest> =
-        serde_json::from_str(include_str!("../model-candidates.json"))
-            .expect("candidate manifests");
+        serde_json::from_str(include_str!("../model-candidates.json")).map_err(|e| {
+            CoreError::ConfigError(format!("Invalid bundled candidate manifests: {e}"))
+        })?;
     let manifest = candidates
         .iter()
         .find(|m| m.id == id)
