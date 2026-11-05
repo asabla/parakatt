@@ -40,6 +40,7 @@ class WorkerTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 2)
                 self.assertIn("runtime thread policy", result.stderr)
 
+    @unittest.skipUnless(sys.platform == "darwin", "Benchmark RSS measurement uses macOS time -l")
     def test_mid_run_failure_preserves_the_completed_observation(self):
         with tempfile.TemporaryDirectory() as directory:
             folder = Path(directory)
