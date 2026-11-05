@@ -1,4 +1,5 @@
 """Do not promote partial, stale, or differently versioned build environments."""
+
 import json
 from pathlib import Path
 import subprocess
@@ -28,7 +29,9 @@ class EnvironmentTests(unittest.TestCase):
                 raise subprocess.CalledProcessError(1, command)
             return subprocess.CompletedProcess(command, 0)
 
-        self.run = self.enterContext(patch("media_build_environment.subprocess.run", side_effect=run))
+        self.run = self.enterContext(
+            patch("media_build_environment.subprocess.run", side_effect=run)
+        )
 
     def test_complete_environment_is_verified_before_reuse(self):
         environment = prepare_build_environment(self.build)
@@ -46,7 +49,13 @@ class EnvironmentTests(unittest.TestCase):
         self.fail_bootstrap = False
         environment = prepare_build_environment(self.build)
         self.assertTrue((environment / "parakatt-build-environment.json").is_file())
-        self.assertTrue(all("--clear" in command and "--without-pip" in command for command in self.calls if "venv" in command))
+        self.assertTrue(
+            all(
+                "--clear" in command and "--without-pip" in command
+                for command in self.calls
+                if "venv" in command
+            )
+        )
 
     def test_changed_interpreter_does_not_reuse_the_previous_environment(self):
         first = prepare_build_environment(self.build)
@@ -62,7 +71,9 @@ class EnvironmentTests(unittest.TestCase):
         self.calls.clear()
         prepare_build_environment(self.build)
         self.assertIn("venv", self.calls[0])
-        self.assertIsInstance(json.loads((environment / "parakatt-build-environment.json").read_text()), dict)
+        self.assertIsInstance(
+            json.loads((environment / "parakatt-build-environment.json").read_text()), dict
+        )
 
 
 if __name__ == "__main__":

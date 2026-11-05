@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Fetch the pinned FLEURS test subset without extracting arbitrary tar paths."""
+
 import argparse
 import concurrent.futures
 import csv
@@ -26,12 +27,17 @@ def prepare(language, count=100):
     destination = ROOT / language
     destination.mkdir(parents=True, exist_ok=True)
     text = urllib.request.urlopen(f"{BASE}/{language}/test.tsv", timeout=60).read().decode()
-    rows = sorted(csv.reader(io.StringIO(text), delimiter="\t"), key=lambda r: (int(r[0]), r[1]))[:count]
+    rows = sorted(csv.reader(io.StringIO(text), delimiter="\t"), key=lambda r: (int(r[0]), r[1]))[
+        :count
+    ]
     selected = {r[1]: r for r in rows}
     archive = destination / "test.tar.gz"
     if not archive.exists():
         temporary = archive.with_suffix(".part")
-        with urllib.request.urlopen(f"{BASE}/{language}/audio/test.tar.gz", timeout=60) as response, temporary.open("wb") as output:
+        with (
+            urllib.request.urlopen(f"{BASE}/{language}/audio/test.tar.gz", timeout=60) as response,
+            temporary.open("wb") as output,
+        ):
             shutil.copyfileobj(response, output)
         temporary.replace(archive)
     with archive.open("rb") as stream:
@@ -46,19 +52,46 @@ def prepare(language, count=100):
     result = []
     for name, row in selected.items():
         audio = destination / name
-        result.append({"id": f"{language}:{row[0]}:{name}", "language": language, "path": str(audio.resolve()), "reference": row[3], "sha256": hashlib.sha256(audio.read_bytes()).hexdigest()})
+        result.append(
+            {
+                "id": f"{language}:{row[0]}:{name}",
+                "language": language,
+                "path": str(audio.resolve()),
+                "reference": row[3],
+                "sha256": hashlib.sha256(audio.read_bytes()).hexdigest(),
+            }
+        )
     return result
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--languages", nargs="+", choices=sorted(HASHES), default=["en_us", "sv_se"])
+    parser.add_argument(
+        "--languages", nargs="+", choices=sorted(HASHES), default=["en_us", "sv_se"]
+    )
     parser.add_argument("--count", type=int, default=100)
     parser.add_argument("--output", type=Path, default=ROOT)
     args = parser.parse_args()
-    if args.count < 1: parser.error("count must be positive")
+    if args.count < 1:
+        parser.error("count must be positive")
     ROOT = args.output.resolve()
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-        samples = [sample for group in executor.map(lambda language: prepare(language, args.count), args.languages) for sample in group]
-    (ROOT / "manifest.json").write_text(json.dumps({"dataset": "google/fleurs", "revision": REVISION, "license": "CC-BY-4.0", "samples": samples}, indent=2))
+        samples = [
+            sample
+            for group in executor.map(
+                lambda language: prepare(language, args.count), args.languages
+            )
+            for sample in group
+        ]
+    (ROOT / "manifest.json").write_text(
+        json.dumps(
+            {
+                "dataset": "google/fleurs",
+                "revision": REVISION,
+                "license": "CC-BY-4.0",
+                "samples": samples,
+            },
+            indent=2,
+        )
+    )
     print(f"Verified {len(samples)} fixtures: {ROOT / 'manifest.json'}")
