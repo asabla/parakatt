@@ -124,7 +124,11 @@ enum MediaTools {
         try cancellation.check()
         let process = Process(); process.executableURL = try executable(name); process.arguments = arguments
         process.currentDirectoryURL = workingDirectory
-        process.environment = ["PATH": directory.path + ":/usr/bin:/bin", "HOME": (workingDirectory ?? FileManager.default.temporaryDirectory).path, "LANG": "en_US.UTF-8", "TMPDIR": (workingDirectory ?? FileManager.default.temporaryDirectory).path, "DENO_NO_UPDATE_CHECK": "1"]
+        // Browser extraction can copy a cookie database. Keep temporary copies out of job media.
+        let privateTemp = name == "yt-dlp" ? FileManager.default.temporaryDirectory.appendingPathComponent("parakatt-download-\(UUID().uuidString)", isDirectory: true) : nil
+        if let privateTemp { try FileManager.default.createDirectory(at: privateTemp, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700]) }
+        defer { if let privateTemp { try? FileManager.default.removeItem(at: privateTemp) } }
+        process.environment = ["PATH": directory.path + ":/usr/bin:/bin", "HOME": (workingDirectory ?? FileManager.default.temporaryDirectory).path, "LANG": "en_US.UTF-8", "TMPDIR": (privateTemp ?? workingDirectory ?? FileManager.default.temporaryDirectory).path, "DENO_NO_UPDATE_CHECK": "1"]
         let output = Pipe(), errors = Pipe(); process.standardOutput = output; process.standardError = errors
         try cancellation.register(process)
         defer { try? cancellation.register(nil) }
@@ -133,6 +137,7 @@ enum MediaTools {
         let group = DispatchGroup()
         final class Capture: @unchecked Sendable { var bytes = Data(); var overflow = false }
         let capture = Capture()
+        let diagnostics = Capture()
         let activity = MediaToolProgress()
         group.enter()
         DispatchQueue.global(qos: .utility).async {
@@ -154,8 +159,13 @@ enum MediaTools {
         }
         group.enter()
         DispatchQueue.global(qos: .utility).async {
-            // Do not log remote titles, URL query strings, or decoder paths.
-            drain(errors.fileHandleForReading) { _ in }
+            // Retain a bounded tail in memory. Never display or log raw tool output.
+            drain(errors.fileHandleForReading) { data in
+                if name == "yt-dlp" {
+                    diagnostics.bytes.append(data)
+                    if diagnostics.bytes.count > 65_536 { diagnostics.bytes.removeFirst(diagnostics.bytes.count - 65_536) }
+                }
+            }
             group.leave()
         }
         let watchdog = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
@@ -175,7 +185,10 @@ enum MediaTools {
         if stallFailure.isCancelled { throw MediaImportError("Playback preparation stopped making progress. Try loading the video again.") }
         if timeoutFailure.isCancelled { throw MediaImportError("The media operation did not finish. Check the source and resume the import.") }
         try cancellation.check()
-        guard process.terminationStatus == 0 else { throw MediaImportError(name == "yt-dlp" ? "The video could not be downloaded. Check that it is public and available. A Parakatt update may be required." : "The media could not be read or converted. Check that the file is complete and uses a supported format.") }
+        guard process.terminationStatus == 0 else {
+            if name == "yt-dlp" { throw MediaLink.downloadFailure(diagnostics.bytes) }
+            throw MediaImportError("The media could not be read or converted. Check that the file is complete and uses a supported format.")
+        }
         guard !capture.overflow else { throw MediaImportError("The media tool returned more data than expected.") }
         return capture.bytes
     }

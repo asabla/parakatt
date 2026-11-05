@@ -7,6 +7,10 @@ struct MediaImportView: View {
     @State private var link = ""
     @State private var mode = "dictation"
     @State private var confirmDiscard: String?
+    @State private var browser = YouTubeBrowser.anonymous
+    @State private var browserRetry: BrowserRetry?
+    @State private var retryBrowser = YouTubeBrowser.safari
+    private struct BrowserRetry: Identifiable { let id: String }
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Import video").font(.title2)
@@ -22,6 +26,10 @@ struct MediaImportView: View {
                 TextField("Video link", text: $link).textFieldStyle(.roundedBorder).onSubmit(addLink)
                 Button("Import Link", action: addLink).disabled(link.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
+            Picker("YouTube sign-in", selection: $browser) {
+                ForEach(YouTubeBrowser.allCases) { browser in Text(browser.label).tag(browser) }
+            }.frame(maxWidth: 330)
+            if browser != .anonymous { Text(browserSessionNotice).font(.caption).foregroundStyle(.secondary) }
             Text("Local files stay in place. Downloaded videos use the best available quality and remain until you remove them. Clean mode uses your configured text provider.").font(.caption).foregroundStyle(.secondary)
             Divider()
             if service.jobs.isEmpty { Text("Drop MP4, MOV, MKV, or WebM files here.").foregroundStyle(.secondary).frame(maxWidth: .infinity, maxHeight: .infinity) }
@@ -38,6 +46,9 @@ struct MediaImportView: View {
                         HStack {
                             if ["queued", "downloading", "preparing", "transcribing"].contains(job.state) { Button("Pause") { service.pause(job.id) } }
                             else if job.state != "completed" { Button("Resume") { service.resume(job.id) }.disabled(service.activeID == job.id || job.checkpointVersion != 1) }
+                            if job.kind == "youtube", ["failed", "paused", "interrupted"].contains(job.state), !FileManager.default.fileExists(atPath: job.attachment.path) {
+                                Button("Retry with Browser…") { browserRetry = BrowserRetry(id: job.id) }.disabled(service.activeID == job.id || job.checkpointVersion != 1)
+                            }
                             Button("Locate File…") { service.locate(job.id) }.disabled(service.activeID == job.id)
                             if job.kind != "file" { Button("Remove Downloaded Media") { service.removeMedia(job.id) }.disabled(service.activeID == job.id) }
                             Spacer()
@@ -66,12 +77,27 @@ struct MediaImportView: View {
         .alert("Import error", isPresented: Binding(get: { service.error != nil }, set: { if !$0 { service.error = nil } })) {
             Button("OK") { service.error = nil }
         } message: { Text(service.error ?? "") }
+        .sheet(item: $browserRetry) { request in
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Use a signed-in YouTube session").font(.title2)
+                Text(browserSessionNotice).foregroundStyle(.secondary)
+                Picker("Browser", selection: $retryBrowser) {
+                    ForEach(YouTubeBrowser.allCases.filter { $0 != .anonymous }) { browser in Text(browser.label).tag(browser) }
+                }
+                HStack {
+                    Button("Cancel", role: .cancel) { browserRetry = nil }.keyboardShortcut(.cancelAction)
+                    Spacer()
+                    Button("Retry") { service.resume(request.id, browser: retryBrowser); browserRetry = nil }
+                }
+            }.padding(24).frame(width: 440)
+        }
         .alert("Delete import and transcript?", isPresented: Binding(get: { confirmDiscard != nil }, set: { if !$0 { confirmDiscard = nil } })) {
             Button("Delete", role: .destructive) { if let id = confirmDiscard { service.discard(id) }; confirmDiscard = nil }
             Button("Cancel", role: .cancel) { confirmDiscard = nil }
         } message: { Text("This removes the transcript and app-owned media. External source files remain unchanged.") }
     }
-    private func addLink() { service.addLink(link, mode: mode); if service.error == nil { link = "" } }
+    private var browserSessionNotice: String { "This import can read cookies from the selected browser's most recently used profile. Sign in to YouTube there first. macOS may ask for access. Cookies are not kept in Parakatt history or backups. Resume uses no browser session unless you select one again." }
+    private func addLink() { service.addLink(link, mode: mode, browser: browser); if service.error == nil { link = ""; browser = .anonymous } }
     private func chooseFiles() {
         let panel = NSOpenPanel(); panel.allowsMultipleSelection = true; panel.canChooseDirectories = false
         panel.allowedContentTypes = ["mp4", "mov", "mkv", "webm"].compactMap { UTType(filenameExtension: $0) }

@@ -174,7 +174,9 @@ This is standard for open-source macOS apps distributed outside the App Store.
 
 Use **Import Video…** or **Import Link…** in the menu or History. The import window also accepts dropped MP4, MOV, MKV, and WebM files. Select an audio track when the video has more than one. Imports use Dictation by default; Clean uses the configured LLM provider.
 
-Direct HTTP/HTTPS links must return a video file. Public, finite YouTube videos are supported, including Shorts. Other website pages, playlists, live streams, authenticated videos, and DRM are not supported. YouTube downloads select the best available video and audio. Website changes can require a Parakatt update.
+Direct HTTP/HTTPS links must return a video file. Finite YouTube videos are supported, including Shorts. Other website pages, playlists, live streams, and DRM are not supported. YouTube downloads select the best available video and audio. Website changes can require a Parakatt update.
+
+YouTube can require sign-in even for a public video. Select a browser under **YouTube sign-in** before importing a link, or use **Retry with Browser** on a failed import. Sign in to YouTube in that browser first. Parakatt uses its most recently used cookie database; macOS can ask for access. The choice applies to one import attempt. Cookies are not kept in Parakatt history or backups. **Resume** uses no browser session unless you select one again. If YouTube still blocks the request, use **Locate File** with a local copy of the video.
 
 Parakatt bundles its media tools: users do not need Homebrew, Python, Deno, FFmpeg, or VLC installed. The existing speech model setup in Settings is still required. Once the model is available, local imports and retained-video playback work offline.
 

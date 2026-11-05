@@ -2,6 +2,7 @@ import XCTest
 import Network
 import AVFoundation
 import VLCKit
+import SQLite3
 import ParakattCore
 @testable import ParakattApp
 
@@ -16,6 +17,155 @@ final class MediaImportTests: XCTestCase {
         XCTAssertEqual(kind, "youtube"); XCTAssertEqual(url.absoluteString, "https://www.youtube.com/watch?v=abcdefghijk")
         XCTAssertEqual(try MediaLink.classify("https://example.com/file.mp4?token=secret").0, "direct")
         for value in ["file:///tmp/video.mp4", "https://user:password@example.com/video.mp4", "https://youtube.com/playlist?list=test", "javascript:alert(1)"] { XCTAssertThrowsError(try MediaLink.classify(value)) }
+    }
+    func testYouTubeBrowserArgumentsRequireExplicitSelection() throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        XCTAssertEqual(YouTubeBrowser.anonymous.cookieArguments(home: home), ["--no-cookies-from-browser"])
+        let paths: [(YouTubeBrowser, String)] = [(.chrome, "Library/Application Support/Google/Chrome"), (.firefox, "Library/Application Support/Firefox/Profiles"), (.edge, "Library/Application Support/Microsoft Edge"), (.brave, "Library/Application Support/BraveSoftware/Brave-Browser"), (.safari, "Library/Containers/com.apple.Safari/Data/Library/Cookies/Cookies.binarycookies")]
+        for (browser, path) in paths {
+            XCTAssertEqual(browser.cookieArguments(home: home), ["--cookies-from-browser", "\(browser.rawValue):\(home.appendingPathComponent(path).path)"])
+        }
+        let legacy = home.appendingPathComponent("Library/Cookies/Cookies.binarycookies")
+        try FileManager.default.createDirectory(at: legacy.deletingLastPathComponent(), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        try Data().write(to: legacy)
+        XCTAssertEqual(YouTubeBrowser.safari.cookieArguments(home: home), ["--cookies-from-browser", "safari:\(legacy.path)"])
+        let arguments = try MediaLink.youtubeArguments(directory: home)
+        XCTAssertTrue(arguments.contains("--no-cookies-from-browser"))
+        XCTAssertTrue(arguments.contains("--no-cookies"))
+        XCTAssertFalse(arguments.contains("--cookies-from-browser"))
+    }
+
+    func testYouTubeDownloadUsesSelectedBrowserForBothRequests() throws {
+        let fixture = try youtubeToolFixture("""
+        for argument in "$@"; do
+          if [ "$argument" = '--skip-download' ]; then
+            printf '%s\\n' "$@" > metadata.args
+            printf '%s\\n' '{"duration":12,"is_live":false}'
+            exit 0
+          fi
+        done
+        printf '%s\\n' "$@" > download.args
+        printf '%s' 'fixture media' > download.mkv
+        printf '%s\\n' 'bytes=12 total=12'
+        """)
+        defer { try? FileManager.default.removeItem(at: fixture); MediaTools.testDirectory = nil }
+        let url = try XCTUnwrap(URL(string: "https://youtu.be/5N12hTixkBg?t=30"))
+        let result = try MediaLink.downloadYouTube(url, directory: fixture, cancellation: MediaCancellation(), browser: .chrome, progress: { _ in })
+        XCTAssertEqual(try String(contentsOf: result, encoding: .utf8), "fixture media")
+        for name in ["metadata.args", "download.args"] {
+            let arguments = try String(contentsOf: fixture.appendingPathComponent(name), encoding: .utf8).components(separatedBy: "\n")
+            XCTAssertTrue(arguments.contains("--cookies-from-browser"))
+            XCTAssertTrue(arguments.contains("--no-cookies"), "Do not save a cookie jar")
+            XCTAssertFalse(arguments.contains("--no-cookies-from-browser"))
+            XCTAssertTrue(arguments.contains("https://www.youtube.com/watch?v=5N12hTixkBg"))
+            XCTAssertFalse(arguments.contains(url.absoluteString))
+        }
+        XCTAssertThrowsError(try MediaLink.downloadYouTube(URL(fileURLWithPath: "/tmp/private"), directory: fixture, cancellation: MediaCancellation(), browser: .chrome, progress: { _ in }))
+    }
+
+    func testYouTubeFailureDrainsLargeStderrAndRemovesPrivateTemporaryFiles() throws {
+        let fixture = try youtubeToolFixture("""
+        printf '%s' "$TMPDIR" > temp-path
+        /usr/bin/stat -f '%Lp' "$TMPDIR" > temp-mode
+        /usr/bin/touch "$TMPDIR/temporary.sqlite"
+        /usr/bin/head -c 131072 /dev/zero >&2
+        printf '%s\\n' 'ERROR: [youtube] secret-title https://example.com/?token=secret: Sign in to confirm you’re not a bot.' >&2
+        exit 1
+        """)
+        defer { try? FileManager.default.removeItem(at: fixture); MediaTools.testDirectory = nil }
+        XCTAssertThrowsError(try MediaTools.run("yt-dlp", [], cancellation: MediaCancellation(), workingDirectory: fixture)) { error in
+            XCTAssertTrue(error.localizedDescription.contains("Retry with Browser"))
+            XCTAssertFalse(error.localizedDescription.contains("secret"))
+            XCTAssertFalse(error.localizedDescription.contains("https://"))
+        }
+        let temporary = try String(contentsOf: fixture.appendingPathComponent("temp-path"), encoding: .utf8)
+        XCTAssertFalse(temporary.hasPrefix(fixture.path + "/"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: temporary))
+        XCTAssertEqual(try String(contentsOf: fixture.appendingPathComponent("temp-mode"), encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines), "700")
+        for (raw, expected) in [("ERROR: failed to load cookies: secret-path", "browser session could not be read"), ("HTTP Error 429: Too Many Requests", "limited download requests"), ("Video unavailable: private video secret-title", "unavailable or restricted"), ("Unexpected failure: secret-path", "could not be downloaded")] {
+            let message = MediaLink.downloadFailure(Data(raw.utf8)).message
+            XCTAssertTrue(message.contains(expected))
+            XCTAssertFalse(message.contains("secret"))
+        }
+    }
+
+    func testBundledDownloaderReadsOnlySelectedSyntheticBrowserSession() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let profile = directory.appendingPathComponent("Library/Application Support/Firefox/Profiles/test.default")
+        try FileManager.default.createDirectory(at: profile, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var database: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(profile.appendingPathComponent("cookies.sqlite").path, &database), SQLITE_OK)
+        defer { sqlite3_close(database) }
+        let sql = "CREATE TABLE moz_cookies(host TEXT, name TEXT, value TEXT, path TEXT, expiry INTEGER, isSecure INTEGER); INSERT INTO moz_cookies VALUES('127.0.0.1','parakatt_fixture','synthetic_session','/',4102444800,0);"
+        XCTAssertEqual(sqlite3_exec(database, sql, nil, nil, nil), SQLITE_OK)
+        let received = Locked(wrappedValue: false)
+        let server = try MediaHTTPFixture { request in
+            if request.lowercased().contains("cookie: parakatt_fixture=synthetic_session") { received.wrappedValue = true }
+        }
+        defer { server.stop() }
+        let arguments = ["--ignore-config", "--no-plugin-dirs", "--no-update", "--no-remote-components", "--no-cookies", "--no-cache-dir", "--skip-download", "--dump-single-json"]
+        let url = server.url("video.mp4").absoluteString
+        _ = try MediaTools.run("yt-dlp", arguments + YouTubeBrowser.anonymous.cookieArguments(home: directory) + ["--", url], cancellation: MediaCancellation(), workingDirectory: directory)
+        XCTAssertFalse(received.wrappedValue, "Anonymous imports must not load a browser session")
+        _ = try MediaTools.run("yt-dlp", arguments + YouTubeBrowser.firefox.cookieArguments(home: directory) + ["--", url], cancellation: MediaCancellation(), workingDirectory: directory)
+        XCTAssertTrue(received.wrappedValue, "The real helper must load the explicitly selected fixture profile despite its isolated HOME")
+        let files = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+        XCTAssertEqual(files, ["Library"], "The helper must not save a cookie jar or temporary browser database in import media")
+    }
+
+    @MainActor
+    func testYouTubeBrowserConsentDoesNotCarryToOtherJobsOrResume() async throws {
+        let fixture = try youtubeToolFixture("""
+        printf '%s\\n' "$@" > attempt.args
+        printf '%s\\n' 'ERROR: [youtube] Sign in to confirm you are not a bot.' >&2
+        exit 1
+        """)
+        defer { try? FileManager.default.removeItem(at: fixture); MediaTools.testDirectory = nil }
+        let core = try CoreBridge(modelsDir: fixture.appendingPathComponent("models").path, configDir: fixture.appendingPathComponent("config").path)
+        let service = MediaImportService(bridge: core, root: fixture.appendingPathComponent("media"))
+        defer { service.shutdown() }
+        service.addLink("https://youtu.be/5N12hTixkBg", mode: "dictation", browser: .firefox)
+        let first = try XCTUnwrap(service.activeID)
+        service.addLink("https://youtu.be/abcdefghijk", mode: "dictation")
+        let second = try XCTUnwrap(service.jobs.first { $0.id != first }?.id)
+        try await waitForImports(service)
+        func arguments(_ id: String) throws -> String { try String(contentsOf: service.directory(id).appendingPathComponent("attempt.args"), encoding: .utf8) }
+        XCTAssertTrue(try arguments(first).contains("--cookies-from-browser\nfirefox:"))
+        XCTAssertTrue(try arguments(second).contains("--no-cookies-from-browser"))
+        XCTAssertEqual(try core.importJob(first).state, "failed")
+        service.resume(first)
+        try await waitForImports(service)
+        XCTAssertTrue(try arguments(first).contains("--no-cookies-from-browser"))
+        service.resume(first, browser: .chrome)
+        try await waitForImports(service)
+        XCTAssertTrue(try arguments(first).contains("--cookies-from-browser\nchrome:"))
+        service.shutdown()
+        let restored = MediaImportService(bridge: core, root: fixture.appendingPathComponent("media"))
+        defer { restored.shutdown() }
+        restored.resume(first)
+        try await waitForImports(restored)
+        XCTAssertTrue(try arguments(first).contains("--no-cookies-from-browser"))
+    }
+
+    private func youtubeToolFixture(_ body: String) throws -> URL {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        for name in ["yt-dlp", "deno"] {
+            let url = directory.appendingPathComponent(name)
+            try Data(("#!/bin/sh\n" + body + "\n").utf8).write(to: url)
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
+        }
+        MediaTools.testDirectory = directory
+        return directory
+    }
+
+    @MainActor
+    private func waitForImports(_ service: MediaImportService) async throws {
+        let deadline = ProcessInfo.processInfo.systemUptime + 10
+        while service.activeID != nil, ProcessInfo.processInfo.systemUptime < deadline { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertNil(service.activeID, "Fixture imports must finish without network access")
     }
     func testSubtitlesUseSpeechTimingAndEscapeMarkup() {
         let segments = [TimestampedSegment(text: "Hej <värld> & alla", startSecs: 3661.234, endSecs: 3663.5, speaker: nil), TimestampedSegment(text: "Overlap", startSecs: 3663, endSecs: 3664, speaker: nil), TimestampedSegment(text: "Invalid", startSecs: .nan, endSecs: 4, speaker: nil)]
@@ -244,7 +394,7 @@ final class MediaImportTests: XCTestCase {
 private final class MediaHTTPFixture {
     let listener: NWListener
     private let queue = DispatchQueue(label: "Parakatt.media-http-test")
-    init() throws {
+    init(onRequest: @escaping @Sendable (String) -> Void = { _ in }) throws {
         listener = try NWListener(using: .tcp, on: .any)
         let ready = DispatchSemaphore(value: 0)
         listener.stateUpdateHandler = { state in if case .ready = state { ready.signal() }; if case .failed = state { ready.signal() } }
@@ -253,6 +403,7 @@ private final class MediaHTTPFixture {
             connection.start(queue: queue)
             connection.receive(minimumIncompleteLength: 1, maximumLength: 16384) { data, _, _, _ in
                 let request = String(decoding: data ?? Data(), as: UTF8.self)
+                onRequest(request)
                 let response: String
                 if request.contains("GET /redirect ") { response = "HTTP/1.1 302 Found\r\nLocation: /media\r\nContent-Length: 0\r\nConnection: close\r\n\r\n" }
                 else if request.contains("GET /html ") { response = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n<html>Not media</html>" }
