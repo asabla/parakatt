@@ -1193,11 +1193,12 @@ class AppState: ObservableObject {
     }
 
     func setDebugMode(_ enabled: Bool) {
-        debugMode = enabled
         do {
-            try bridge?.setDebugMode(enabled)
+            guard let bridge else { return }
+            try bridge.setDebugMode(enabled)
+            debugMode = enabled
         } catch {
-            NSLog("[Parakatt] Failed to save debug_mode setting: %@", error.localizedDescription)
+            errorMessage = "Could not change diagnostic logging: \(error.localizedDescription)"
         }
     }
 

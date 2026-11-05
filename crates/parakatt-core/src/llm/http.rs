@@ -94,19 +94,25 @@ impl HttpProvider {
                 json!({"model":self.model,"system":system,"messages":[{"role":"user","content":text}],"stream":true,"max_tokens":self.output_limit})
             }
             wire => {
-                let mut value = json!({"model":self.model,"messages":[{"role":"system","content":system},{"role":"user","content":text}],"stream":true});
+                let mut value = serde_json::Map::new();
+                value.insert("model".into(), json!(self.model));
+                value.insert(
+                    "messages".into(),
+                    json!([{"role":"system","content":system},{"role":"user","content":text}]),
+                );
+                value.insert("stream".into(), json!(true));
                 if matches!(wire, Wire::Ollama) {
-                    value["keep_alive"] = json!(self.keep_alive);
-                    value["options"] = json!({"num_predict":self.output_limit});
+                    value.insert("keep_alive".into(), json!(self.keep_alive));
+                    value.insert("options".into(), json!({"num_predict":self.output_limit}));
                     if let Some(level) = &self.thinking_level {
-                        value["think"] = json!(level);
+                        value.insert("think".into(), json!(level));
                     } else if let Some(think) = self.think {
-                        value["think"] = json!(think);
+                        value.insert("think".into(), json!(think));
                     }
                 } else {
-                    value["max_tokens"] = json!(self.output_limit);
+                    value.insert("max_tokens".into(), json!(self.output_limit));
                 }
-                value
+                Value::Object(value)
             }
         }
     }
@@ -137,9 +143,14 @@ impl HttpProvider {
                 return Err(Failure::Http(response.status().as_u16(), None));
             }
             let metadata: Value = response.json().await.map_err(Failure::Transport)?;
-            if !metadata["thinking"]["values"]
-                .as_array()
-                .is_some_and(|values| values.contains(&payload["think"]))
+            if !metadata
+                .pointer("/thinking/values")
+                .and_then(serde_json::Value::as_array)
+                .is_some_and(|values| {
+                    payload
+                        .get("think")
+                        .is_some_and(|selected| values.contains(selected))
+                })
             {
                 return Err(Failure::Protocol(
                     "The model does not advertise the selected thinking control; use its default"
@@ -432,35 +443,59 @@ impl Decoder {
         let mut delta = None;
         match self.wire {
             Wire::Ollama => {
-                delta = value["message"]["content"].as_str();
-                if value["done"].as_bool() == Some(true) {
-                    if value["done_reason"].as_str() == Some("length") {
+                delta = value
+                    .pointer("/message/content")
+                    .and_then(serde_json::Value::as_str);
+                if value.pointer("/done").and_then(serde_json::Value::as_bool) == Some(true) {
+                    if value
+                        .pointer("/done_reason")
+                        .and_then(serde_json::Value::as_str)
+                        == Some("length")
+                    {
                         return Err(Failure::Protocol("output limit reached".into()));
                     }
                     self.done = true;
                 }
             }
             Wire::Chat => {
-                delta = value["choices"][0]["delta"]["content"].as_str();
-                if let Some(reason) = value["choices"][0]["finish_reason"].as_str() {
+                delta = value
+                    .pointer("/choices/0/delta/content")
+                    .and_then(serde_json::Value::as_str);
+                if let Some(reason) = value
+                    .pointer("/choices/0/finish_reason")
+                    .and_then(serde_json::Value::as_str)
+                {
                     if reason != "stop" {
                         return Err(Failure::Protocol(format!("completion stopped: {reason}")));
                     }
                     self.stopped = true;
                 }
             }
-            Wire::Responses => match value["type"].as_str().unwrap_or("") {
-                "response.output_text.delta" => delta = value["delta"].as_str(),
+            Wire::Responses => match value
+                .pointer("/type")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("")
+            {
+                "response.output_text.delta" => {
+                    delta = value.pointer("/delta").and_then(serde_json::Value::as_str)
+                }
                 "response.failed" | "response.incomplete" | "error" => {
                     return Err(Failure::Protocol("response did not complete".into()))
                 }
                 "response.completed" => {
-                    if value["response"]["status"].as_str() != Some("completed") {
+                    if value
+                        .pointer("/response/status")
+                        .and_then(serde_json::Value::as_str)
+                        != Some("completed")
+                    {
                         return Err(Failure::Protocol("invalid completion status".into()));
                     }
-                    let output = value["response"]["output"].as_array().ok_or_else(|| {
-                        Failure::Protocol("missing completed response output".into())
-                    })?;
+                    let output = value
+                        .pointer("/response/output")
+                        .and_then(serde_json::Value::as_array)
+                        .ok_or_else(|| {
+                            Failure::Protocol("missing completed response output".into())
+                        })?;
                     {
                         self.text = output
                             .iter()
@@ -476,15 +511,32 @@ impl Decoder {
                 }
                 _ => {}
             },
-            Wire::Anthropic => match value["type"].as_str().unwrap_or("") {
-                "content_block_start" if value["content_block"]["type"] == "text" => {
-                    delta = value["content_block"]["text"].as_str();
+            Wire::Anthropic => match value
+                .pointer("/type")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("")
+            {
+                "content_block_start"
+                    if value.pointer("/content_block/type").and_then(Value::as_str)
+                        == Some("text") =>
+                {
+                    delta = value
+                        .pointer("/content_block/text")
+                        .and_then(serde_json::Value::as_str);
                 }
-                "content_block_delta" if value["delta"]["type"] == "text_delta" => {
-                    delta = value["delta"]["text"].as_str()
+                "content_block_delta"
+                    if value.pointer("/delta/type").and_then(Value::as_str)
+                        == Some("text_delta") =>
+                {
+                    delta = value
+                        .pointer("/delta/text")
+                        .and_then(serde_json::Value::as_str)
                 }
                 "message_delta" => {
-                    if let Some(reason) = value["delta"]["stop_reason"].as_str() {
+                    if let Some(reason) = value
+                        .pointer("/delta/stop_reason")
+                        .and_then(serde_json::Value::as_str)
+                    {
                         if !["end_turn", "stop_sequence"].contains(&reason) {
                             return Err(Failure::Protocol(format!("completion stopped: {reason}")));
                         }

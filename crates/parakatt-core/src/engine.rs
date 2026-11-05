@@ -135,6 +135,8 @@ impl Engine {
             config.general.active_mode = engine_config.active_mode;
         }
 
+        let debug_mode = config.general.debug_mode;
+
         // Set up dictionary from config
         let mut dictionary = Dictionary::new();
         dictionary.set_rules(config.dictionary.clone());
@@ -170,6 +172,7 @@ impl Engine {
 
         // Set up LLM provider if configured
         engine.setup_llm_provider()?;
+        crate::logging::set_debug(debug_mode);
 
         Ok(engine)
     }
@@ -194,10 +197,7 @@ impl Engine {
         }
         // Keep the synchronous API as an adapter to the same path Swift uses.
         // An energy threshold must not reject quiet speech before recognition.
-        let provider_name = self
-            .stt
-            .lock()
-            .unwrap()
+        let provider_name = crate::util::lock_named(&self.stt, "stt", CoreError::ModelLoadFailed)?
             .as_ref()
             .ok_or_else(|| CoreError::TranscriptionFailed("No STT model loaded".into()))?
             .name()
@@ -234,10 +234,21 @@ impl Engine {
         let model_path = models::model_path(&self.models_dir, model_id);
 
         if model_id.starts_with("nemotron-") {
-            let lifecycle = self.model_lifecycle.lock().unwrap();
+            let lifecycle = crate::util::lock_named(
+                &self.model_lifecycle,
+                "model_lifecycle",
+                CoreError::ModelLoadFailed,
+            )?;
             let generation = self.model_generation.fetch_add(1, Ordering::SeqCst) + 1;
-            *self.streaming_readiness.lock().unwrap() = crate::speech::ModelReadiness::Loading;
-            let settings = self.config.lock().unwrap().stt.settings.clone();
+            *crate::util::lock_named(
+                &self.streaming_readiness,
+                "streaming_readiness",
+                CoreError::ModelLoadFailed,
+            )? = crate::speech::ModelReadiness::Loading;
+            let settings = crate::util::lock_named(&self.config, "config", CoreError::ConfigError)?
+                .stt
+                .settings
+                .clone();
             drop(lifecycle);
             let loaded = (|| {
                 let manifest = models::model_file_set(model_id)
@@ -250,7 +261,11 @@ impl Engine {
                     settings.cpu_threads,
                 )
             })();
-            let _lifecycle = self.model_lifecycle.lock().unwrap();
+            let _lifecycle = crate::util::lock_named(
+                &self.model_lifecycle,
+                "model_lifecycle",
+                CoreError::ModelLoadFailed,
+            )?;
             if generation != self.model_generation.load(Ordering::SeqCst) {
                 return Err(CoreError::ModelLoadFailed(
                     "Model selection changed during loading".into(),
@@ -259,23 +274,34 @@ impl Engine {
             let provider = match loaded {
                 Ok(provider) => provider,
                 Err(error) => {
-                    *self.streaming_readiness.lock().unwrap() =
-                        crate::speech::ModelReadiness::Failed {
-                            message: error.to_string(),
-                        };
+                    *crate::util::lock_named(
+                        &self.streaming_readiness,
+                        "streaming_readiness",
+                        CoreError::ModelLoadFailed,
+                    )? = crate::speech::ModelReadiness::Failed {
+                        message: error.to_string(),
+                    };
                     return Err(error);
                 }
             };
             let mut streaming_guard =
                 crate::util::lock_named(&self.streaming, "Streaming", CoreError::ModelLoadFailed)?;
             *streaming_guard = Some(Box::new(provider));
-            *self.streaming_readiness.lock().unwrap() = crate::speech::ModelReadiness::Ready;
+            *crate::util::lock_named(
+                &self.streaming_readiness,
+                "streaming_readiness",
+                CoreError::ModelLoadFailed,
+            )? = crate::speech::ModelReadiness::Ready;
             log::info!("Streaming provider registered: {}", model_id);
             return Ok(());
         }
 
         let generation = {
-            let _lifecycle = self.model_lifecycle.lock().unwrap();
+            let _lifecycle = crate::util::lock_named(
+                &self.model_lifecycle,
+                "model_lifecycle",
+                CoreError::ModelLoadFailed,
+            )?;
             self.offline_generation.fetch_add(1, Ordering::SeqCst) + 1
         };
         // model_path is a directory for Parakeet models
@@ -299,7 +325,11 @@ impl Engine {
             )));
         };
 
-        let _lifecycle = self.model_lifecycle.lock().unwrap();
+        let _lifecycle = crate::util::lock_named(
+            &self.model_lifecycle,
+            "model_lifecycle",
+            CoreError::ModelLoadFailed,
+        )?;
         if generation != self.offline_generation.load(Ordering::SeqCst) {
             return Err(CoreError::ModelLoadFailed(
                 "Model selection changed during loading".into(),
@@ -321,7 +351,13 @@ impl Engine {
     }
 
     pub fn get_speech_settings(&self) -> crate::speech::SpeechSettings {
-        self.config.lock().unwrap().stt.settings.clone()
+        (match crate::util::lock_named(&self.config, "config", CoreError::ConfigError) {
+            Ok(guard) => guard,
+            Err(_error) => return Default::default(),
+        })
+        .stt
+        .settings
+        .clone()
     }
 
     pub fn set_speech_settings(
@@ -329,13 +365,23 @@ impl Engine {
         settings: crate::speech::SpeechSettings,
     ) -> Result<(), CoreError> {
         settings.validate()?;
-        let _lifecycle = self.model_lifecycle.lock().unwrap();
-        if !self.streaming_sessions.lock().unwrap().is_empty() {
+        let _lifecycle = crate::util::lock_named(
+            &self.model_lifecycle,
+            "model_lifecycle",
+            CoreError::ModelLoadFailed,
+        )?;
+        if !crate::util::lock_named(
+            &self.streaming_sessions,
+            "streaming_sessions",
+            CoreError::TranscriptionFailed,
+        )?
+        .is_empty()
+        {
             return Err(CoreError::ConfigError(
                 "Stop recording before changing speech settings".into(),
             ));
         }
-        let mut config = self.config.lock().unwrap();
+        let mut config = crate::util::lock_named(&self.config, "config", CoreError::ConfigError)?;
         let mut updated = config.clone();
         updated.stt.settings = settings;
         updated.save(&self.config_dir)?;
@@ -343,22 +389,46 @@ impl Engine {
         drop(config);
         self.model_generation.fetch_add(1, Ordering::SeqCst);
         self.offline_generation.fetch_add(1, Ordering::SeqCst);
-        *self.streaming.lock().unwrap() = None;
-        *self.streaming_readiness.lock().unwrap() = crate::speech::ModelReadiness::Unavailable;
+        *crate::util::lock_named(&self.streaming, "streaming", CoreError::ModelLoadFailed)? = None;
+        *crate::util::lock_named(
+            &self.streaming_readiness,
+            "streaming_readiness",
+            CoreError::ModelLoadFailed,
+        )? = crate::speech::ModelReadiness::Unavailable;
         Ok(())
     }
 
     pub fn speech_runtime_status(&self) -> crate::speech::SpeechRuntimeStatus {
         let settings = self.get_speech_settings();
-        let actual_backend = self
-            .stt
-            .lock()
-            .unwrap()
-            .as_ref()
-            .map(|p| p.backend())
-            .unwrap_or(crate::speech::SpeechBackend::Cpu);
+        let state = (|| {
+            let actual_backend =
+                crate::util::lock_named(&self.stt, "stt", CoreError::ModelLoadFailed)?
+                    .as_ref()
+                    .map(|p| p.backend())
+                    .unwrap_or(crate::speech::SpeechBackend::Cpu);
+            let readiness = crate::util::lock_named(
+                &self.streaming_readiness,
+                "streaming_readiness",
+                CoreError::ModelLoadFailed,
+            )?
+            .clone();
+            Ok::<_, CoreError>((actual_backend, readiness))
+        })();
+        let (actual_backend, readiness) = match state {
+            Ok(state) => state,
+            Err(error) => {
+                return crate::speech::SpeechRuntimeStatus {
+                    readiness: crate::speech::ModelReadiness::Failed {
+                        message: error.to_string(),
+                    },
+                    requested_backend: settings.backend,
+                    actual_backend: crate::speech::SpeechBackend::Cpu,
+                    message: Some(error.to_string()),
+                };
+            }
+        };
         crate::speech::SpeechRuntimeStatus {
-            readiness: self.streaming_readiness.lock().unwrap().clone(),
+            readiness,
             requested_backend: settings.backend,
             actual_backend,
             message: (settings.backend == crate::speech::SpeechBackend::WebGpu && actual_backend != crate::speech::SpeechBackend::WebGpu).then(|| {
@@ -369,7 +439,14 @@ impl Engine {
 
     /// Unload the current STT model to free resources.
     pub fn unload_model(&self) {
-        let _lifecycle = self.model_lifecycle.lock().unwrap();
+        let _lifecycle = match crate::util::lock_named(
+            &self.model_lifecycle,
+            "model_lifecycle",
+            CoreError::ModelLoadFailed,
+        ) {
+            Ok(guard) => guard,
+            Err(_error) => return Default::default(),
+        };
         self.offline_generation.fetch_add(1, Ordering::SeqCst);
         if let Ok(mut guard) = self.stt.lock() {
             *guard = None;
@@ -383,7 +460,14 @@ impl Engine {
     /// [`should_use_streaming_preview`] for the combined check.
     pub fn is_streaming_model_loaded(&self) -> bool {
         if !matches!(
-            *self.streaming_readiness.lock().unwrap(),
+            *(match crate::util::lock_named(
+                &self.streaming_readiness,
+                "streaming_readiness",
+                CoreError::ModelLoadFailed
+            ) {
+                Ok(guard) => guard,
+                Err(_error) => return Default::default(),
+            }),
             crate::speech::ModelReadiness::Ready
         ) {
             return false;
@@ -427,7 +511,11 @@ impl Engine {
     /// Caller should pair this with [`finish_streaming_session`] or
     /// [`cancel_streaming_session`] to release model state.
     pub fn start_streaming_session(&self, session_id: String) -> Result<(), CoreError> {
-        let _lifecycle = self.model_lifecycle.lock().unwrap();
+        let _lifecycle = crate::util::lock_named(
+            &self.model_lifecycle,
+            "model_lifecycle",
+            CoreError::ModelLoadFailed,
+        )?;
         let streaming_guard =
             crate::util::lock_named(&self.streaming, "Streaming", CoreError::TranscriptionFailed)?;
         let provider = streaming_guard
@@ -844,7 +932,13 @@ impl Engine {
     }
 
     pub fn get_active_mode(&self) -> String {
-        self.config.lock().unwrap().general.active_mode.clone()
+        (match crate::util::lock_named(&self.config, "config", CoreError::ConfigError) {
+            Ok(guard) => guard,
+            Err(_error) => return Default::default(),
+        })
+        .general
+        .active_mode
+        .clone()
     }
 
     pub fn set_active_mode(&self, mode: String) -> Result<(), CoreError> {
@@ -866,18 +960,18 @@ impl Engine {
 
     /// Update the dictionary rules.
     pub fn set_dictionary_rules(&self, rules: Vec<ReplacementRule>) -> Result<(), CoreError> {
-        let mut dict_guard =
-            crate::util::lock_named(&self.dictionary, "Dictionary", CoreError::ConfigError)?;
-        dict_guard.set_rules(rules.clone());
-
-        // Persist to config
+        // Hold both locks in the documented order until persistence succeeds.
         let mut config_guard =
             crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
-        config_guard.dictionary = rules;
-        if let Err(e) = config_guard.save(&self.config_dir) {
-            log::warn!("Failed to persist dictionary rules to config: {e}");
-        }
-
+        let mut dict_guard =
+            crate::util::lock_named(&self.dictionary, "Dictionary", CoreError::ConfigError)?;
+        let mut updated = config_guard.clone();
+        updated.dictionary = rules.clone();
+        let mut dictionary = Dictionary::new();
+        dictionary.set_rules(rules);
+        updated.save(&self.config_dir)?;
+        *config_guard = updated;
+        *dict_guard = dictionary;
         Ok(())
     }
 
@@ -906,25 +1000,47 @@ impl Engine {
     pub fn load_profile(&self, name: String) -> Result<(), CoreError> {
         let new_config = Config::load_profile(&self.config_dir, &name)?;
         new_config.stt.settings.validate()?;
-        let _lifecycle = self.model_lifecycle.lock().unwrap();
-        if !self.streaming_sessions.lock().unwrap().is_empty()
-            || !self.processing.lock().unwrap().is_empty()
+        let _lifecycle = crate::util::lock_named(
+            &self.model_lifecycle,
+            "model_lifecycle",
+            CoreError::ModelLoadFailed,
+        )?;
+        if !crate::util::lock_named(
+            &self.streaming_sessions,
+            "streaming_sessions",
+            CoreError::TranscriptionFailed,
+        )?
+        .is_empty()
+            || !crate::util::lock_named(
+                &self.processing,
+                "processing",
+                CoreError::TranscriptionFailed,
+            )?
+            .is_empty()
         {
             return Err(CoreError::ConfigError(
                 "Stop recording and processing before loading a profile".into(),
             ));
         }
         new_config.save(&self.config_dir)?;
-        self.dictionary
-            .lock()
-            .unwrap()
-            .set_rules(new_config.dictionary.clone());
-        *self.config.lock().unwrap() = new_config;
-        *self.llm.lock().unwrap() = None;
+        crate::util::lock_named(
+            &self.dictionary,
+            "dictionary",
+            CoreError::TranscriptionFailed,
+        )?
+        .set_rules(new_config.dictionary.clone());
+        let debug_mode = new_config.general.debug_mode;
+        *crate::util::lock_named(&self.config, "config", CoreError::ConfigError)? = new_config;
+        crate::logging::set_debug(debug_mode);
+        *crate::util::lock_named(&self.llm, "llm", CoreError::LlmError)? = None;
         self.model_generation.fetch_add(1, Ordering::SeqCst);
         self.offline_generation.fetch_add(1, Ordering::SeqCst);
-        *self.streaming.lock().unwrap() = None;
-        *self.streaming_readiness.lock().unwrap() = crate::speech::ModelReadiness::Unavailable;
+        *crate::util::lock_named(&self.streaming, "streaming", CoreError::ModelLoadFailed)? = None;
+        *crate::util::lock_named(
+            &self.streaming_readiness,
+            "streaming_readiness",
+            CoreError::ModelLoadFailed,
+        )? = crate::speech::ModelReadiness::Unavailable;
         log::info!("Loaded profile: {name}");
         Ok(())
     }
@@ -1072,8 +1188,12 @@ impl Engine {
     /// Set and persist debug mode.
     pub fn set_debug_mode(&self, enabled: bool) -> Result<(), CoreError> {
         let mut cfg = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
-        cfg.general.debug_mode = enabled;
-        cfg.save(&self.config_dir)
+        let mut updated = cfg.clone();
+        updated.general.debug_mode = enabled;
+        updated.save(&self.config_dir)?;
+        *cfg = updated;
+        crate::logging::set_debug(enabled);
+        Ok(())
     }
 
     /// Get the retention period in days (0 = disabled).
@@ -1125,7 +1245,7 @@ impl Engine {
         model: String,
         api_key: Option<String>,
     ) -> Result<(), CoreError> {
-        let mut config = self.config.lock().unwrap();
+        let mut config = crate::util::lock_named(&self.config, "config", CoreError::ConfigError)?;
         let generation = config.llm.generation.clone();
         let http = Self::build_llm(&provider, &base_url, &model, api_key, &generation)?;
         config.llm.active_provider =
@@ -1147,15 +1267,22 @@ impl Engine {
         // Swift confirms successful provider-specific Keychain migration.
         config.save(&self.config_dir)?;
         drop(config);
-        *self.llm.lock().unwrap() = http;
+        *crate::util::lock_named(&self.llm, "llm", CoreError::LlmError)? = http;
         Ok(())
     }
 
     pub fn get_llm_settings(&self) -> crate::llm::LlmSettings {
-        let provider = self
-            .config
-            .lock()
-            .unwrap()
+        let provider =
+            (match crate::util::lock_named(&self.config, "config", CoreError::ConfigError) {
+                Ok(guard) => guard,
+                Err(_error) => {
+                    return crate::llm::LlmSettings {
+                        provider: String::new(),
+                        base_url: String::new(),
+                        model: String::new(),
+                    }
+                }
+            })
             .llm
             .active_provider
             .clone()
@@ -1163,7 +1290,16 @@ impl Engine {
         self.get_provider_settings(provider)
     }
     pub fn get_provider_settings(&self, provider: String) -> crate::llm::LlmSettings {
-        let config = self.config.lock().unwrap();
+        let config = match crate::util::lock_named(&self.config, "config", CoreError::ConfigError) {
+            Ok(guard) => guard,
+            Err(_error) => {
+                return crate::llm::LlmSettings {
+                    provider: String::new(),
+                    base_url: String::new(),
+                    model: String::new(),
+                }
+            }
+        };
         let (base_url, model) = match provider.as_str() {
             "ollama" => (
                 config.llm.ollama.base_url.clone(),
@@ -1190,7 +1326,13 @@ impl Engine {
         }
     }
     pub fn get_generation_settings(&self) -> crate::llm::GenerationSettings {
-        self.config.lock().unwrap().llm.generation.clone()
+        (match crate::util::lock_named(&self.config, "config", CoreError::ConfigError) {
+            Ok(guard) => guard,
+            Err(_error) => return Default::default(),
+        })
+        .llm
+        .generation
+        .clone()
     }
     pub fn set_generation_settings(
         &self,
@@ -1207,15 +1349,24 @@ impl Engine {
         {
             return Err(CoreError::ConfigError("Invalid generation limits".into()));
         }
-        let mut config = self.config.lock().unwrap();
+        let mut config = crate::util::lock_named(&self.config, "config", CoreError::ConfigError)?;
         config.llm.generation = settings;
         config.save(&self.config_dir)
     }
     pub fn legacy_credentials(&self) -> Vec<crate::llm::LegacyCredential> {
-        crate::credentials::pending(&self.config.lock().unwrap(), &self.config_dir)
+        crate::credentials::pending(
+            &*(match crate::util::lock_named(&self.config, "config", CoreError::ConfigError) {
+                Ok(guard) => guard,
+                Err(_error) => return Default::default(),
+            }),
+            &self.config_dir,
+        )
     }
     pub fn credential_account(&self, provider: String) -> String {
-        let config = self.config.lock().unwrap();
+        let config = match crate::util::lock_named(&self.config, "config", CoreError::ConfigError) {
+            Ok(guard) => guard,
+            Err(_error) => return Default::default(),
+        };
         let reference = match provider.as_str() {
             "openai" => config.llm.openai.credential_account.clone(),
             "anthropic" => config.llm.anthropic.credential_account.clone(),
@@ -1227,7 +1378,7 @@ impl Engine {
         &self,
         credential: crate::llm::LegacyCredential,
     ) -> Result<(), CoreError> {
-        let mut config = self.config.lock().unwrap();
+        let mut config = crate::util::lock_named(&self.config, "config", CoreError::ConfigError)?;
         if let Some(profile) = &credential.profile {
             if !Config::list_profiles(&self.config_dir).contains(profile) {
                 return Err(CoreError::ConfigError("Unknown profile".into()));
@@ -1270,8 +1421,9 @@ impl Engine {
                     .json()
                     .map_err(|e| CoreError::LlmError(format!("Invalid response: {e}")))?;
 
-                let models = json["models"]
-                    .as_array()
+                let models = json
+                    .pointer("/models")
+                    .and_then(serde_json::Value::as_array)
                     .map(|arr| {
                         arr.iter()
                             .filter_map(|m| m["name"].as_str().map(|s| s.to_string()))
@@ -1310,19 +1462,26 @@ impl Engine {
                         .and_then(|r| r.error_for_status())
                         .and_then(|r| r.json())
                         .map_err(|e| CoreError::LlmError(e.to_string()))?;
-                    let entries = data["data"]
-                        .as_array()
+                    let entries = data
+                        .pointer("/data")
+                        .and_then(serde_json::Value::as_array)
                         .ok_or_else(|| CoreError::LlmError("Invalid model list".into()))?;
                     models.extend(
                         entries
                             .iter()
                             .filter_map(|m| m["id"].as_str().map(str::to_string)),
                     );
-                    if provider != "anthropic" || data["has_more"].as_bool() != Some(true) {
+                    if provider != "anthropic"
+                        || data
+                            .pointer("/has_more")
+                            .and_then(serde_json::Value::as_bool)
+                            != Some(true)
+                    {
                         return Ok(models);
                     }
-                    let next = data["last_id"]
-                        .as_str()
+                    let next = data
+                        .pointer("/last_id")
+                        .and_then(serde_json::Value::as_str)
                         .ok_or_else(|| CoreError::LlmError("Missing model-list cursor".into()))?
                         .to_string();
                     if cursor.as_ref() == Some(&next) {
@@ -1354,8 +1513,9 @@ impl Engine {
             .and_then(|r| r.error_for_status())
             .and_then(|r| r.json())
             .map_err(|e| CoreError::LlmError(e.to_string()))?;
-        Ok(data["thinking"]["values"]
-            .as_array()
+        Ok(data
+            .pointer("/thinking/values")
+            .and_then(serde_json::Value::as_array)
             .map(|values| {
                 values
                     .iter()
@@ -1369,10 +1529,15 @@ impl Engine {
     /// Test the currently configured LLM connection. Returns the provider name
     /// on success or an error message on failure.
     pub fn get_llm_context_enabled(&self) -> bool {
-        self.config.lock().unwrap().general.llm_context_enabled
+        (match crate::util::lock_named(&self.config, "config", CoreError::ConfigError) {
+            Ok(guard) => guard,
+            Err(_error) => return Default::default(),
+        })
+        .general
+        .llm_context_enabled
     }
     pub fn set_llm_context_enabled(&self, enabled: bool) -> Result<(), CoreError> {
-        let mut config = self.config.lock().unwrap();
+        let mut config = crate::util::lock_named(&self.config, "config", CoreError::ConfigError)?;
         let previous = config.general.llm_context_enabled;
         config.general.llm_context_enabled = enabled;
         if let Err(error) = config.save(&self.config_dir) {
@@ -1382,10 +1547,9 @@ impl Engine {
         Ok(())
     }
     pub fn test_llm_pipeline(&self) -> Result<crate::llm::ProviderDiagnostic, CoreError> {
-        let provider =
-            self.llm.lock().unwrap().clone().ok_or_else(|| {
-                CoreError::LlmError("Select and configure a provider first".into())
-            })?;
+        let provider = crate::util::lock_named(&self.llm, "llm", CoreError::LlmError)?
+            .clone()
+            .ok_or_else(|| CoreError::LlmError("Select and configure a provider first".into()))?;
         Ok(provider.diagnose())
     }
     pub fn test_llm_connection(&self) -> Result<String, CoreError> {
@@ -1467,12 +1631,26 @@ impl Engine {
         if models::model_file_set(&model_id).is_none() {
             return Err(CoreError::ModelNotFound(model_id));
         }
-        let _lifecycle = self.model_lifecycle.lock().unwrap();
+        let _lifecycle = crate::util::lock_named(
+            &self.model_lifecycle,
+            "model_lifecycle",
+            CoreError::ModelLoadFailed,
+        )?;
         if model_id.starts_with("nemotron-") {
             self.model_generation.fetch_add(1, Ordering::SeqCst);
-            self.streaming_sessions.lock().unwrap().clear();
-            *self.streaming.lock().unwrap() = None;
-            *self.streaming_readiness.lock().unwrap() = crate::speech::ModelReadiness::Unavailable;
+            crate::util::lock_named(
+                &self.streaming_sessions,
+                "streaming_sessions",
+                CoreError::TranscriptionFailed,
+            )?
+            .clear();
+            *crate::util::lock_named(&self.streaming, "streaming", CoreError::ModelLoadFailed)? =
+                None;
+            *crate::util::lock_named(
+                &self.streaming_readiness,
+                "streaming_readiness",
+                CoreError::ModelLoadFailed,
+            )? = crate::speech::ModelReadiness::Unavailable;
         }
         if model_id.starts_with("parakeet-") {
             self.offline_generation.fetch_add(1, Ordering::SeqCst);
@@ -1489,7 +1667,7 @@ impl Engine {
                 crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
             if config_guard.stt.active_model.as_deref() == Some(&model_id) {
                 drop(config_guard);
-                *self.stt.lock().unwrap() = None;
+                *crate::util::lock_named(&self.stt, "stt", CoreError::ModelLoadFailed)? = None;
             }
         }
 
@@ -1503,21 +1681,29 @@ impl Engine {
 
     /// Start a new chunked transcription session.
     pub fn start_session(&self, session_id: String) -> Result<(), CoreError> {
-        let mut processing = self.processing.lock().unwrap();
+        let mut processing = crate::util::lock_named(
+            &self.processing,
+            "processing",
+            CoreError::TranscriptionFailed,
+        )?;
         if processing.len() >= 16 {
             return Err(CoreError::TranscriptionFailed(
                 "Too many active processing sessions".into(),
             ));
         }
-        self.storage
-            .lock()
-            .unwrap()
-            .begin_draft(&session_id, "meeting", "dictation")?;
-        self.sessions.lock().unwrap().start(&session_id)?;
-        self.completed_events
-            .lock()
-            .unwrap()
-            .retain(|(id, _)| id != &session_id);
+        crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?.begin_draft(
+            &session_id,
+            "meeting",
+            "dictation",
+        )?;
+        crate::util::lock_named(&self.sessions, "sessions", CoreError::TranscriptionFailed)?
+            .start(&session_id)?;
+        crate::util::lock_named(
+            &self.completed_events,
+            "completed_events",
+            CoreError::TranscriptionFailed,
+        )?
+        .retain(|(id, _)| id != &session_id);
         processing.insert(
             session_id.clone(),
             crate::processing::ProcessingSession::new(session_id),
@@ -1528,12 +1714,31 @@ impl Engine {
         &self,
         session_id: String,
     ) -> Vec<crate::processing::TranscriptionEvent> {
-        if let Some(session) = self.processing.lock().unwrap().get(&session_id) {
+        if let Some(session) = (match crate::util::lock_named(
+            &self.processing,
+            "processing",
+            CoreError::TranscriptionFailed,
+        ) {
+            Ok(guard) => guard,
+            Err(_error) => return Default::default(),
+        })
+        .get(&session_id)
+        {
             return session.events();
         }
-        let mut completed = self.completed_events.lock().unwrap();
+        let mut completed = match crate::util::lock_named(
+            &self.completed_events,
+            "completed_events",
+            CoreError::TranscriptionFailed,
+        ) {
+            Ok(guard) => guard,
+            Err(_error) => return Default::default(),
+        };
         if let Some(index) = completed.iter().position(|(id, _)| id == &session_id) {
-            return completed.remove(index).unwrap().1;
+            return completed
+                .remove(index)
+                .map(|(_, events)| events)
+                .unwrap_or_default();
         }
         Vec::new()
     }
@@ -1587,7 +1792,11 @@ impl Engine {
         context: Option<AppContext>,
     ) -> Result<ChunkResult, CoreError> {
         let processing = self.processing_session(&session_id)?;
-        let _operation = processing.operation.lock().unwrap();
+        let _operation = crate::util::lock_named(
+            &processing.operation,
+            "processing operation",
+            CoreError::TranscriptionFailed,
+        )?;
         if processing.contains(chunk_index, ChunkSource::Mixed) {
             return Err(CoreError::TranscriptionFailed(
                 "Duplicate chunk identity".into(),
@@ -1666,13 +1875,10 @@ impl Engine {
         );
 
         let retain_audio = self.get_recovery_audio()
-            && self
-                .storage
-                .lock()
-                .unwrap()
+            && crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?
                 .capture_sources(&session_id)?
                 .is_empty();
-        self.storage.lock().unwrap().journal_chunk(
+        crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?.journal_chunk(
             &session_id,
             chunk_index,
             ChunkSource::Mixed,
@@ -1683,7 +1889,7 @@ impl Engine {
         )?;
         // Keep the original samples in the recovery journal until the recording is saved.
         let stt_result = {
-            let stt_guard = self.stt.lock().unwrap();
+            let stt_guard = crate::util::lock_named(&self.stt, "stt", CoreError::ModelLoadFailed)?;
             stt_guard
                 .as_ref()
                 .ok_or_else(|| CoreError::TranscriptionFailed("No STT model loaded".into()))
@@ -1702,7 +1908,12 @@ impl Engine {
         let stt_result = match stt_result {
             Ok(result) => result,
             Err(error) => {
-                self.sessions.lock().unwrap().add_chunk_with_source(
+                crate::util::lock_named(
+                    &self.sessions,
+                    "sessions",
+                    CoreError::TranscriptionFailed,
+                )?
+                .add_chunk_with_source(
                     &session_id,
                     ChunkSource::Mixed,
                     chunk_index,
@@ -1742,32 +1953,30 @@ impl Engine {
         chunk_result.llm_error = llm_error.clone();
         drop(mgr);
         let recognized_text = chunk_result.text.clone();
-        chunk_result.text = self
-            .dictionary
-            .lock()
-            .unwrap()
-            .apply(&chunk_result.text, &ctx, &mode);
-        self.storage.lock().unwrap().recognize_draft_chunk(
-            &session_id,
-            chunk_index,
-            ChunkSource::Mixed,
-            &recognized_text,
-        )?;
-        self.storage.lock().unwrap().save_draft_segments(
-            &session_id,
-            chunk_index,
-            ChunkSource::Mixed,
-            &chunk_result
-                .segments
-                .iter()
-                .cloned()
-                .map(|mut segment| {
-                    segment.start_secs += chunk_result.chunk_offset_secs;
-                    segment.end_secs += chunk_result.chunk_offset_secs;
-                    segment
-                })
-                .collect::<Vec<_>>(),
-        )?;
+        chunk_result.text = self.dictionary_text(&chunk_result.text, &mode, &ctx)?;
+        crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?
+            .recognize_draft_chunk(
+                &session_id,
+                chunk_index,
+                ChunkSource::Mixed,
+                &recognized_text,
+            )?;
+        crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?
+            .save_draft_segments(
+                &session_id,
+                chunk_index,
+                ChunkSource::Mixed,
+                &chunk_result
+                    .segments
+                    .iter()
+                    .cloned()
+                    .map(|mut segment| {
+                        segment.start_secs += chunk_result.chunk_offset_secs;
+                        segment.end_secs += chunk_result.chunk_offset_secs;
+                        segment
+                    })
+                    .collect::<Vec<_>>(),
+            )?;
         self.queue_polishing(
             &session_id,
             chunk_index,
@@ -1828,7 +2037,11 @@ impl Engine {
         }
 
         let processing = self.processing_session(&session_id)?;
-        let _operation = processing.operation.lock().unwrap();
+        let _operation = crate::util::lock_named(
+            &processing.operation,
+            "processing operation",
+            CoreError::TranscriptionFailed,
+        )?;
         if processing.contains(slice_index, source) {
             return Err(CoreError::TranscriptionFailed(
                 "Duplicate chunk identity".into(),
@@ -1872,13 +2085,10 @@ impl Engine {
         }
 
         let retain_audio = self.get_recovery_audio()
-            && self
-                .storage
-                .lock()
-                .unwrap()
+            && crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?
                 .capture_sources(&session_id)?
                 .is_empty();
-        self.storage.lock().unwrap().journal_chunk(
+        crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?.journal_chunk(
             &session_id,
             slice_index,
             source,
@@ -1889,7 +2099,7 @@ impl Engine {
         )?;
         // Keep the original samples in the recovery journal until the recording is saved.
         let stt_result = {
-            let stt_guard = self.stt.lock().unwrap();
+            let stt_guard = crate::util::lock_named(&self.stt, "stt", CoreError::ModelLoadFailed)?;
             stt_guard
                 .as_ref()
                 .ok_or_else(|| CoreError::TranscriptionFailed("No STT model loaded".into()))
@@ -1908,7 +2118,12 @@ impl Engine {
         let stt_result = match stt_result {
             Ok(result) => result,
             Err(error) => {
-                self.sessions.lock().unwrap().add_chunk_with_source(
+                crate::util::lock_named(
+                    &self.sessions,
+                    "sessions",
+                    CoreError::TranscriptionFailed,
+                )?
+                .add_chunk_with_source(
                     &session_id,
                     source,
                     slice_index,
@@ -1947,32 +2162,25 @@ impl Engine {
         chunk_result.llm_error = llm_error;
         drop(mgr);
         let recognized_text = chunk_result.text.clone();
-        chunk_result.text = self
-            .dictionary
-            .lock()
-            .unwrap()
-            .apply(&chunk_result.text, &ctx, &mode);
-        self.storage.lock().unwrap().recognize_draft_chunk(
-            &session_id,
-            slice_index,
-            source,
-            &recognized_text,
-        )?;
-        self.storage.lock().unwrap().save_draft_segments(
-            &session_id,
-            slice_index,
-            source,
-            &chunk_result
-                .segments
-                .iter()
-                .cloned()
-                .map(|mut segment| {
-                    segment.start_secs += chunk_result.chunk_offset_secs;
-                    segment.end_secs += chunk_result.chunk_offset_secs;
-                    segment
-                })
-                .collect::<Vec<_>>(),
-        )?;
+        chunk_result.text = self.dictionary_text(&chunk_result.text, &mode, &ctx)?;
+        crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?
+            .recognize_draft_chunk(&session_id, slice_index, source, &recognized_text)?;
+        crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?
+            .save_draft_segments(
+                &session_id,
+                slice_index,
+                source,
+                &chunk_result
+                    .segments
+                    .iter()
+                    .cloned()
+                    .map(|mut segment| {
+                        segment.start_secs += chunk_result.chunk_offset_secs;
+                        segment.end_secs += chunk_result.chunk_offset_secs;
+                        segment
+                    })
+                    .collect::<Vec<_>>(),
+            )?;
         self.queue_polishing(
             &session_id,
             slice_index,
@@ -1998,14 +2206,24 @@ impl Engine {
         source: Option<String>,
     ) -> Result<TranscriptionResult, CoreError> {
         let session = self.processing_session(&session_id)?;
-        let _operation = session.operation.lock().unwrap();
+        let _operation = crate::util::lock_named(
+            &session.operation,
+            "operation",
+            CoreError::TranscriptionFailed,
+        )?;
         // Extract accumulated text, duration, and segments from the session.
         let mut mgr =
             crate::util::lock_named(&self.sessions, "Session", CoreError::TranscriptionFailed)?;
         let (text, duration_secs, segments) = mgr.finish(&session_id)?;
         drop(mgr);
 
-        let processing = self.processing.lock().unwrap().get(&session_id).cloned();
+        let processing = crate::util::lock_named(
+            &self.processing,
+            "processing",
+            CoreError::TranscriptionFailed,
+        )?
+        .get(&session_id)
+        .cloned();
         let (text, mut summary, llm_error) = if let Some(session) = processing {
             let (polished, summary, error) = session.finish()?;
             (
@@ -2024,7 +2242,7 @@ impl Engine {
             )
         };
         let failed_chunks = {
-            let storage = self.storage.lock().unwrap();
+            let storage = crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?;
             storage.draft_failure_count(&session_id)?
                 + u32::from(storage.has_speech_gap(&session_id)?)
         };
@@ -2069,13 +2287,23 @@ impl Engine {
                     section.status = "speech_failed".into();
                 }
             }
-            self.storage.lock().unwrap().save_sections(&id, &sections)?;
+            crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?
+                .save_sections(&id, &sections)?;
         }
         if failed_chunks == 0 {
-            self.storage.lock().unwrap().discard_draft(&session_id)?;
+            crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?
+                .discard_draft(&session_id)?;
         }
-        let mut processing = self.processing.lock().unwrap();
-        let mut completed = self.completed_events.lock().unwrap();
+        let mut processing = crate::util::lock_named(
+            &self.processing,
+            "processing",
+            CoreError::TranscriptionFailed,
+        )?;
+        let mut completed = crate::util::lock_named(
+            &self.completed_events,
+            "completed_events",
+            CoreError::TranscriptionFailed,
+        )?;
         if completed.len() >= 16 {
             completed.pop_front();
         }
@@ -2091,7 +2319,13 @@ impl Engine {
     /// Get the accumulated text for a session on demand, without the per-chunk
     /// cloning overhead of `ChunkResult.accumulated_text`.
     pub fn get_session_text(&self, session_id: String) -> Result<String, CoreError> {
-        if let Some(session) = self.processing.lock().unwrap().get(&session_id) {
+        if let Some(session) = crate::util::lock_named(
+            &self.processing,
+            "processing",
+            CoreError::TranscriptionFailed,
+        )?
+        .get(&session_id)
+        {
             return Ok(session.text());
         }
         let mgr =
@@ -2101,7 +2335,16 @@ impl Engine {
 
     /// Cancel and discard a session.
     pub fn cancel_session(&self, session_id: String) {
-        if let Some(session) = self.processing.lock().unwrap().remove(&session_id) {
+        if let Some(session) = (match crate::util::lock_named(
+            &self.processing,
+            "processing",
+            CoreError::TranscriptionFailed,
+        ) {
+            Ok(guard) => guard,
+            Err(_error) => return Default::default(),
+        })
+        .remove(&session_id)
+        {
             session.cancel();
         }
         if let Ok(mut mgr) = self.sessions.lock() {
@@ -2115,7 +2358,7 @@ impl Engine {
         &self,
         id: String,
     ) -> Result<crate::processing::ProcessingSummary, CoreError> {
-        self.storage.lock().unwrap().get_processing(&id)
+        crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?.get_processing(&id)
     }
 
     /// Save a transcription to history (for external callers).
@@ -2192,15 +2435,11 @@ impl Engine {
     }
 
     pub fn export_database(&self, dest_path: String) -> Result<(), CoreError> {
-        self.storage
-            .lock()
-            .unwrap()
+        crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?
             .export_to(std::path::Path::new(&dest_path))
     }
     pub fn import_database(&self, source_path: String) -> Result<(), CoreError> {
-        self.storage
-            .lock()
-            .unwrap()
+        crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?
             .import_from(std::path::Path::new(&source_path), &self.config_dir)
     }
 }
@@ -2210,10 +2449,43 @@ impl Engine {
         &self,
         provider: Box<dyn StreamingProvider>,
     ) -> Result<(), CoreError> {
-        *self.streaming.lock().unwrap() = Some(provider);
-        *self.streaming_readiness.lock().unwrap() = crate::speech::ModelReadiness::Ready;
+        *crate::util::lock_named(&self.streaming, "streaming", CoreError::ModelLoadFailed)? =
+            Some(provider);
+        *crate::util::lock_named(
+            &self.streaming_readiness,
+            "streaming_readiness",
+            CoreError::ModelLoadFailed,
+        )? = crate::speech::ModelReadiness::Ready;
         Ok(())
     }
+    fn dictionary_text(
+        &self,
+        text: &str,
+        mode: &str,
+        context: &AppContext,
+    ) -> Result<String, CoreError> {
+        let enabled = self.dictionary_enabled(mode)?;
+        if !enabled {
+            return Ok(text.to_owned());
+        }
+        Ok(
+            crate::util::lock_named(&self.dictionary, "Dictionary", CoreError::ConfigError)?
+                .apply(text, context, mode),
+        )
+    }
+
+    fn dictionary_enabled(&self, name: &str) -> Result<bool, CoreError> {
+        let config = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
+        let available = if config.modes.is_empty() {
+            modes::default_modes()
+        } else {
+            config.modes.clone()
+        };
+        modes::find_mode(&available, name)
+            .map(|mode| mode.dictionary_enabled)
+            .ok_or_else(|| CoreError::ConfigError("Unknown transcription mode".into()))
+    }
+
     fn llm_request(
         &self,
         text: &str,
@@ -2223,7 +2495,7 @@ impl Engine {
         if text.trim().is_empty() {
             return Ok(None);
         }
-        let config = self.config.lock().unwrap();
+        let config = crate::util::lock_named(&self.config, "config", CoreError::ConfigError)?;
         let all_modes = if config.modes.is_empty() {
             modes::default_modes()
         } else {
@@ -2238,7 +2510,9 @@ impl Engine {
         let Some(mut system_prompt) = mode.system_prompt.clone() else {
             return Ok(None);
         };
-        let Some(provider) = self.llm.lock().unwrap().clone() else {
+        let Some(provider) =
+            crate::util::lock_named(&self.llm, "llm", CoreError::LlmError)?.clone()
+        else {
             return Ok(None);
         };
         if text.split_whitespace().count() > max_words {
@@ -2246,11 +2520,12 @@ impl Engine {
                 "Polishing skipped: input exceeds the configured word limit".into(),
             ));
         }
-        let words = self
-            .dictionary
-            .lock()
-            .unwrap()
-            .domain_vocabulary(ctx, &mode.name);
+        let words = if mode.dictionary_enabled {
+            crate::util::lock_named(&self.dictionary, "Dictionary", CoreError::ConfigError)?
+                .domain_vocabulary(ctx, &mode.name)
+        } else {
+            Vec::new()
+        };
         if !words.is_empty() {
             system_prompt.push_str(&format!("\n\nDomain vocabulary: {}", words.join(", ")));
         }
@@ -2269,12 +2544,14 @@ impl Engine {
         &self,
         id: &str,
     ) -> Result<Arc<crate::processing::ProcessingSession>, CoreError> {
-        self.processing
-            .lock()
-            .unwrap()
-            .get(id)
-            .cloned()
-            .ok_or_else(|| CoreError::TranscriptionFailed("Processing session not found".into()))
+        crate::util::lock_named(
+            &self.processing,
+            "processing",
+            CoreError::TranscriptionFailed,
+        )?
+        .get(id)
+        .cloned()
+        .ok_or_else(|| CoreError::TranscriptionFailed("Processing session not found".into()))
     }
     fn queue_polishing(
         &self,
@@ -2414,7 +2691,7 @@ impl Engine {
     }
     fn setup_llm_provider(&self) -> Result<(), CoreError> {
         let settings = self.get_llm_settings();
-        let config = self.config.lock().unwrap();
+        let config = crate::util::lock_named(&self.config, "config", CoreError::ConfigError)?;
         let key = match settings.provider.as_str() {
             "openai" => config.llm.openai.api_key.clone(),
             "anthropic" => config.llm.anthropic.api_key.clone(),
@@ -2434,7 +2711,7 @@ impl Engine {
             &config.llm.generation,
         )?;
         drop(config);
-        *self.llm.lock().unwrap() = provider;
+        *crate::util::lock_named(&self.llm, "llm", CoreError::LlmError)? = provider;
         Ok(())
     }
 }
@@ -2454,6 +2731,19 @@ impl Drop for Engine {
 mod processing_integration_tests {
     use super::*;
     use std::sync::atomic::AtomicUsize;
+    #[test]
+    fn poisoned_configuration_returns_errors_and_safe_status_without_reusing_state() {
+        let (engine, _directory, _) = setup();
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = engine.config.lock().unwrap();
+            panic!("configuration fault fixture");
+        }));
+        assert!(engine.set_dictionary_rules(Vec::new()).is_err());
+        assert_eq!(engine.get_active_mode(), "");
+        assert!(engine.legacy_credentials().is_empty());
+        assert!(!engine.get_recovery_audio());
+        assert!(engine.set_debug_mode(true).is_err());
+    }
     struct Speech(Arc<AtomicUsize>);
     impl SttProvider for Speech {
         fn name(&self) -> &str {
@@ -2711,6 +3001,212 @@ mod processing_integration_tests {
             assert_eq!(fresh.tentative_text, "recognized words");
             assert_eq!(calls.load(Ordering::SeqCst), 2);
         }
+    }
+
+    #[test]
+    fn regression_retry_keeps_dictionary_and_original_context() {
+        type ObservedRequests = Arc<Mutex<Vec<(String, Option<String>)>>>;
+        struct Observe(ObservedRequests);
+        impl LlmProvider for Observe {
+            fn name(&self) -> &str {
+                "request fixture"
+            }
+            fn is_available(&self) -> bool {
+                true
+            }
+            fn process(&self, request: &LlmRequest) -> Result<String, CoreError> {
+                self.0.lock().unwrap().push((
+                    request.text.clone(),
+                    request
+                        .context
+                        .as_ref()
+                        .and_then(|c| c.app_bundle_id.clone()),
+                ));
+                Ok(request.text.clone())
+            }
+        }
+        let (engine, _directory, _) = setup();
+        failed_history(&engine);
+        let context = AppContext {
+            app_bundle_id: Some("com.example.editor".into()),
+            ..Default::default()
+        };
+        engine
+            .storage
+            .lock()
+            .unwrap()
+            .conn
+            .execute(
+                "UPDATE transcriptions SET app_context=?1 WHERE id='retry'",
+                [serde_json::to_string(&context).unwrap()],
+            )
+            .unwrap();
+        engine
+            .set_dictionary_rules(vec![ReplacementRule {
+                pattern: "Original".into(),
+                replacement: "Corrected".into(),
+                context_type: "in_app".into(),
+                context_value: Some("com.example.editor".into()),
+                enabled: true,
+            }])
+            .unwrap();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        *engine.llm.lock().unwrap() = Some(Arc::new(Observe(requests.clone())));
+        engine.retry_history_processing("retry".into()).unwrap();
+        assert_eq!(
+            *requests.lock().unwrap(),
+            vec![("Corrected words".into(), Some("com.example.editor".into())); 12]
+        );
+    }
+
+    #[test]
+    fn regression_disabled_dictionary_does_not_replace_words() {
+        let (engine, _directory, _) = setup();
+        engine
+            .set_dictionary_rules(vec![
+                ReplacementRule {
+                    pattern: "recognized".into(),
+                    replacement: "CHANGED".into(),
+                    context_type: "always".into(),
+                    context_value: None,
+                    enabled: true,
+                },
+                ReplacementRule {
+                    pattern: "VocabularyMarker".into(),
+                    replacement: "VocabularyMarker".into(),
+                    context_type: "always".into(),
+                    context_value: None,
+                    enabled: true,
+                },
+            ])
+            .unwrap();
+        let mut modes = modes::default_modes();
+        for mode in &mut modes {
+            mode.dictionary_enabled = false;
+        }
+        engine.config.lock().unwrap().modes = modes;
+        let result = engine
+            .transcribe(vec![0.1; 32000], 16000, "dictation".into(), None)
+            .unwrap();
+        assert_eq!(result.text, "recognized words");
+        engine.start_session("dual".into()).unwrap();
+        let result = engine
+            .process_source_chunk(
+                "dual".into(),
+                ChunkSource::Mic,
+                0,
+                vec![0.1; 32000],
+                16000,
+                0.0,
+                "dictation".into(),
+                None,
+            )
+            .unwrap();
+        assert_eq!(result.text, "recognized words");
+        engine.cancel_session("dual".into());
+        let mut job = engine
+            .create_import_job(
+                "file".into(),
+                "/fixture.mp4".into(),
+                "Fixture".into(),
+                "dictation".into(),
+            )
+            .unwrap();
+        job.attachment.duration_secs = 2.0;
+        engine
+            .attach_import_media(job.id.clone(), job.attachment)
+            .unwrap();
+        engine
+            .set_import_state(job.id.clone(), "transcribing".into(), String::new())
+            .unwrap();
+        engine
+            .process_import_chunk(job.id.clone(), vec![0.1; 32000], 0.0)
+            .unwrap();
+        assert_eq!(
+            engine.get_transcription(job.id).unwrap().text,
+            "recognized words"
+        );
+        let (_, request) = engine
+            .llm_request("recognized words", "clean", &AppContext::default())
+            .unwrap()
+            .unwrap();
+        assert_eq!(request.text, "recognized words");
+        assert!(!request.system_prompt.contains("VocabularyMarker"));
+    }
+
+    #[test]
+    fn regression_retry_preserves_an_intervening_manual_edit() {
+        struct Delayed {
+            first: std::sync::atomic::AtomicBool,
+            started: std::sync::mpsc::SyncSender<()>,
+            release: Mutex<std::sync::mpsc::Receiver<()>>,
+        }
+        impl LlmProvider for Delayed {
+            fn name(&self) -> &str {
+                "delayed request fixture"
+            }
+            fn is_available(&self) -> bool {
+                true
+            }
+            fn process(&self, _: &LlmRequest) -> Result<String, CoreError> {
+                if self.first.swap(false, Ordering::SeqCst) {
+                    self.started.send(()).unwrap();
+                    self.release
+                        .lock()
+                        .unwrap()
+                        .recv_timeout(std::time::Duration::from_secs(5))
+                        .unwrap();
+                }
+                Ok("Retried output".into())
+            }
+        }
+        let (engine, _directory, _) = setup();
+        failed_history(&engine);
+        let (started, entered) = std::sync::mpsc::sync_channel(1);
+        let (release, waiter) = std::sync::mpsc::channel();
+        *engine.llm.lock().unwrap() = Some(Arc::new(Delayed {
+            first: std::sync::atomic::AtomicBool::new(true),
+            started,
+            release: Mutex::new(waiter),
+        }));
+        std::thread::scope(|scope| {
+            let retry = scope.spawn(|| engine.retry_history_processing("retry".into()));
+            entered
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .unwrap();
+            engine
+                .edit_transcription("retry".into(), "My manual correction".into())
+                .unwrap();
+            release.send(()).unwrap();
+            assert!(retry.join().unwrap().is_err());
+        });
+        assert_eq!(
+            engine.storage.lock().unwrap().get("retry").unwrap().text,
+            "My manual correction"
+        );
+    }
+
+    #[test]
+    fn regression_dictionary_save_error_is_returned() {
+        let (engine, directory, _) = setup();
+        let path = directory.path().join("config.toml");
+        if path.is_file() {
+            std::fs::remove_file(&path).unwrap();
+        }
+        std::fs::create_dir(&path).unwrap();
+        let result = engine.set_dictionary_rules(vec![ReplacementRule {
+            pattern: "word".into(),
+            replacement: "Word".into(),
+            context_type: "always".into(),
+            context_value: None,
+            enabled: true,
+        }]);
+        assert!(
+            result.is_err(),
+            "A failed configuration save must reach the caller; result={result:?}"
+        );
+        assert!(engine.get_dictionary_rules().is_empty());
+        assert!(engine.config.lock().unwrap().dictionary.is_empty());
     }
 
     fn failed_history(engine: &Engine) {

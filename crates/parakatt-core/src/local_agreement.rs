@@ -101,6 +101,13 @@ impl LocalAgreement2 {
         let curr_tail = current.get(already_committed..).unwrap_or(&[]);
 
         let stable_len = longest_common_prefix(prev_tail, curr_tail);
+        #[cfg_attr(
+            not(test),
+            expect(
+                clippy::indexing_slicing,
+                reason = "longest_common_prefix never exceeds either input length."
+            )
+        )]
         let stable: &[Token] = &curr_tail[..stable_len];
 
         // Append the newly-stable slice to the committed history.
@@ -189,12 +196,10 @@ impl LocalAgreement2 {
 /// rarely produce identical timing for the same word, but if the
 /// text matches we still want LA-2 to commit.
 fn longest_common_prefix(a: &[Token], b: &[Token]) -> usize {
-    let max = a.len().min(b.len());
-    let mut n = 0;
-    while n < max && tokens_match(&a[n], &b[n]) {
-        n += 1;
-    }
-    n
+    a.iter()
+        .zip(b)
+        .take_while(|(a, b)| tokens_match(a, b))
+        .count()
 }
 
 fn tokens_match(a: &Token, b: &Token) -> bool {

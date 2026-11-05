@@ -84,14 +84,21 @@ impl ProcessingSession {
         session
     }
     pub fn contains(&self, index: u32, source: ChunkSource) -> bool {
-        self.state
-            .lock()
-            .unwrap()
-            .chunks
-            .contains_key(&key(index, source))
+        (match crate::util::lock_named(&self.state, "processing state", CoreError::LlmError) {
+            Ok(state) => state,
+            Err(_) => {
+                self.cancellation.cancel();
+                self.wake.notify_all();
+                return Default::default();
+            }
+        })
+        .chunks
+        .contains_key(&key(index, source))
     }
     fn emit(&self, state: &mut State, key: Key, kind: ProcessingState, revision: u32) {
-        let chunk = &state.chunks[&key];
+        let Some(chunk) = state.chunks.get(&key) else {
+            return;
+        };
         let event = TranscriptionEvent {
             session_id: self.id.clone(),
             chunk_id: key.0,
@@ -114,7 +121,8 @@ impl ProcessingSession {
         mut work: Option<(Arc<dyn LlmProvider>, LlmRequest)>,
         skip: Option<String>,
     ) -> Result<(), CoreError> {
-        let mut state = self.state.lock().unwrap();
+        let mut state =
+            crate::util::lock_named(&self.state, "processing state", CoreError::LlmError)?;
         if state.closing || self.cancellation.is_cancelled() {
             return Err(CoreError::TranscriptionFailed("Session is closed".into()));
         }
@@ -154,12 +162,19 @@ impl ProcessingSession {
         );
         self.emit(&mut state, key, ProcessingState::Recognized, 0);
         if let Some(message) = skip {
-            state.chunks.get_mut(&key).unwrap().error = Some(message);
+            state
+                .chunks
+                .get_mut(&key)
+                .ok_or_else(|| CoreError::LlmError("Processing chunk is missing".into()))?
+                .error = Some(message);
             self.emit(&mut state, key, ProcessingState::Failed, 1);
         } else if let Some((provider, request)) = work {
             if state.pending.len() >= 8 {
-                state.chunks.get_mut(&key).unwrap().error =
-                    Some("Polishing skipped: queue is full".into());
+                state
+                    .chunks
+                    .get_mut(&key)
+                    .ok_or_else(|| CoreError::LlmError("Processing chunk is missing".into()))?
+                    .error = Some("Polishing skipped: queue is full".into());
                 self.emit(&mut state, key, ProcessingState::Failed, 1);
             } else {
                 state.pending.push_back(Job {
@@ -175,21 +190,40 @@ impl ProcessingSession {
         Ok(())
     }
     fn run(&self) {
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.run_worker())) {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => {
+                log::error!("Processing worker stopped: {error}");
+                self.cancel();
+            }
+            Err(_) => {
+                log::error!("Processing worker stopped unexpectedly");
+                self.cancel();
+            }
+        }
+    }
+
+    fn run_worker(&self) -> Result<(), CoreError> {
         loop {
             let job = {
-                let mut state = self.state.lock().unwrap();
+                let mut state =
+                    crate::util::lock_named(&self.state, "processing state", CoreError::LlmError)?;
                 while state.pending.is_empty()
                     && !state.closing
                     && !self.cancellation.is_cancelled()
                 {
-                    state = self.wake.wait(state).unwrap();
+                    state = self.wake.wait(state).map_err(|_| {
+                        CoreError::LlmError("Processing state is unavailable".into())
+                    })?;
                 }
                 if self.cancellation.is_cancelled() || (state.closing && state.pending.is_empty()) {
                     state.finished = true;
                     self.wake.notify_all();
-                    return;
+                    return Ok(());
                 }
-                let job = state.pending.pop_front().unwrap();
+                let job = state.pending.pop_front().ok_or_else(|| {
+                    CoreError::LlmError("Processing queue changed unexpectedly".into())
+                })?;
                 state.active = true;
                 self.emit(&mut state, job.key, ProcessingState::Processing, 1);
                 job
@@ -197,10 +231,14 @@ impl ProcessingSession {
             let result =
                 job.provider
                     .process_cancellable(&job.request, &self.cancellation, &|_| {});
-            let mut state = self.state.lock().unwrap();
+            let mut state =
+                crate::util::lock_named(&self.state, "processing state", CoreError::LlmError)?;
             state.active = false;
             if !self.cancellation.is_cancelled() {
-                let chunk = state.chunks.get_mut(&job.key).unwrap();
+                let chunk = state
+                    .chunks
+                    .get_mut(&job.key)
+                    .ok_or_else(|| CoreError::LlmError("Processing chunk is missing".into()))?;
                 let kind = match result {
                     Ok(text) if !text.trim().is_empty() => {
                         chunk.text = text;
@@ -221,20 +259,25 @@ impl ProcessingSession {
         }
     }
     pub fn set_recognized_text(&self, index: u32, source: ChunkSource, raw: &str) {
-        if let Some(chunk) = self
-            .state
-            .lock()
-            .unwrap()
-            .chunks
-            .get_mut(&key(index, source))
+        if let Ok(mut state) =
+            crate::util::lock_named(&self.state, "processing state", CoreError::LlmError)
         {
-            chunk.raw = raw.into();
+            if let Some(chunk) = state.chunks.get_mut(&key(index, source)) {
+                chunk.raw = raw.into();
+            }
+        } else {
+            self.cancellation.cancel();
+            self.wake.notify_all();
         }
     }
     pub fn wait_idle(&self) -> Result<(), CoreError> {
-        let mut state = self.state.lock().unwrap();
+        let mut state =
+            crate::util::lock_named(&self.state, "processing state", CoreError::LlmError)?;
         while (state.active || !state.pending.is_empty()) && !self.cancellation.is_cancelled() {
-            state = self.wake.wait(state).unwrap();
+            state = self
+                .wake
+                .wait(state)
+                .map_err(|_| CoreError::LlmError("Processing state is unavailable".into()))?;
         }
         if self.cancellation.is_cancelled() {
             return Err(CoreError::LlmError("Processing cancelled".into()));
@@ -242,28 +285,43 @@ impl ProcessingSession {
         Ok(())
     }
     pub fn sections(&self) -> Vec<crate::recovery::HistorySection> {
-        self.state
-            .lock()
-            .unwrap()
-            .chunks
-            .iter()
-            .map(|(key, c)| crate::recovery::HistorySection {
-                chunk_id: key.0,
-                source: c.source,
-                recognized_text: c.raw.clone(),
-                text: c.text.clone(),
-                status: if c.error.is_some() {
-                    "failed"
-                } else {
-                    "completed"
-                }
-                .into(),
-                error: c.error.clone(),
-            })
-            .collect()
+        (match crate::util::lock_named(&self.state, "processing state", CoreError::LlmError) {
+            Ok(state) => state,
+            Err(_) => {
+                self.cancellation.cancel();
+                self.wake.notify_all();
+                return Default::default();
+            }
+        })
+        .chunks
+        .iter()
+        .map(|(key, c)| crate::recovery::HistorySection {
+            chunk_id: key.0,
+            source: c.source,
+            recognized_text: c.raw.clone(),
+            text: c.text.clone(),
+            status: if c.error.is_some() {
+                "failed"
+            } else {
+                "completed"
+            }
+            .into(),
+            error: c.error.clone(),
+        })
+        .collect()
     }
     pub fn events(&self) -> Vec<TranscriptionEvent> {
-        self.state.lock().unwrap().events.drain(..).collect()
+        (match crate::util::lock_named(&self.state, "processing state", CoreError::LlmError) {
+            Ok(state) => state,
+            Err(_) => {
+                self.cancellation.cancel();
+                self.wake.notify_all();
+                return Default::default();
+            }
+        })
+        .events
+        .drain(..)
+        .collect()
     }
     fn assemble(state: &State, raw: bool) -> String {
         crate::text_assembly::assemble_transcript_parts(
@@ -276,14 +334,28 @@ impl ProcessingSession {
         )
     }
     pub fn text(&self) -> String {
-        Self::assemble(&self.state.lock().unwrap(), false)
+        Self::assemble(
+            &*(match crate::util::lock_named(&self.state, "processing state", CoreError::LlmError) {
+                Ok(state) => state,
+                Err(_) => {
+                    self.cancellation.cancel();
+                    self.wake.notify_all();
+                    return Default::default();
+                }
+            }),
+            false,
+        )
     }
     pub fn finish(&self) -> Result<(String, ProcessingSummary, Option<String>), CoreError> {
-        let mut state = self.state.lock().unwrap();
+        let mut state =
+            crate::util::lock_named(&self.state, "processing state", CoreError::LlmError)?;
         state.closing = true;
         self.wake.notify_all();
-        while !state.finished {
-            state = self.wake.wait(state).unwrap();
+        while !state.finished && !self.cancellation.is_cancelled() {
+            state = self
+                .wake
+                .wait(state)
+                .map_err(|_| CoreError::LlmError("Processing state is unavailable".into()))?;
         }
         if self.cancellation.is_cancelled() {
             return Err(CoreError::TranscriptionFailed("Session cancelled".into()));
@@ -321,7 +393,16 @@ impl ProcessingSession {
     }
     pub fn cancel(&self) {
         self.cancellation.cancel();
-        self.state.lock().unwrap().pending.clear();
+        (match crate::util::lock_named(&self.state, "processing state", CoreError::LlmError) {
+            Ok(state) => state,
+            Err(_) => {
+                self.cancellation.cancel();
+                self.wake.notify_all();
+                return Default::default();
+            }
+        })
+        .pending
+        .clear();
         self.wake.notify_all();
     }
 }
@@ -329,6 +410,52 @@ impl ProcessingSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn provider_panic_wakes_waiters_and_preserves_recognized_words() {
+        struct Crash;
+        impl LlmProvider for Crash {
+            fn name(&self) -> &str {
+                "fault fixture"
+            }
+            fn is_available(&self) -> bool {
+                true
+            }
+            fn process(&self, _: &LlmRequest) -> Result<String, CoreError> {
+                panic!("provider fault fixture")
+            }
+        }
+        let session = ProcessingSession::new("provider-fault".into());
+        session
+            .enqueue(
+                0,
+                ChunkSource::Mixed,
+                "Recognized words".into(),
+                Some((
+                    Arc::new(Crash),
+                    LlmRequest {
+                        text: "Recognized words".into(),
+                        system_prompt: String::new(),
+                        context: None,
+                        preceding_text: None,
+                        allow_preceding_context: false,
+                    },
+                )),
+                None,
+            )
+            .unwrap();
+        let (done, result) = std::sync::mpsc::channel();
+        let worker = session.clone();
+        let thread = std::thread::spawn(move || {
+            done.send(worker.wait_idle()).unwrap();
+        });
+        assert!(result
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap()
+            .is_err());
+        thread.join().unwrap();
+        assert!(session.finish().is_err());
+        assert_eq!(session.text(), "Recognized words");
+    }
     #[test]
     fn context_is_bounded_and_never_crosses_sources_or_sessions() {
         struct Inspect(Arc<Mutex<Vec<LlmRequest>>>);

@@ -623,7 +623,21 @@ fn longest_matching_overlap(prev_tail: &[String], current_head: &[String]) -> us
     }
     let max_check = prev_tail.len().min(current_head.len());
     for n in (1..=max_check).rev() {
+        #[cfg_attr(
+            not(test),
+            expect(
+                clippy::indexing_slicing,
+                reason = "n is bounded by min(prev_tail.len(), current_head.len())."
+            )
+        )]
         let suffix = &prev_tail[prev_tail.len() - n..];
+        #[cfg_attr(
+            not(test),
+            expect(
+                clippy::indexing_slicing,
+                reason = "n is bounded by min(prev_tail.len(), current_head.len())."
+            )
+        )]
         let prefix = &current_head[..n];
         if suffix == prefix {
             return n;
@@ -653,7 +667,21 @@ fn deduplicate_overlap(prev_trailing: &[String], current_text: &str) -> String {
 
     let mut best_overlap = 0;
     for suffix_len in (1..=max_check).rev() {
+        #[cfg_attr(
+            not(test),
+            expect(
+                clippy::indexing_slicing,
+                reason = "suffix_len is bounded by both input lengths."
+            )
+        )]
         let suffix = &prev_trailing[prev_trailing.len() - suffix_len..];
+        #[cfg_attr(
+            not(test),
+            expect(
+                clippy::indexing_slicing,
+                reason = "suffix_len is bounded by both input lengths."
+            )
+        )]
         let prefix = &current_words[..suffix_len];
 
         if suffix.iter().zip(prefix.iter()).all(|(a, b)| {
@@ -667,6 +695,13 @@ fn deduplicate_overlap(prev_trailing: &[String], current_text: &str) -> String {
     if best_overlap == 0 {
         current_text.to_string()
     } else {
+        #[cfg_attr(
+            not(test),
+            expect(
+                clippy::indexing_slicing,
+                reason = "best_overlap is zero or a matched suffix_len bounded by current_words.len()."
+            )
+        )]
         current_words[best_overlap..].join(" ")
     }
 }

@@ -109,9 +109,10 @@ pub fn validated_backend(settings: &SpeechSettings) -> SpeechBackend {
             system_value("kern.osversion"),
         )
     });
-    let revision = &crate::models::model_file_set("parakeet-tdt-0.6b-v3")
-        .unwrap()
-        .revision;
+    let Some(manifest) = crate::models::model_file_set("parakeet-tdt-0.6b-v3") else {
+        return SpeechBackend::Cpu;
+    };
+    let revision = &manifest.revision;
     #[expect(
         clippy::expect_used,
         reason = "embedded backend matrix schema is validated by speech tests"

@@ -72,6 +72,13 @@ pub fn preprocess(samples: &[f32], sample_rate: u32) -> Result<PreprocessedAudio
     }
 
     Ok(PreprocessedAudio {
+        #[cfg_attr(
+            not(test),
+            expect(
+                clippy::indexing_slicing,
+                reason = "VAD ranges are validated above: start < end <= samples.len()."
+            )
+        )]
         samples: samples[start..end].to_vec(),
         leading_trim_secs: start as f64 / sample_rate as f64,
     })

@@ -60,8 +60,7 @@ pub(crate) fn group_timed_words(
                 && word.start_secs - previous.end_secs < 1.0
                 && previous.text.chars().count() + word.text.chars().count() < 160
         });
-        if append {
-            let previous = grouped.last_mut().unwrap();
+        if let Some(previous) = grouped.last_mut().filter(|_| append) {
             previous.text.push(' ');
             previous.text.push_str(&word.text);
             previous.end_secs = word.end_secs;

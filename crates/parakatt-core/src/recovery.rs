@@ -56,6 +56,18 @@ fn source_value(value: u8) -> ChunkSource {
 impl Storage {
     pub(crate) fn migrate_recovery(&self) -> Result<(), CoreError> {
         self.conn.execute_batch("
+            CREATE TABLE IF NOT EXISTS transcription_revisions (
+                transcription_id TEXT PRIMARY KEY REFERENCES transcriptions(id) ON DELETE CASCADE,
+                revision TEXT NOT NULL
+            );
+            INSERT OR IGNORE INTO transcription_revisions
+                SELECT id,lower(hex(randomblob(16))) FROM transcriptions;
+            CREATE TRIGGER IF NOT EXISTS transcription_revision_insert AFTER INSERT ON transcriptions BEGIN
+                INSERT OR REPLACE INTO transcription_revisions VALUES(new.id,lower(hex(randomblob(16))));
+            END;
+            CREATE TRIGGER IF NOT EXISTS transcription_revision_update AFTER UPDATE ON transcriptions BEGIN
+                UPDATE transcription_revisions SET revision=lower(hex(randomblob(16))) WHERE transcription_id=new.id;
+            END;
             CREATE TABLE IF NOT EXISTS recording_drafts (
                 id TEXT PRIMARY KEY, created_at TEXT NOT NULL, source TEXT NOT NULL, mode TEXT NOT NULL
             );
@@ -132,14 +144,30 @@ impl Storage {
             .map_err(io)?;
         Ok(())
     }
+    pub fn history_revision(&self, id: &str) -> Result<String, CoreError> {
+        self.conn
+            .query_row(
+                "SELECT revision FROM transcription_revisions WHERE transcription_id=?1",
+                [id],
+                |row| row.get(0),
+            )
+            .map_err(io)
+    }
+
     pub fn apply_history_processing(
         &self,
         id: &str,
+        expected_revision: &str,
         text: &str,
         summary: &crate::processing::ProcessingSummary,
         sections: &[HistorySection],
     ) -> Result<(), CoreError> {
         let tx = self.conn.unchecked_transaction().map_err(io)?;
+        if self.history_revision(id)? != expected_revision {
+            return Err(CoreError::IoError(
+                "The transcription changed during processing. Your saved changes were kept; reload before retrying.".into(),
+            ));
+        }
         self.edit_transcription_inner(id, text)?;
         // Retrying replaces the generated chunks too. Undo must restore the
         // previous display text rather than the newly generated result.
@@ -460,6 +488,49 @@ impl Storage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn retry_revision_survives_reopen_and_detects_edit_then_undo() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = Storage::open(dir.path()).unwrap();
+        db.save(&crate::storage::StoredTranscription {
+            id: "revision".into(),
+            created_at: "2026-11-05T00:00:00Z".into(),
+            duration_secs: 1.0,
+            source: "meeting".into(),
+            mode: "clean".into(),
+            audio_source: None,
+            app_context: None,
+            title: None,
+            text: "Original".into(),
+        })
+        .unwrap();
+        // Simulate a database created before revision tracking existed.
+        db.conn.execute_batch("DROP TRIGGER transcription_revision_insert; DROP TRIGGER transcription_revision_update; DROP TABLE transcription_revisions;").unwrap();
+        drop(db);
+        let db = Storage::open(dir.path()).unwrap();
+        let before = db.history_revision("revision").unwrap();
+        drop(db);
+        let db = Storage::open(dir.path()).unwrap();
+        assert_eq!(db.history_revision("revision").unwrap(), before);
+        db.edit_transcription("revision", "Manual edit").unwrap();
+        db.undo_transcription_edit("revision").unwrap();
+        assert_eq!(db.get("revision").unwrap().text, "Original");
+        let after = db.history_revision("revision").unwrap();
+        assert_ne!(after, before);
+        let result = db.apply_history_processing(
+            "revision",
+            &before,
+            "Late output",
+            &crate::processing::ProcessingSummary {
+                recognized_text: "Original".into(),
+                status: "completed".into(),
+            },
+            &[],
+        );
+        assert!(result.is_err());
+        assert_eq!(db.get("revision").unwrap().text, "Original");
+        assert_eq!(db.history_revision("revision").unwrap(), after);
+    }
     #[test]
     fn backup_excludes_audio_and_recovery_preserves_timestamps_and_delete_cleans_draft() {
         let dir = tempfile::tempdir().unwrap();
