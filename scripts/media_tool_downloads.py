@@ -34,7 +34,37 @@ def verify(path, expected, name):
         raise ValueError("Checksum mismatch: " + name)
 
 
-def fetch_verified(url, path, expected, name, attempts=5):
+NETWORK_ERRORS = (
+    urllib.error.URLError,
+    TimeoutError,
+    ConnectionError,
+    http.client.IncompleteRead,
+)
+TRANSIENT_HTTP = (408, 429, 500, 502, 503, 504)
+
+
+def fetch_verified(url, path, expected, name, attempts=5, mirrors=()):
+    """Try configured sources in order; every source must match the same digest."""
+    locations = (url, *mirrors)
+    for index, location in enumerate(locations):
+        try:
+            return _fetch_verified(location, path, expected, name, attempts)
+        except NETWORK_ERRORS as error:
+            if index + 1 == len(locations):
+                raise
+            if isinstance(error, urllib.error.HTTPError) and error.code not in (
+                *TRANSIENT_HTTP,
+                404,
+            ):
+                raise
+            print(
+                f"{name}: source unavailable; trying configured mirror",
+                file=sys.stderr,
+                flush=True,
+            )
+
+
+def _fetch_verified(url, path, expected, name, attempts):
     path = pathlib.Path(path)
     if path.exists():
         verify(path, expected, name)
@@ -52,20 +82,8 @@ def fetch_verified(url, path, expected, name, attempts=5):
             verify(temporary, expected, name)
             temporary.replace(path)
             return path
-        except (
-            urllib.error.URLError,
-            TimeoutError,
-            ConnectionError,
-            http.client.IncompleteRead,
-        ) as error:
-            if isinstance(error, urllib.error.HTTPError) and error.code not in (
-                408,
-                429,
-                500,
-                502,
-                503,
-                504,
-            ):
+        except NETWORK_ERRORS as error:
+            if isinstance(error, urllib.error.HTTPError) and error.code not in TRANSIENT_HTTP:
                 raise
             if attempt + 1 == attempts:
                 raise

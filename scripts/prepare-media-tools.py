@@ -52,7 +52,7 @@ def fetch(name):
         verify(path, spec["sha256"], name)
         return path
     path = CACHE / spec.get("filename", spec["url"].rsplit("/", 1)[1])
-    return fetch_verified(spec["url"], path, spec["sha256"], name)
+    return fetch_verified(spec["url"], path, spec["sha256"], name, mirrors=spec.get("mirrors", ()))
 
 
 shutil.copy2(fetch("yt-dlp"), DEST / "yt-dlp")
