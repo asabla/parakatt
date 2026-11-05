@@ -3,6 +3,7 @@ import ParakattCore
 import VLCKit
 
 /// Runs only under the existing explicit maintenance mode with isolated data.
+@MainActor
 func mediaImportSmoke(core: CoreBridge, source: URL) async throws -> [String: Any] {
     let token = MediaCancellation()
     var versions: [String: String] = [:]
