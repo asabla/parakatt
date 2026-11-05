@@ -1104,27 +1104,26 @@ class AppState: ObservableObject {
         }
     }
 
-    func getStatistics() -> [(String, String)] {
-        do {
-            return try bridge?.getStatistics() ?? []
-        } catch {
-            NSLog("[Parakatt] Failed to get statistics: %@", error.localizedDescription)
-            return []
+    func queryStatistics(completion: @escaping @MainActor @Sendable ([(String, String)]) -> Void) {
+        guard let bridge else { completion([]); return }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result: [(String, String)]
+            do { result = try bridge.getStatistics() }
+            catch { NSLog("[Parakatt] Failed to get statistics: %@", error.localizedDescription); result = [] }
+            DispatchQueue.main.async { completion(result) }
         }
     }
 
-    func fetchLlmModels() -> [String] {
-        guard !llmProvider.isEmpty else { return [] }
-        do {
-            let key = llmApiKey.isEmpty ? nil : llmApiKey
-            return try bridge?.listLlmModels(
-                provider: llmProvider,
-                baseUrl: llmBaseUrl,
-                apiKey: key
-            ) ?? []
-        } catch {
-            NSLog("[Parakatt] Failed to list models: %@", error.localizedDescription)
-            return []
+    func fetchLlmModels(completion: @escaping @MainActor @Sendable ([String]) -> Void) {
+        guard let bridge, !llmProvider.isEmpty else { completion([]); return }
+        let provider = llmProvider
+        let baseURL = llmBaseUrl
+        let key = llmApiKey.isEmpty ? nil : llmApiKey
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result: [String]
+            do { result = try bridge.listLlmModels(provider: provider, baseUrl: baseURL, apiKey: key) }
+            catch { NSLog("[Parakatt] Failed to list models: %@", error.localizedDescription); result = [] }
+            DispatchQueue.main.async { completion(result) }
         }
     }
 

@@ -170,7 +170,7 @@ struct DashboardSettingsView: View {
         }
         .background(.quaternary.opacity(0.5))
         .onAppear {
-            stats = appState.getStatistics()
+            appState.queryStatistics { stats = $0 }
         }
     }
 }
@@ -1339,15 +1339,11 @@ struct LlmSettingsView: View {
         isFetching = true
         statusMessage = ""
 
-        DispatchQueue.global(qos: .userInitiated).async {
-            let models = appState.fetchLlmModels()
-
-            DispatchQueue.main.async {
-                isFetching = false
-                availableModels = models
-                if models.isEmpty {
-                    statusMessage = "No models found — is the server running?"
-                }
+        appState.fetchLlmModels { models in
+            isFetching = false
+            availableModels = models
+            if models.isEmpty {
+                statusMessage = "No models found — is the server running?"
             }
         }
     }
@@ -1787,12 +1783,9 @@ struct StatisticsSettingsView: View {
 
     private func loadStats() {
         isLoading = true
-        DispatchQueue.global(qos: .userInitiated).async {
-            let result = appState.getStatistics()
-            DispatchQueue.main.async {
-                stats = result
-                isLoading = false
-            }
+        appState.queryStatistics { result in
+            stats = result
+            isLoading = false
         }
     }
 
