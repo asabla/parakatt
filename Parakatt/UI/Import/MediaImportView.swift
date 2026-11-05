@@ -96,7 +96,7 @@ struct MediaImportView: View {
             Button("Cancel", role: .cancel) { confirmDiscard = nil }
         } message: { Text("This removes the transcript and app-owned media. External source files remain unchanged.") }
     }
-    private var browserSessionNotice: String { "This import can read cookies from the selected browser's most recently used profile. Sign in to YouTube there first. macOS may ask for access. Cookies are not kept in Parakatt history or backups. Resume uses no browser session unless you select one again." }
+    private var browserSessionNotice: String { "This import can read cookies from the selected browser. Safari uses its default cookie store; other browsers use their most recently used profile. Sign in to YouTube there first. macOS may ask for access. Cookies are not kept in Parakatt history or backups. This choice applies to one attempt." }
     private func addLink() { service.addLink(link, mode: mode, browser: browser); if service.error == nil { link = ""; browser = .anonymous } }
     private func chooseFiles() {
         let panel = NSOpenPanel(); panel.allowsMultipleSelection = true; panel.canChooseDirectories = false

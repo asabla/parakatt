@@ -111,6 +111,11 @@ final class MediaImportTests: XCTestCase {
         XCTAssertFalse(received.wrappedValue, "Anonymous imports must not load a browser session")
         _ = try MediaTools.run("yt-dlp", arguments + YouTubeBrowser.firefox.cookieArguments(home: directory) + ["--", url], cancellation: MediaCancellation(), workingDirectory: directory)
         XCTAssertTrue(received.wrappedValue, "The real helper must load the explicitly selected fixture profile despite its isolated HOME")
+        let missingProfile = directory.appendingPathComponent("missing-browser-profile")
+        XCTAssertThrowsError(try MediaTools.run("yt-dlp", arguments + YouTubeBrowser.firefox.cookieArguments(home: missingProfile) + ["--", url], cancellation: MediaCancellation(), workingDirectory: directory)) { error in
+            XCTAssertTrue(error.localizedDescription.contains("browser session could not be read"))
+            XCTAssertFalse(error.localizedDescription.contains(missingProfile.path))
+        }
         let files = try FileManager.default.contentsOfDirectory(atPath: directory.path)
         XCTAssertEqual(files, ["Library"], "The helper must not save a cookie jar or temporary browser database in import media")
     }

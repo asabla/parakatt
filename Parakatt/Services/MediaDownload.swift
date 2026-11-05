@@ -114,8 +114,8 @@ enum MediaLink {
     }
     static func downloadFailure(_ diagnostics: Data) -> MediaImportError {
         let text = String(decoding: diagnostics, as: UTF8.self).lowercased()
-        if text.contains("failed to load cookies") || text.contains("could not copy chrome cookie database") {
-            return MediaImportError("The browser session could not be read. Sign in to YouTube in the selected browser, allow access if macOS asks, then retry with that browser.")
+        if text.contains("failed to load cookies") || text.contains("cookies database") || text.contains("cookie database") || text.contains("failed to decrypt cookie") {
+            return MediaImportError("The browser session could not be read. Check that you are signed in to YouTube in the selected browser and that macOS permits Parakatt to read its data, then retry with that browser.")
         }
         if text.contains("sign in") || text.contains("login required") || text.contains("confirm your age") {
             return MediaImportError("YouTube requires sign-in or has blocked this request. Use Retry with Browser to select a signed-in session. You can also use Locate File with a local copy of the video.")
