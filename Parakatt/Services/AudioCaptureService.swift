@@ -533,20 +533,24 @@ final class AudioCaptureService: @unchecked Sendable {
         // dropped; we lose ~20ms of audio at format-change time, which
         // is negligible compared to silently corrupting state.
         if needsNewConverter && !alreadyPending {
+            let sourceSnapshot = AudioFormatSnapshot(bufferFormat)
+            let targetSnapshot = AudioFormatSnapshot(targetFormat)
             converterQueue.async { [weak self] in
                 guard let self else { return }
-                let newConv = AVAudioConverter(from: bufferFormat, to: targetFormat)
+                let source = sourceSnapshot.makeFormat()
+                let target = targetSnapshot.makeFormat()
+                let newConv = source.flatMap { source in target.flatMap { AVAudioConverter(from: source, to: $0) } }
                 self.engineLock.lock()
                 self.converter = newConv
-                self.converterSourceRate = bufferFormat.sampleRate
+                self.converterSourceRate = source?.sampleRate ?? 0
                 self.converterPending = false
                 self.engineLock.unlock()
                 if newConv == nil {
                     NSLog("[Parakatt] ERROR: Failed to create converter from %.0fHz %dch to 16kHz mono",
-                          bufferFormat.sampleRate, bufferFormat.channelCount)
+                          source?.sampleRate ?? 0, source?.channelCount ?? 0)
                 } else {
                     NSLog("[Parakatt] Created audio converter: %.0fHz %dch → 16kHz mono",
-                          bufferFormat.sampleRate, bufferFormat.channelCount)
+                          source?.sampleRate ?? 0, source?.channelCount ?? 0)
                 }
             }
             return
