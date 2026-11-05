@@ -32,6 +32,22 @@ final class HotkeyServiceTests: XCTestCase {
     }
 
     @MainActor
+    func testImmediateModifierReleaseFollowsTheQueuedStart() async {
+        let recording = Recording()
+        let hotkey = HotkeyService(appState: recording, registerEvents: false)
+        hotkey.enqueueKeyDown()
+        hotkey.enqueueModifierChange([])
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async {
+                XCTAssertEqual(recording.starts, 1)
+                XCTAssertEqual(recording.stops, 1)
+                XCTAssertFalse(recording.isRecording)
+                continuation.resume()
+            }
+        }
+    }
+
+    @MainActor
     func testHoldStopsOnlyItsRecordingAndReconfigurationStopsAnActiveHold() {
         let recording = Recording()
         let hotkey = HotkeyService(appState: recording, registerEvents: false)

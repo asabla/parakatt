@@ -65,19 +65,26 @@ final class HotkeyService {
         if appState?.hotkeyRecordingID == id { appState?.stopRecording() }
     }
 
+    nonisolated func enqueueKeyDown() {
+        DispatchQueue.main.async { [weak self] in self?.handleKeyDown() }
+    }
+
+    nonisolated func enqueueModifierChange(_ modifiers: NSEvent.ModifierFlags) {
+        DispatchQueue.main.async { [weak self] in self?.handleModifierChange(modifiers) }
+    }
+
     private func setupEvents() {
         guard registerEvents else { return }
         hotKey = HotKey(key: configuredKey, modifiers: configuredModifiers)
         hotKey?.keyDownHandler = { [weak self] in
-            DispatchQueue.main.async { self?.handleKeyDown() }
+            self?.enqueueKeyDown()
         }
         flagsMonitor = EventMonitorToken(NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
-            let modifiers = event.modifierFlags
-            DispatchQueue.main.async { self?.handleModifierChange(modifiers) }
+            self?.enqueueModifierChange(event.modifierFlags)
         })
         localFlagsMonitor = EventMonitorToken(NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
-            // AppKit delivers local event monitors on the main thread.
-            MainActor.assumeIsolated { self?.handleModifierChange(event.modifierFlags) }
+            // Queue local releases behind pending key-down events, as with global releases.
+            self?.enqueueModifierChange(event.modifierFlags)
             return event
         })
     }
