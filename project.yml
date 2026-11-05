@@ -38,7 +38,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.parakatt.appframework
         PRODUCT_NAME: ParakattApp
         MACOSX_DEPLOYMENT_TARGET: "14.0"
-        SWIFT_VERSION: "5.10"
+        SWIFT_VERSION: "6.0"
         SWIFT_STRICT_CONCURRENCY: complete
         SWIFT_TREAT_WARNINGS_AS_ERRORS: true
         GCC_TREAT_WARNINGS_AS_ERRORS: true
@@ -86,7 +86,7 @@ targets:
         MARKETING_VERSION: "0.7.3"
         CURRENT_PROJECT_VERSION: "5"
         MACOSX_DEPLOYMENT_TARGET: "14.0"
-        SWIFT_VERSION: "5.10"
+        SWIFT_VERSION: "6.0"
         SWIFT_STRICT_CONCURRENCY: complete
         SWIFT_TREAT_WARNINGS_AS_ERRORS: true
         GCC_TREAT_WARNINGS_AS_ERRORS: true
@@ -119,7 +119,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.parakatt.tests
-        SWIFT_VERSION: "5.10"
+        SWIFT_VERSION: "6.0"
         SWIFT_STRICT_CONCURRENCY: complete
         SWIFT_TREAT_WARNINGS_AS_ERRORS: true
         GCC_TREAT_WARNINGS_AS_ERRORS: true

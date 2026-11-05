@@ -69,6 +69,21 @@ jobs:
       - name: Run tests
         run: cargo test --locked -p parakatt-core
 
+      - name: Require critical-module coverage to stay at or above base
+        env:
+          COVERAGE_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          rustup component add llvm-tools-preview
+          cargo install cargo-llvm-cov --version 0.9.1 --locked
+          make coverage-check
+
+      - name: Save Rust coverage reports
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: rust-coverage
+          path: target/coverage/*rust.json
+
       - name: Audit locked dependencies
         run: |
           cargo install cargo-audit --version 0.22.2 --locked
@@ -144,7 +159,9 @@ jobs:
         run: |
           set -o pipefail
           checks=(-only-testing:ParakattTests)
-          if [[ "$SANITIZER" == thread ]]; then
+          if [[ "$SANITIZER" == none ]]; then
+            checks+=(-enableCodeCoverage YES -resultBundlePath target/coverage/Swift.xcresult)
+          elif [[ "$SANITIZER" == thread ]]; then
             checks+=(-enableThreadSanitizer YES)
           elif [[ "$SANITIZER" == address ]]; then
             checks+=(-enableAddressSanitizer YES)
@@ -156,7 +173,24 @@ jobs:
             -destination 'platform=macOS' \
             "${checks[@]}" \
             CODE_SIGN_IDENTITY="-" \
-            CODE_SIGNING_REQUIRED=NO
+            CODE_SIGNING_REQUIRED=NO 2>&1 | tee target/swift-tests.log
+
+      - name: Analyze Swift declarations and imports
+        if: matrix.sanitizer == 'none'
+        run: make swift-analysis COMPILER_LOG=target/swift-tests.log
+
+      - name: Require settings-function coverage
+        if: matrix.sanitizer == 'none'
+        run: |
+          xcrun xccov view --report --json target/coverage/Swift.xcresult > target/coverage/swift.json
+          python3 scripts/coverage_gate.py swift target/coverage/swift.json
+
+      - name: Save Swift coverage
+        if: always() && matrix.sanitizer == 'none'
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: swift-coverage
+          path: target/coverage/swift.json
 
       - name: Build and verify release package
         if: matrix.sanitizer == 'none'

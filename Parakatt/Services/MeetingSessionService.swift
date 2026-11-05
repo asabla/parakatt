@@ -44,9 +44,6 @@ final class MeetingSessionService: @unchecked Sendable {
     /// mic callback so the UI has a live audio-level indicator during the
     /// 28s before the first chunk transcribes.
     @MainActor var onMicLevel: ((Float) -> Void)?
-    /// Publicly visible chunk cadence so the UI can show a progress bar.
-    var chunkIntervalSecs: Double { chunkDurationSecs - overlapDurationSecs }
-    var firstChunkSecs: Double { chunkDurationSecs }
 
     // MARK: - Configuration
 

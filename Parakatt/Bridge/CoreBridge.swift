@@ -1,4 +1,3 @@
-import Foundation
 import ParakattCore
 
 /// Thin wrapper around the UniFFI-generated Rust Engine.
@@ -6,7 +5,7 @@ import ParakattCore
 /// Adapts between the Swift service layer and the generated Rust bindings.
 // The only stored state is UniFFI's Sendable Engine. Internal test subclasses
 // must restate Sendable and synchronize any state they add.
-class CoreBridge: @unchecked Sendable {
+class CoreBridge: LivePreviewCore, @unchecked Sendable {
     private let engine: Engine
 
     func createImport(kind: String, input: String, title: String, mode: String) throws -> ImportJob { try engine.createImportJob(kind: kind, input: input, title: title, mode: mode) }
@@ -44,38 +43,12 @@ class CoreBridge: @unchecked Sendable {
     func editTranscription(id: String, text: String) throws { try engine.editTranscription(id: id, text: text) }
     func undoTranscriptionEdit(id: String) throws { try engine.undoTranscriptionEdit(id: id) }
 
-    /// Run the full pipeline: audio → STT → dictionary → LLM → text.
-    func transcribe(
-        audioSamples: [Float],
-        sampleRate: UInt32,
-        mode: String,
-        context: AppContextInfo?
-    ) throws -> TranscriptionResult {
-        let ctx = context.map {
-            AppContext(
-                appBundleId: $0.appBundleId,
-                appName: $0.appName,
-                selectedText: $0.selectedText,
-                windowTitle: $0.windowTitle
-            )
-        }
-        return try engine.transcribe(
-            audioSamples: audioSamples,
-            sampleRate: sampleRate,
-            mode: mode,
-            context: ctx
-        )
-    }
 
     /// Load an STT model by ID (e.g. "whisper-base.en").
     func loadModel(_ modelId: String) throws {
         try engine.loadModel(modelId: modelId)
     }
 
-    /// Unload the current STT model.
-    func unloadModel() {
-        engine.unloadModel()
-    }
 
     /// Check if an STT model is loaded and ready.
     func isModelLoaded() -> Bool {
@@ -84,7 +57,6 @@ class CoreBridge: @unchecked Sendable {
 
     func streamingPreviewEnabled() -> Bool { (try? engine.getStreamingPreviewEnabled()) ?? true }
     func setStreamingPreviewEnabled(_ value: Bool) throws { try engine.setStreamingPreviewEnabled(enabled: value) }
-    func shouldUseStreamingPreview() -> Bool { engine.shouldUseStreamingPreview() }
     func getSpeechSettings() -> SpeechSettings { engine.getSpeechSettings() }
     func setSpeechSettings(_ settings: SpeechSettings) throws { try engine.setSpeechSettings(settings: settings) }
     func speechRuntimeStatus() -> SpeechRuntimeStatus { engine.speechRuntimeStatus() }
@@ -199,9 +171,7 @@ class CoreBridge: @unchecked Sendable {
     func setLlmContextEnabled(_ enabled: Bool) throws { try engine.setLlmContextEnabled(enabled: enabled) }
     func testLlmPipeline() throws -> ProviderDiagnostic { try engine.testLlmPipeline() }
 
-    func testLlmConnection() throws -> String {
-        try engine.testLlmConnection()
-    }
+
 
     // MARK: - Modes
 
@@ -412,26 +382,23 @@ class CoreBridge: @unchecked Sendable {
 
     // MARK: - Streaming preview (cache-aware Nemotron path)
 
-    /// Whether the streaming/live-preview model is loaded. Used to
-    /// decide whether the live-preview worker should run.
-    func isStreamingModelLoaded() -> Bool {
-        engine.isStreamingModelLoaded()
-    }
 
-    /// Native chunk size in samples for the loaded streaming model.
-    /// 0 if no streaming model is loaded.
+
+
+
+
+
+
+    func shouldUseStreamingPreview() -> Bool { engine.shouldUseStreamingPreview() }
+
     func streamingNativeChunkSamples() -> UInt32 {
         engine.streamingNativeChunkSamples()
     }
 
-    /// Open a new streaming preview session for the given id.
     func startStreamingSession(sessionId: String) throws {
         try engine.startStreamingSession(sessionId: sessionId)
     }
 
-    /// Feed a chunk of audio to a streaming session. The Rust side
-    /// runs LocalAgreement-2 internally and returns committed +
-    /// tentative slices ready for the UI.
     func feedStreamingChunk(
         sessionId: String,
         audioSamples: [Float]
@@ -442,17 +409,10 @@ class CoreBridge: @unchecked Sendable {
         )
     }
 
-    /// Reset a streaming session in place (model state + LA-2 buffer).
-    func resetStreamingSession(sessionId: String) throws {
-        try engine.resetStreamingSession(sessionId: sessionId)
-    }
-
-    /// Close and discard a streaming session, returning final text.
     func finishStreamingSession(sessionId: String) throws -> String {
         try engine.finishStreamingSession(sessionId: sessionId)
     }
 
-    /// Cancel and discard a streaming session.
     func cancelStreamingSession(sessionId: String) {
         engine.cancelStreamingSession(sessionId: sessionId)
     }
@@ -490,9 +450,6 @@ class CoreBridge: @unchecked Sendable {
         try engine.bufferedPreviewReset(sessionId: sessionId)
     }
 
-    func bufferedPreviewCancel(sessionId: String) {
-        engine.bufferedPreviewCancel(sessionId: sessionId)
-    }
 
     /// Cancel and discard a session.
     func cancelSession(sessionId: String) {
@@ -507,9 +464,7 @@ class CoreBridge: @unchecked Sendable {
     }
 
     /// Full-text search across all transcriptions.
-    func searchTranscriptions(searchText: String) throws -> [StoredTranscription] {
-        try engine.searchTranscriptions(searchText: searchText)
-    }
+
 
     /// Get a single transcription by ID.
     func getTranscription(id: String) throws -> StoredTranscription {

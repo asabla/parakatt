@@ -1,0 +1,16 @@
+{
+  "rust_modules": [
+    "crates/parakatt-core/src/config.rs",
+    "crates/parakatt-core/src/engine.rs",
+    "crates/parakatt-core/src/engine/history.rs",
+    "crates/parakatt-core/src/engine/imports.rs",
+    "crates/parakatt-core/src/processing.rs",
+    "crates/parakatt-core/src/recovery.rs"
+  ],
+  "swift_functions": {
+    "AppState.loadProfile(_:)": 1.0,
+    "AppState.setAutoPaste(_:)": 1.0,
+    "AppState.setShowOverlay(_:)": 1.0,
+    "AppState.setSpeakerLabelsEnabled(_:)": 1.0
+  }
+}

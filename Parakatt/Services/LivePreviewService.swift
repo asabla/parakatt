@@ -9,7 +9,6 @@ protocol LivePreviewCore: AnyObject, Sendable {
     func finishStreamingSession(sessionId: String) throws -> String
     func cancelStreamingSession(sessionId: String)
 }
-extension CoreBridge: LivePreviewCore {}
 
 /// Serial session lifecycle. Audio admission is bounded and never waits for inference.
 // Session state is protected by lock. Callbacks belong to the main actor.

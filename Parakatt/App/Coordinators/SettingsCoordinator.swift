@@ -1,5 +1,4 @@
 import Combine
-import Foundation
 
 /// User preferences — the persisted bag of toggles + LLM connection info.
 ///

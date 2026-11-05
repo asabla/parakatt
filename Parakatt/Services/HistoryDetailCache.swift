@@ -1,4 +1,3 @@
-import Foundation
 
 /// Keep a small recent set; very large transcripts remain only in the selected view.
 struct HistoryDetailCache {

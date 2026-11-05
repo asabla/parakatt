@@ -1,4 +1,3 @@
-import Foundation
 
 /// FIFO storage with an advancing read index. The owner provides synchronization.
 struct FloatQueue: RandomAccessCollection, Sendable {

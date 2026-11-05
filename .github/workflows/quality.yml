@@ -13,7 +13,7 @@ jobs:
   quality:
     name: Source and Dependency Policy
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-python@v7.1.0
