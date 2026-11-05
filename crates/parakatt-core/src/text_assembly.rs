@@ -4,8 +4,8 @@ use crate::ChunkSource;
 
 #[uniffi::export]
 pub fn assemble_transcript_parts(parts: Vec<String>, sources: Vec<ChunkSource>) -> String {
-    if parts.len() == 1 {
-        return parts[0].clone();
+    if let [part] = parts.as_slice() {
+        return part.clone();
     }
     let mut result = String::new();
     let mut previous_source = None;

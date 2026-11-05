@@ -7,7 +7,16 @@ struct HistoryProcessingGuard<'a> {
 }
 impl Drop for HistoryProcessingGuard<'_> {
     fn drop(&mut self) {
-        if let Some(session) = self.engine.processing.lock().unwrap().remove(&self.id) {
+        if let Some(session) = (match crate::util::lock_named(
+            &self.engine.processing,
+            "processing",
+            CoreError::TranscriptionFailed,
+        ) {
+            Ok(guard) => guard,
+            Err(_error) => return,
+        })
+        .remove(&self.id)
+        {
             session.cancel();
         }
     }
@@ -16,19 +25,22 @@ impl Drop for HistoryProcessingGuard<'_> {
 #[uniffi::export]
 impl Engine {
     pub fn begin_capture(&self, id: String, source: String, mode: String) -> Result<(), CoreError> {
-        let mut capturing = self.capturing.lock().unwrap();
+        let mut capturing =
+            crate::util::lock_named(&self.capturing, "capturing", CoreError::TranscriptionFailed)?;
         if capturing.contains(&id) {
             return Err(CoreError::AudioError("Capture is already active".into()));
         }
-        self.storage
-            .lock()
-            .unwrap()
+        crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?
             .begin_capture(&id, &source, &mode)?;
         capturing.insert(id);
         Ok(())
     }
     pub fn end_capture(&self, id: String) {
-        self.capturing.lock().unwrap().remove(&id);
+        if let Ok(mut capturing) =
+            crate::util::lock_named(&self.capturing, "capturing", CoreError::TranscriptionFailed)
+        {
+            capturing.remove(&id);
+        }
     }
     pub fn append_capture_audio(
         &self,
@@ -37,49 +49,64 @@ impl Engine {
         samples: Vec<f32>,
     ) -> Result<(), CoreError> {
         if self.get_recovery_audio() {
-            self.storage
-                .lock()
-                .unwrap()
+            crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?
                 .append_capture(&id, source, &samples)?;
         }
         Ok(())
     }
     pub fn mark_capture_gap(&self, id: String, audio_lost: bool) -> Result<(), CoreError> {
-        self.storage.lock().unwrap().capture_gap(&id, audio_lost)
+        crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?
+            .capture_gap(&id, audio_lost)
     }
     pub fn get_recovery_audio(&self) -> bool {
-        self.config.lock().unwrap().general.recovery_audio
+        (match crate::util::lock_named(&self.config, "config", CoreError::ConfigError) {
+            Ok(guard) => guard,
+            Err(_error) => return Default::default(),
+        })
+        .general
+        .recovery_audio
     }
     pub fn set_recovery_audio(&self, enabled: bool) -> Result<(), CoreError> {
-        let mut config = self.config.lock().unwrap();
+        let mut config = crate::util::lock_named(&self.config, "config", CoreError::ConfigError)?;
         config.general.recovery_audio = enabled;
         config.save(&self.config_dir)?;
         if !enabled {
-            self.storage.lock().unwrap().clear_recovery_audio()?;
+            crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?
+                .clear_recovery_audio()?;
         }
         Ok(())
     }
     pub fn list_recording_drafts(&self) -> Result<Vec<crate::recovery::RecordingDraft>, CoreError> {
-        let capturing = self.capturing.lock().unwrap();
-        let active = self.processing.lock().unwrap();
-        Ok(self
-            .storage
-            .lock()
-            .unwrap()
-            .recording_drafts()?
-            .into_iter()
-            .filter(|d| {
-                d.chunk_count > 0 && !active.contains_key(&d.id) && !capturing.contains(&d.id)
-            })
-            .collect())
+        let capturing =
+            crate::util::lock_named(&self.capturing, "capturing", CoreError::TranscriptionFailed)?;
+        let active = crate::util::lock_named(
+            &self.processing,
+            "processing",
+            CoreError::TranscriptionFailed,
+        )?;
+        Ok(
+            crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?
+                .recording_drafts()?
+                .into_iter()
+                .filter(|d| {
+                    d.chunk_count > 0 && !active.contains_key(&d.id) && !capturing.contains(&d.id)
+                })
+                .collect(),
+        )
     }
     pub fn discard_recording_draft(&self, id: String) -> Result<(), CoreError> {
-        if self.capturing.lock().unwrap().contains(&id)
-            || self.processing.lock().unwrap().contains_key(&id)
+        if crate::util::lock_named(&self.capturing, "capturing", CoreError::TranscriptionFailed)?
+            .contains(&id)
+            || crate::util::lock_named(
+                &self.processing,
+                "processing",
+                CoreError::TranscriptionFailed,
+            )?
+            .contains_key(&id)
         {
             return Err(CoreError::TranscriptionFailed("Recording is active".into()));
         }
-        self.storage.lock().unwrap().discard_draft(&id)
+        crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?.discard_draft(&id)
     }
     pub fn start_recording(
         &self,
@@ -88,10 +115,7 @@ impl Engine {
         mode: String,
     ) -> Result<(), CoreError> {
         self.start_session(session_id.clone())?;
-        let result = self
-            .storage
-            .lock()
-            .unwrap()
+        let result = crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?
             .update_draft(&session_id, &source, &mode);
         if result.is_err() {
             self.cancel_session(session_id);
@@ -102,31 +126,38 @@ impl Engine {
         &self,
         id: String,
     ) -> Result<Vec<crate::recovery::HistorySection>, CoreError> {
-        self.storage.lock().unwrap().history_sections(&id)
+        crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?.history_sections(&id)
     }
     pub fn edit_transcription(&self, id: String, text: String) -> Result<(), CoreError> {
-        self.storage.lock().unwrap().edit_transcription(&id, &text)
+        crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?
+            .edit_transcription(&id, &text)
     }
     pub fn undo_transcription_edit(&self, id: String) -> Result<(), CoreError> {
-        self.storage.lock().unwrap().undo_transcription_edit(&id)
+        crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?
+            .undo_transcription_edit(&id)
     }
     pub fn cancel_history_processing(&self, id: String) {
-        if let Some(session) = self
-            .processing
-            .lock()
-            .unwrap()
-            .get(&format!("history:{id}"))
+        if let Some(session) = (match crate::util::lock_named(
+            &self.processing,
+            "processing",
+            CoreError::TranscriptionFailed,
+        ) {
+            Ok(guard) => guard,
+            Err(_error) => return,
+        })
+        .get(&format!("history:{id}"))
         {
             session.cancel();
         }
     }
     pub fn retry_history_processing(&self, id: String) -> Result<(), CoreError> {
-        let (item, summary, mut sections) = {
-            let storage = self.storage.lock().unwrap();
+        let (item, summary, mut sections, revision) = {
+            let storage = crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?;
             (
                 storage.get(&id)?,
                 storage.get_processing(&id)?,
                 storage.history_sections(&id)?,
+                storage.history_revision(&id)?,
             )
         };
         if sections.is_empty() {
@@ -139,10 +170,20 @@ impl Engine {
                 error: None,
             });
         }
+        let context = match item.app_context.as_deref() {
+            Some(value) => serde_json::from_str::<AppContext>(value).map_err(|_| {
+                CoreError::ConfigError("The saved application context is invalid".into())
+            })?,
+            None => AppContext::default(),
+        };
         // Work on a private session; cancellation/queue behavior matches live processing.
         let job_id = format!("history:{id}");
         let session = {
-            let mut active = self.processing.lock().unwrap();
+            let mut active = crate::util::lock_named(
+                &self.processing,
+                "processing",
+                CoreError::TranscriptionFailed,
+            )?;
             if active.contains_key(&job_id) {
                 return Err(CoreError::LlmError(
                     "History processing is already running".into(),
@@ -157,9 +198,13 @@ impl Engine {
             id: job_id,
         };
         for section in &sections {
+            let input = if section.status == "failed" {
+                self.dictionary_text(&section.recognized_text, &item.mode, &context)?
+            } else {
+                section.text.clone()
+            };
             let work = if section.status == "failed" {
-                match self.llm_request(&section.recognized_text, &item.mode, &AppContext::default())
-                {
+                match self.llm_request(&input, &item.mode, &context) {
                     Ok(Some(work)) => Some(work),
                     Ok(None) => {
                         session.cancel();
@@ -175,17 +220,7 @@ impl Engine {
             } else {
                 None
             };
-            session.enqueue(
-                section.chunk_id,
-                section.source,
-                if work.is_some() {
-                    section.recognized_text.clone()
-                } else {
-                    section.text.clone()
-                },
-                work,
-                None,
-            )?;
+            session.enqueue(section.chunk_id, section.source, input, work, None)?;
             session.wait_idle()?;
         }
         let (text, _, error) = session.finish()?;
@@ -213,10 +248,8 @@ impl Engine {
             }
             .into(),
         };
-        self.storage
-            .lock()
-            .unwrap()
-            .apply_history_processing(&id, &text, &summary, &sections)?;
+        crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?
+            .apply_history_processing(&id, &revision, &text, &summary, &sections)?;
         if error.is_some() {
             return Err(CoreError::LlmError(
                 "Some sections could not be processed. Recognized text was kept.".into(),
@@ -225,21 +258,25 @@ impl Engine {
         Ok(())
     }
     pub fn recover_recording(&self, id: String, transcribe_audio: bool) -> Result<(), CoreError> {
-        if self.capturing.lock().unwrap().contains(&id)
-            || self.processing.lock().unwrap().contains_key(&id)
+        if crate::util::lock_named(&self.capturing, "capturing", CoreError::TranscriptionFailed)?
+            .contains(&id)
+            || crate::util::lock_named(
+                &self.processing,
+                "processing",
+                CoreError::TranscriptionFailed,
+            )?
+            .contains_key(&id)
         {
             return Err(CoreError::TranscriptionFailed("Recording is active".into()));
         }
-        let draft = self
-            .storage
-            .lock()
-            .unwrap()
+        let draft = crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?
             .recording_drafts()?
             .into_iter()
             .find(|d| d.id == id)
             .ok_or_else(|| CoreError::IoError("Recovery record not found".into()))?;
         if !transcribe_audio {
-            self.storage.lock().unwrap().save_recovered_text(&draft)?;
+            crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?
+                .save_recovered_text(&draft)?;
             return Ok(());
         }
         if !draft.audio_available {
@@ -250,27 +287,26 @@ impl Engine {
         }
         // Commit the previous recognized text before replay changes chunk boundaries.
         // A failed replay or a process exit must not remove the only text copy.
-        self.storage
-            .lock()
-            .unwrap()
+        crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?
             .preserve_recovered_text(&draft)?;
-        let keys = self.storage.lock().unwrap().draft_keys(&id)?;
-        let captures = self.storage.lock().unwrap().capture_sources(&id)?;
+        let keys = crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?
+            .draft_keys(&id)?;
+        let captures = crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?
+            .capture_sources(&id)?;
         self.start_session(id.clone())?;
         let recovered = (|| {
             if !captures.is_empty() {
-                self.storage.lock().unwrap().reset_for_capture_replay(&id)?;
+                crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?
+                    .reset_for_capture_replay(&id)?;
                 let total = captures.iter().map(|(_, n)| *n).max().unwrap_or(0);
                 let mut start = 0;
                 let mut index = 0;
                 while start < total {
                     let count = (total - start).min(30 * 16000) as usize;
                     for &(source, _) in &captures {
-                        let mut samples = self
-                            .storage
-                            .lock()
-                            .unwrap()
-                            .capture_slice(&id, source, start, count)?;
+                        let mut samples =
+                            crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?
+                                .capture_slice(&id, source, start, count)?;
                         samples.resize(count, 0.0);
                         let source = match source {
                             1 => ChunkSource::Mic,
@@ -296,11 +332,9 @@ impl Engine {
                 }
             } else {
                 for (index, source) in keys {
-                    let chunk = self
-                        .storage
-                        .lock()
-                        .unwrap()
-                        .recovery_chunk(&id, index, source)?;
+                    let chunk =
+                        crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?
+                            .recovery_chunk(&id, index, source)?;
                     let samples = chunk.samples.ok_or_else(|| {
                         CoreError::AudioError("Recovery audio has expired".into())
                     })?;

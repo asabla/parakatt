@@ -1,3 +1,4 @@
+#![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::indexing_slicing))]
 //! Output-only local file transcription. No Engine, history, or credential store is opened.
 pub mod input;
 

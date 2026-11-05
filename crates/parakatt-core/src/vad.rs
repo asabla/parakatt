@@ -110,6 +110,13 @@ impl Vad for EnergyVad {
         for i in 0..frame_count {
             let start = i * self.frame_size;
             let end = (start + self.frame_size).min(samples.len());
+            #[cfg_attr(
+                not(test),
+                expect(
+                    clippy::indexing_slicing,
+                    reason = "The frame index bounds start; end is clamped to samples.len()."
+                )
+            )]
             frame_rms.push(rms(&samples[start..end]));
         }
 

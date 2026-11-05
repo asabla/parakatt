@@ -1,0 +1,26 @@
+[package]
+name = "parakatt-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "MIT"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+parakatt-core = { path = "../crates/parakatt-core", version = "0.7.3" }
+serde_json = "1"
+toml = "1.1.8"
+log = "0.4"
+
+[patch.crates-io]
+parakeet-rs = { path = "../vendor/parakeet-rs" }
+
+[[bin]]
+name = "input_contracts"
+path = "fuzz_targets/input_contracts.rs"
+test = false
+doc = false
+bench = false

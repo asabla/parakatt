@@ -69,6 +69,54 @@ class DownloadTests(unittest.TestCase):
         self.sleep.assert_not_called()
         self.assert_no_partial()
 
+    def test_network_retry_limit_uses_mirror_with_same_digest(self):
+        mirror = "https://mirror.invalid/notice.txt"
+        self.open.side_effect = [
+            urllib.error.URLError("connection failed"),
+            urllib.error.URLError("connection failed"),
+            io.BytesIO(self.data),
+        ]
+        result = fetch_verified(
+            self.url, self.path, self.digest, "test-notice", attempts=2, mirrors=[mirror]
+        )
+        self.assertEqual(result.read_bytes(), self.data)
+        self.assertEqual(
+            [call.args[0] for call in self.open.call_args_list],
+            [self.url, self.url, mirror],
+        )
+        self.assert_no_partial()
+
+    def test_mirror_checksum_failure_is_not_cached(self):
+        self.open.side_effect = [
+            urllib.error.HTTPError(self.url, 404, "Missing", {}, None),
+            io.BytesIO(b"wrong contents"),
+        ]
+        with self.assertRaisesRegex(ValueError, "Checksum mismatch"):
+            fetch_verified(
+                self.url, self.path, self.digest, "test-notice", mirrors=["https://mirror.invalid"]
+            )
+        self.assertEqual(self.open.call_count, 2)
+        self.assertFalse(self.path.exists())
+        self.assert_no_partial()
+
+    def test_primary_checksum_failure_does_not_try_mirror(self):
+        self.open.return_value = io.BytesIO(b"wrong contents")
+        with self.assertRaisesRegex(ValueError, "Checksum mismatch"):
+            fetch_verified(
+                self.url, self.path, self.digest, "test-notice", mirrors=["https://mirror.invalid"]
+            )
+        self.assertEqual(self.open.call_count, 1)
+        self.assert_no_partial()
+
+    def test_authorization_failure_does_not_try_mirror(self):
+        self.open.side_effect = urllib.error.HTTPError(self.url, 403, "Forbidden", {}, None)
+        with self.assertRaises(urllib.error.HTTPError):
+            fetch_verified(
+                self.url, self.path, self.digest, "test-notice", mirrors=["https://mirror.invalid"]
+            )
+        self.assertEqual(self.open.call_count, 1)
+        self.assert_no_partial()
+
     def test_invalid_download_is_not_cached_or_retried(self):
         self.open.return_value = io.BytesIO(b"wrong contents")
         with self.assertRaisesRegex(ValueError, "Checksum mismatch: test-notice"):

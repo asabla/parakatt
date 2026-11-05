@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 
 impl Engine {
     fn import_configuration(&self, mode: &str) -> Result<String, CoreError> {
-        let config = self.config.lock().unwrap();
+        let config = crate::util::lock_named(&self.config, "config", CoreError::ConfigError)?;
         let selected = config.modes.iter().find(|m| m.name == mode);
         let bytes = serde_json::to_vec(&(
             &config.stt,
@@ -51,14 +51,15 @@ impl Engine {
             configuration: self.import_configuration(&mode)?,
             checkpoint_version: 1,
         };
-        self.storage.lock().unwrap().create_import(&job)?;
+        crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?
+            .create_import(&job)?;
         Ok(job)
     }
     pub fn list_import_jobs(&self) -> Result<Vec<ImportJob>, CoreError> {
-        self.storage.lock().unwrap().import_jobs()
+        crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?.import_jobs()
     }
     pub fn get_import_job(&self, id: String) -> Result<ImportJob, CoreError> {
-        self.storage.lock().unwrap().import_job(&id)
+        crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?.import_job(&id)
     }
     pub fn set_import_state(
         &self,
@@ -83,11 +84,17 @@ impl Engine {
         let mode = self.get_import_job(id.clone())?.mode;
         let configuration = self.import_configuration(&mode)?;
         if state != "transcribing" {
-            if let Some(token) = self.import_cancellation.lock().unwrap().get(&id) {
+            if let Some(token) = crate::util::lock_named(
+                &self.import_cancellation,
+                "import_cancellation",
+                CoreError::TranscriptionFailed,
+            )?
+            .get(&id)
+            {
                 token.cancel();
             }
         }
-        let storage = self.storage.lock().unwrap();
+        let storage = crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?;
         let mut job = storage.import_job(&id)?;
         if job.next_chunk == 0 {
             job.configuration = configuration;
@@ -114,7 +121,7 @@ impl Engine {
         if !attachment.duration_secs.is_finite() || attachment.duration_secs < 0.0 {
             return Err(io("Invalid media duration"));
         }
-        let storage = self.storage.lock().unwrap();
+        let storage = crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?;
         let mut job = storage.import_job(&id)?;
         if job.next_chunk > 0
             && (attachment.fingerprint != job.attachment.fingerprint
@@ -128,7 +135,7 @@ impl Engine {
         Ok(job)
     }
     pub fn invalidate_import_source(&self, id: String) -> Result<(), CoreError> {
-        let storage = self.storage.lock().unwrap();
+        let storage = crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?;
         let mut job = storage.import_job(&id)?;
         job.checkpoint_version = 0;
         job.state = "failed".into();
@@ -147,7 +154,7 @@ impl Engine {
             return Err(io("Expected up to 30 seconds of finite 16 kHz mono audio"));
         }
         let (mut job, checkpoint) = {
-            let storage = self.storage.lock().unwrap();
+            let storage = crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?;
             (storage.import_job(&id)?, storage.import_checkpoint(&id)?)
         };
         if job.checkpoint_version != 1
@@ -181,7 +188,7 @@ impl Engine {
                 llm_error: None,
             }
         } else {
-            let stt = self.stt.lock().unwrap();
+            let stt = crate::util::lock_named(&self.stt, "stt", CoreError::ModelLoadFailed)?;
             stt.as_ref()
                 .ok_or_else(|| io("Load the speech model before importing"))?
                 .transcribe_import(&samples, 16000)?
@@ -204,29 +211,30 @@ impl Engine {
             segment.start_secs += media_offset_secs;
             segment.end_secs += media_offset_secs;
         }
-        let text =
-            self.dictionary
-                .lock()
-                .unwrap()
-                .apply(&result.text, &AppContext::default(), &job.mode);
+        let text = self.dictionary_text(&result.text, &job.mode, &AppContext::default())?;
         let expected_chunk = job.next_chunk;
         job.next_chunk += 1;
         job.processed_until = media_offset_secs + duration;
-        self.storage.lock().unwrap().commit_import_chunk(
-            &job,
-            expected_chunk,
-            &assembly.import_checkpoint(&id)?,
-            &result.text,
-            &text,
-            &segments,
-        )?;
+        crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?
+            .commit_import_chunk(
+                &job,
+                expected_chunk,
+                &assembly.import_checkpoint(&id)?,
+                &result.text,
+                &text,
+                &segments,
+            )?;
         Ok(job)
     }
     /// Synchronous, one section at a time: imported media applies backpressure.
     pub fn process_import_text(&self, id: String) -> Result<(), CoreError> {
         let cancellation = tokio_util::sync::CancellationToken::new();
         {
-            let mut active = self.import_cancellation.lock().unwrap();
+            let mut active = crate::util::lock_named(
+                &self.import_cancellation,
+                "import_cancellation",
+                CoreError::TranscriptionFailed,
+            )?;
             if active.contains_key(&id) {
                 return Err(io("Import processing is already active"));
             }
@@ -235,12 +243,20 @@ impl Engine {
         struct Guard<'a>(&'a Engine, String);
         impl Drop for Guard<'_> {
             fn drop(&mut self) {
-                self.0.import_cancellation.lock().unwrap().remove(&self.1);
+                (match crate::util::lock_named(
+                    &self.0.import_cancellation,
+                    "import_cancellation",
+                    CoreError::TranscriptionFailed,
+                ) {
+                    Ok(guard) => guard,
+                    Err(_error) => return Default::default(),
+                })
+                .remove(&self.1);
             }
         }
         let _guard = Guard(self, id.clone());
         let (job, sections) = {
-            let s = self.storage.lock().unwrap();
+            let s = crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?;
             (s.import_job(&id)?, s.import_sections(&id)?)
         };
         if job.configuration != self.import_configuration(&job.mode)? {
@@ -270,8 +286,17 @@ impl Engine {
                             .collect::<Vec<_>>()
                             .join(" ");
                         let words = joined.split_whitespace().collect::<Vec<_>>();
-                        request.preceding_text =
-                            Some(words[words.len().saturating_sub(120)..].join(" "));
+                        request.preceding_text = Some(
+                            words
+                                .into_iter()
+                                .rev()
+                                .take(120)
+                                .collect::<Vec<_>>()
+                                .into_iter()
+                                .rev()
+                                .collect::<Vec<_>>()
+                                .join(" "),
+                        );
                     }
                     provider.process_cancellable(&request, &cancellation, &|_| {})
                 }
@@ -285,7 +310,7 @@ impl Engine {
                 Ok(t) if !t.trim().is_empty() => (t, "processed"),
                 _ => (section.text.clone(), "failed"),
             };
-            let storage = self.storage.lock().unwrap();
+            let storage = crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?;
             let tx = storage.conn.unchecked_transaction().map_err(io)?;
             storage.conn.execute("UPDATE import_chunks SET text=?3,status=?4 WHERE id=?1 AND chunk_index=?2 AND status='pending'",params![id,section.chunk_id,text,status]).map_err(io)?;
             storage.refresh_import_text(&storage.import_job(&id)?)?;
@@ -481,6 +506,7 @@ mod tests {
         storage
             .apply_history_processing(
                 &job.id,
+                &storage.history_revision(&job.id).unwrap(),
                 "Processed text",
                 &crate::processing::ProcessingSummary {
                     recognized_text: "repeat next".into(),

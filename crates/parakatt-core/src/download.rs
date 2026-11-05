@@ -217,6 +217,13 @@ fn download_manifest(
             if total > file.size {
                 return Err(CoreError::IoError("Download exceeds manifest size".into()));
             }
+            #[cfg_attr(
+                not(test),
+                expect(
+                    clippy::indexing_slicing,
+                    reason = "Read::read cannot return more bytes than the supplied buffer."
+                )
+            )]
             output.write_all(&buffer[..n]).map_err(io_error)?;
             lock_progress(progress).bytes_downloaded = total;
         }

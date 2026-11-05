@@ -76,6 +76,13 @@ pub fn verify_file(path: &Path, file: &ModelFile) -> Result<(), CoreError> {
         if n == 0 {
             break;
         }
+        #[cfg_attr(
+            not(test),
+            expect(
+                clippy::indexing_slicing,
+                reason = "File::read bounds n by the buffer length."
+            )
+        )]
         hash.update(&buffer[..n]);
     }
     if crate::util::hex_lower(&hash.finalize()) != file.sha256 {
@@ -106,16 +113,18 @@ pub fn verify_model(directory: &Path, manifest: &ModelManifest) -> Result<(), Co
         })
         .collect::<Result<_, CoreError>>()?;
     let cache = VERIFIED.get_or_init(|| Mutex::new(HashMap::new()));
-    if cache.lock().unwrap().get(directory) == Some(&signature) {
-        return Ok(());
+    // An unavailable optimization cache must never skip file verification.
+    if let Ok(cache) = crate::util::lock_named(cache, "verified models", CoreError::IoError) {
+        if cache.get(directory) == Some(&signature) {
+            return Ok(());
+        }
     }
     for file in &manifest.files {
         verify_file(&directory.join(&file.name), file)?;
     }
-    cache
-        .lock()
-        .unwrap()
-        .insert(directory.to_path_buf(), signature);
+    if let Ok(mut cache) = crate::util::lock_named(cache, "verified models", CoreError::IoError) {
+        cache.insert(directory.to_path_buf(), signature);
+    }
     Ok(())
 }
 
@@ -154,7 +163,9 @@ pub fn list_models_with_status(root: &Path) -> Vec<ModelInfo> {
             model.installation = if !directory.exists() {
                 ModelInstallationState::Missing
             } else {
-                match verify_model(&directory, model_file_set(&model.id).unwrap()) {
+                match model_file_set(&model.id)
+                    .ok_or_else(|| CoreError::ModelNotFound(model.id.clone()))
+                    .and_then(|manifest| verify_model(&directory, manifest)) {
                     Ok(()) => ModelInstallationState::Verified,
                     Err(_) => ModelInstallationState::RepairRequired { message: "This installation is incomplete or does not match the pinned model revision. Repair verifies all required files before activation.".into() },
                 }

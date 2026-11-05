@@ -186,7 +186,11 @@ impl StreamingSession for ScriptedStreamingSession {
             std::thread::sleep(std::time::Duration::from_millis(self.feed_latency_ms));
         }
 
-        let mut cursor = self.cursor.lock().unwrap();
+        let mut cursor = crate::util::lock_named(
+            &self.cursor,
+            "scripted cursor",
+            CoreError::TranscriptionFailed,
+        )?;
         let chunk_index = *cursor;
         *cursor += 1;
 
@@ -203,15 +207,26 @@ impl StreamingSession for ScriptedStreamingSession {
         let new_full = if self.hypotheses.is_empty() {
             String::new()
         } else if chunk_index < self.hypotheses.len() {
-            self.hypotheses[chunk_index].clone()
+            self.hypotheses
+                .get(chunk_index)
+                .cloned()
+                .unwrap_or_default()
         } else {
             self.hypotheses.last().cloned().unwrap_or_default()
         };
 
         // Compute delta vs the previous transcript.
-        let mut transcript = self.transcript.lock().unwrap();
+        let mut transcript = crate::util::lock_named(
+            &self.transcript,
+            "scripted transcript",
+            CoreError::TranscriptionFailed,
+        )?;
         let delta = if new_full.starts_with(&*transcript) {
-            new_full[transcript.len()..].trim_start().to_string()
+            new_full
+                .get(transcript.len()..)
+                .unwrap_or_default()
+                .trim_start()
+                .to_string()
         } else {
             // Hypothesis revision (shouldn't happen with monotonic
             // streams but the test API supports it).
@@ -223,12 +238,30 @@ impl StreamingSession for ScriptedStreamingSession {
     }
 
     fn current_transcript(&self) -> String {
-        self.transcript.lock().unwrap().clone()
+        crate::util::lock_named(
+            &self.transcript,
+            "scripted transcript",
+            CoreError::TranscriptionFailed,
+        )
+        .map(|text| text.clone())
+        .unwrap_or_default()
     }
 
     fn reset(&mut self) {
-        *self.cursor.lock().unwrap() = 0;
-        self.transcript.lock().unwrap().clear();
+        if let Ok(mut cursor) = crate::util::lock_named(
+            &self.cursor,
+            "scripted cursor",
+            CoreError::TranscriptionFailed,
+        ) {
+            *cursor = 0;
+        }
+        if let Ok(mut text) = crate::util::lock_named(
+            &self.transcript,
+            "scripted transcript",
+            CoreError::TranscriptionFailed,
+        ) {
+            text.clear();
+        }
     }
 }
 

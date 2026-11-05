@@ -1,15 +1,14 @@
+#![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::indexing_slicing))]
 pub mod audio;
 mod capture_recovery;
-#[cfg_attr(not(test), deny(clippy::unwrap_used, clippy::indexing_slicing))]
 pub mod config;
-#[cfg_attr(not(test), deny(clippy::unwrap_used, clippy::indexing_slicing))]
 mod credentials;
-#[cfg_attr(not(test), deny(clippy::unwrap_used, clippy::indexing_slicing))]
 pub mod dictionary;
 pub mod download;
 pub mod engine;
 pub mod llm;
 pub mod local_agreement;
+mod logging;
 pub mod media_import;
 pub mod models;
 pub mod modes;
@@ -47,14 +46,7 @@ uniffi::setup_scaffolding!();
 /// `default_level` is `None` we default to `"info"`.
 #[uniffi::export]
 pub fn init_logging(default_level: Option<String>) {
-    let level = default_level.as_deref().unwrap_or("info");
-    let env = env_logger::Env::default().default_filter_or(level);
-    let _ = env_logger::Builder::from_env(env)
-        .format_timestamp_millis()
-        .format_module_path(false)
-        .target(env_logger::Target::Stderr)
-        .try_init();
-    log::info!("parakatt-core logger initialized (level={level})");
+    logging::init(default_level);
 }
 
 /// Errors exposed across the FFI boundary.
@@ -136,7 +128,7 @@ pub struct TranscriptionResult {
 }
 
 /// Context about the currently focused application, passed from Swift.
-#[derive(Debug, Clone, Default, serde::Serialize, uniffi::Record)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, uniffi::Record)]
 pub struct AppContext {
     pub app_bundle_id: Option<String>,
     pub app_name: Option<String>,

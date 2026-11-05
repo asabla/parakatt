@@ -272,11 +272,10 @@ impl ParakeetProvider {
             .collect();
 
         log::debug!(
-            "Parakeet transcribed {} samples in {:.2}s ({} segments): '{}'",
+            "Parakeet transcribed {} samples in {:.2}s ({} segments)",
             audio.len(),
             duration.as_secs_f64(),
-            segments.len(),
-            text
+            segments.len()
         );
 
         Ok((
