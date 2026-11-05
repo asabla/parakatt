@@ -1,7 +1,6 @@
 import Foundation
 import CryptoKit
 import AVFoundation
-import ParakattCore
 import Darwin
 
 struct MediaImportError: LocalizedError {

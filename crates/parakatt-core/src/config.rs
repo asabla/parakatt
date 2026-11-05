@@ -384,13 +384,41 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), CoreError> {
         std::fs::rename(&temporary, path)
     })();
     if result.is_err() {
-        let _ = std::fs::remove_file(&temporary);
+        if let Err(cleanup) = std::fs::remove_file(&temporary) {
+            if cleanup.kind() != std::io::ErrorKind::NotFound {
+                log::warn!("Could not remove temporary configuration: {cleanup}");
+            }
+        }
     }
     result.map_err(|e| CoreError::IoError(format!("Failed to replace configuration: {e}")))
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn atomic_configuration_failures_leave_no_temporary_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing_parent = dir.path().join("missing/config.toml");
+        assert!(super::atomic_write(&missing_parent, b"value").is_err());
+        std::fs::write(dir.path().join("file"), b"original").unwrap();
+        assert!(super::atomic_write(&dir.path().join("file/config.toml"), b"value").is_err());
+        let target_directory = dir.path().join("config.toml");
+        std::fs::create_dir(&target_directory).unwrap();
+        assert!(super::atomic_write(&target_directory, b"value").is_err());
+        let mut names = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect::<Vec<_>>();
+        names.sort();
+        assert_eq!(
+            names,
+            vec![
+                std::ffi::OsString::from("config.toml"),
+                std::ffi::OsString::from("file")
+            ]
+        );
+        assert_eq!(std::fs::read(dir.path().join("file")).unwrap(), b"original");
+    }
     use super::*;
 
     #[test]

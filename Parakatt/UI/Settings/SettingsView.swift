@@ -1320,20 +1320,6 @@ struct LlmSettingsView: View {
         }
     }
 
-    private func setDefaults(for provider: String) {
-        switch provider {
-        case "ollama":
-            appState.llmBaseUrl = "http://localhost:11434"
-        case "lmstudio":
-            appState.llmBaseUrl = "http://localhost:1234"
-        case "openai":
-            appState.llmBaseUrl = "https://api.openai.com"
-        case "anthropic":
-            appState.llmBaseUrl = "https://api.anthropic.com"
-        default:
-            break
-        }
-    }
 
     private func fetchModels() {
         isFetching = true

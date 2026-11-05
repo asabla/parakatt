@@ -1,5 +1,4 @@
 import Foundation
-import ParakattCore
 
 /// STT model load + download state.
 ///

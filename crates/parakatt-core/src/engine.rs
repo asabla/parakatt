@@ -1,3 +1,5 @@
+#[cfg(test)]
+mod contracts;
 mod history;
 mod imports;
 
@@ -172,6 +174,10 @@ impl Engine {
 
         // Set up LLM provider if configured
         engine.setup_llm_provider()?;
+        if !engine.get_recovery_audio() {
+            crate::util::lock_named(&engine.storage, "storage", CoreError::IoError)?
+                .clear_recovery_audio()?;
+        }
         crate::logging::set_debug(debug_mode);
 
         Ok(engine)
@@ -499,7 +505,7 @@ impl Engine {
             .lock()
             .map(|g| {
                 g.as_ref()
-                    .map(|p| p.native_chunk_samples() as u32)
+                    .and_then(|p| u32::try_from(p.native_chunk_samples()).ok())
                     .unwrap_or(0)
             })
             .unwrap_or(0)
@@ -861,21 +867,21 @@ impl Engine {
 
     /// Save a custom mode (add or update by name). Built-in modes are preserved.
     pub fn save_mode(&self, mode: ModeConfig) -> Result<(), CoreError> {
-        let mut cfg = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
-
-        // Initialize from defaults if modes list is empty
-        if cfg.modes.is_empty() {
-            cfg.modes = modes::default_modes();
-        }
-
-        // Update existing or add new
-        if let Some(existing) = cfg.modes.iter_mut().find(|m| m.name == mode.name) {
-            *existing = mode;
-        } else {
-            cfg.modes.push(mode);
-        }
-
-        cfg.save(&self.config_dir)
+        self.update_config(|cfg| {
+            if cfg.modes.is_empty() {
+                cfg.modes = modes::default_modes();
+            }
+            if let Some(existing) = cfg
+                .modes
+                .iter_mut()
+                .find(|m| m.name.eq_ignore_ascii_case(&mode.name))
+            {
+                *existing = mode;
+            } else {
+                cfg.modes.push(mode);
+            }
+            Ok(())
+        })
     }
 
     /// Delete a custom mode by name. Built-in modes (dictation, clean, email, code) cannot be deleted.
@@ -887,14 +893,19 @@ impl Engine {
             )));
         }
 
-        let mut cfg = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
-
-        if cfg.modes.is_empty() {
-            cfg.modes = modes::default_modes();
-        }
-
-        cfg.modes.retain(|m| m.name != name);
-        cfg.save(&self.config_dir)
+        self.update_config(|cfg| {
+            if cfg.modes.is_empty() {
+                cfg.modes = modes::default_modes();
+            }
+            cfg.modes.retain(|m| !m.name.eq_ignore_ascii_case(&name));
+            cfg.general
+                .app_mode_defaults
+                .retain(|_, mode| !mode.eq_ignore_ascii_case(&name));
+            if cfg.general.active_mode.eq_ignore_ascii_case(&name) {
+                cfg.general.active_mode = "dictation".into();
+            }
+            Ok(())
+        })
     }
 
     /// Get per-app mode defaults as a list of [bundle_id, mode_name] pairs.
@@ -910,25 +921,47 @@ impl Engine {
 
     /// Set a per-app mode default. Pass empty mode to remove.
     pub fn set_app_mode_default(&self, bundle_id: String, mode: String) -> Result<(), CoreError> {
-        let mut cfg = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
-        if mode.is_empty() {
-            cfg.general.app_mode_defaults.remove(&bundle_id);
-        } else {
-            cfg.general.app_mode_defaults.insert(bundle_id, mode);
-        }
-        cfg.save(&self.config_dir)
+        self.update_config(|cfg| {
+            if mode.is_empty() {
+                cfg.general.app_mode_defaults.remove(&bundle_id);
+            } else {
+                let available = if cfg.modes.is_empty() {
+                    modes::default_modes()
+                } else {
+                    cfg.modes.clone()
+                };
+                let selected = modes::find_mode(&available, &mode)
+                    .ok_or_else(|| CoreError::ConfigError("Unknown transcription mode".into()))?;
+                cfg.general
+                    .app_mode_defaults
+                    .insert(bundle_id, selected.name.clone());
+            }
+            Ok(())
+        })
     }
 
     /// Resolve which mode to use given an app context.
     /// Returns the per-app default if one exists, otherwise the active mode.
     pub fn resolve_mode_for_app(&self, bundle_id: Option<String>) -> Result<String, CoreError> {
         let config = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
-        if let Some(bid) = &bundle_id {
-            if let Some(mode) = config.general.app_mode_defaults.get(bid) {
-                return Ok(mode.clone());
+        let available = if config.modes.is_empty() {
+            modes::default_modes()
+        } else {
+            config.modes.clone()
+        };
+        if let Some(mode) = bundle_id
+            .as_ref()
+            .and_then(|id| config.general.app_mode_defaults.get(id))
+        {
+            if let Some(selected) = modes::find_mode(&available, mode) {
+                return Ok(selected.name.clone());
             }
         }
-        Ok(config.general.active_mode.clone())
+        modes::find_mode(&available, &config.general.active_mode)
+            .or_else(|| modes::find_mode(&available, "dictation"))
+            .or_else(|| available.first())
+            .map(|mode| mode.name.clone())
+            .ok_or_else(|| CoreError::ConfigError("No transcription mode is available".into()))
     }
 
     pub fn get_active_mode(&self) -> String {
@@ -1022,25 +1055,26 @@ impl Engine {
                 "Stop recording and processing before loading a profile".into(),
             ));
         }
-        new_config.save(&self.config_dir)?;
-        crate::util::lock_named(
-            &self.dictionary,
-            "dictionary",
-            CoreError::TranscriptionFailed,
-        )?
-        .set_rules(new_config.dictionary.clone());
-        let debug_mode = new_config.general.debug_mode;
-        *crate::util::lock_named(&self.config, "config", CoreError::ConfigError)? = new_config;
-        crate::logging::set_debug(debug_mode);
-        *crate::util::lock_named(&self.llm, "llm", CoreError::LlmError)? = None;
+        let mut config = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
+        let mut streaming =
+            crate::util::lock_named(&self.streaming, "streaming", CoreError::ModelLoadFailed)?;
+        let mut readiness = crate::util::lock_named(
+            &self.streaming_readiness,
+            "streaming readiness",
+            CoreError::ModelLoadFailed,
+        )?;
+        let mut llm = crate::util::lock_named(&self.llm, "llm", CoreError::LlmError)?;
+        let mut dictionary =
+            crate::util::lock_named(&self.dictionary, "dictionary", CoreError::ConfigError)?;
+        let mut updated_dictionary = Dictionary::new();
+        updated_dictionary.set_rules(new_config.dictionary.clone());
+        self.persist_config(&mut config, new_config)?;
+        *dictionary = updated_dictionary;
+        *llm = None;
         self.model_generation.fetch_add(1, Ordering::SeqCst);
         self.offline_generation.fetch_add(1, Ordering::SeqCst);
-        *crate::util::lock_named(&self.streaming, "streaming", CoreError::ModelLoadFailed)? = None;
-        *crate::util::lock_named(
-            &self.streaming_readiness,
-            "streaming_readiness",
-            CoreError::ModelLoadFailed,
-        )? = crate::speech::ModelReadiness::Unavailable;
+        *streaming = None;
+        *readiness = crate::speech::ModelReadiness::Unavailable;
         log::info!("Loaded profile: {name}");
         Ok(())
     }
@@ -1079,11 +1113,12 @@ impl Engine {
 
     /// Set and persist hotkey configuration.
     pub fn set_hotkey_config(&self, config: HotkeyConfig) -> Result<(), CoreError> {
-        let mut cfg = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
-        cfg.general.hotkey_key = config.key;
-        cfg.general.hotkey_modifiers = config.modifiers;
-        cfg.general.hotkey_mode = config.mode;
-        cfg.save(&self.config_dir)
+        self.update_config(|updated| {
+            updated.general.hotkey_key = config.key;
+            updated.general.hotkey_modifiers = config.modifiers;
+            updated.general.hotkey_mode = config.mode;
+            Ok(())
+        })
     }
 
     /// Get whether auto-paste is enabled.
@@ -1094,9 +1129,10 @@ impl Engine {
 
     /// Set and persist auto-paste setting.
     pub fn set_auto_paste(&self, enabled: bool) -> Result<(), CoreError> {
-        let mut cfg = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
-        cfg.general.auto_paste = enabled;
-        cfg.save(&self.config_dir)
+        self.update_config(|config| {
+            config.general.auto_paste = enabled;
+            Ok(())
+        })
     }
 
     /// Get whether the recording overlay is shown.
@@ -1107,9 +1143,10 @@ impl Engine {
 
     /// Set and persist the recording overlay setting.
     pub fn set_show_overlay(&self, enabled: bool) -> Result<(), CoreError> {
-        let mut cfg = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
-        cfg.general.show_overlay = enabled;
-        cfg.save(&self.config_dir)
+        self.update_config(|config| {
+            config.general.show_overlay = enabled;
+            Ok(())
+        })
     }
 
     /// Get whether the cache-aware streaming live preview is enabled.
@@ -1120,9 +1157,10 @@ impl Engine {
 
     /// Set and persist the streaming-preview opt-in flag.
     pub fn set_streaming_preview_enabled(&self, enabled: bool) -> Result<(), CoreError> {
-        let mut cfg = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
-        cfg.general.streaming_preview_enabled = enabled;
-        cfg.save(&self.config_dir)
+        self.update_config(|config| {
+            config.general.streaming_preview_enabled = enabled;
+            Ok(())
+        })
     }
 
     /// Get whether speaker labels are enabled for meeting transcripts.
@@ -1133,9 +1171,10 @@ impl Engine {
 
     /// Set and persist the speaker-labels opt-in flag.
     pub fn set_speaker_labels_enabled(&self, enabled: bool) -> Result<(), CoreError> {
-        let mut cfg = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
-        cfg.general.speaker_labels_enabled = enabled;
-        cfg.save(&self.config_dir)
+        self.update_config(|config| {
+            config.general.speaker_labels_enabled = enabled;
+            Ok(())
+        })
     }
 
     /// Get the preferred audio source bundle ID for meeting capture.
@@ -1146,9 +1185,10 @@ impl Engine {
 
     /// Set and persist the preferred audio source bundle ID.
     pub fn set_preferred_audio_source(&self, bundle_id: Option<String>) -> Result<(), CoreError> {
-        let mut cfg = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
-        cfg.general.preferred_audio_source_bundle_id = bundle_id;
-        cfg.save(&self.config_dir)
+        self.update_config(|config| {
+            config.general.preferred_audio_source_bundle_id = bundle_id;
+            Ok(())
+        })
     }
 
     /// Get the chunk duration in seconds for meeting transcription.
@@ -1159,10 +1199,10 @@ impl Engine {
 
     /// Set and persist the chunk duration in seconds (10-120).
     pub fn set_chunk_duration(&self, secs: u32) -> Result<(), CoreError> {
-        let clamped = secs.clamp(10, 120);
-        let mut cfg = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
-        cfg.general.chunk_duration_secs = clamped;
-        cfg.save(&self.config_dir)
+        self.update_config(|config| {
+            config.general.chunk_duration_secs = secs.clamp(10, 120);
+            Ok(())
+        })
     }
 
     /// Get the maximum word count for LLM processing.
@@ -1173,10 +1213,10 @@ impl Engine {
 
     /// Set and persist the maximum word count for LLM processing (500-10000).
     pub fn set_llm_max_words(&self, words: u32) -> Result<(), CoreError> {
-        let clamped = words.clamp(500, 10000);
-        let mut cfg = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
-        cfg.general.llm_max_words = clamped;
-        cfg.save(&self.config_dir)
+        self.update_config(|config| {
+            config.general.llm_max_words = words.clamp(500, 10000);
+            Ok(())
+        })
     }
 
     /// Get whether debug mode is enabled.
@@ -1187,13 +1227,10 @@ impl Engine {
 
     /// Set and persist debug mode.
     pub fn set_debug_mode(&self, enabled: bool) -> Result<(), CoreError> {
-        let mut cfg = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
-        let mut updated = cfg.clone();
-        updated.general.debug_mode = enabled;
-        updated.save(&self.config_dir)?;
-        *cfg = updated;
-        crate::logging::set_debug(enabled);
-        Ok(())
+        self.update_config(|config| {
+            config.general.debug_mode = enabled;
+            Ok(())
+        })
     }
 
     /// Get the retention period in days (0 = disabled).
@@ -1204,9 +1241,10 @@ impl Engine {
 
     /// Set and persist the retention period in days (0 = disabled).
     pub fn set_retention_days(&self, days: u32) -> Result<(), CoreError> {
-        let mut cfg = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
-        cfg.general.retention_days = days;
-        cfg.save(&self.config_dir)
+        self.update_config(|config| {
+            config.general.retention_days = days;
+            Ok(())
+        })
     }
 
     /// Run retention cleanup: delete transcriptions older than the configured period.
@@ -1245,7 +1283,8 @@ impl Engine {
         model: String,
         api_key: Option<String>,
     ) -> Result<(), CoreError> {
-        let mut config = crate::util::lock_named(&self.config, "config", CoreError::ConfigError)?;
+        let mut saved = crate::util::lock_named(&self.config, "config", CoreError::ConfigError)?;
+        let mut config = saved.clone();
         let generation = config.llm.generation.clone();
         let http = Self::build_llm(&provider, &base_url, &model, api_key, &generation)?;
         config.llm.active_provider =
@@ -1265,9 +1304,9 @@ impl Engine {
         }
         // API keys remain in memory. Legacy TOML keys are removed only after
         // Swift confirms successful provider-specific Keychain migration.
-        config.save(&self.config_dir)?;
-        drop(config);
-        *crate::util::lock_named(&self.llm, "llm", CoreError::LlmError)? = http;
+        let mut llm = crate::util::lock_named(&self.llm, "llm", CoreError::LlmError)?;
+        self.persist_config(&mut saved, config)?;
+        *llm = http;
         Ok(())
     }
 
@@ -1349,9 +1388,10 @@ impl Engine {
         {
             return Err(CoreError::ConfigError("Invalid generation limits".into()));
         }
-        let mut config = crate::util::lock_named(&self.config, "config", CoreError::ConfigError)?;
-        config.llm.generation = settings;
-        config.save(&self.config_dir)
+        self.update_config(|config| {
+            config.llm.generation = settings;
+            Ok(())
+        })
     }
     pub fn legacy_credentials(&self) -> Vec<crate::llm::LegacyCredential> {
         crate::credentials::pending(
@@ -1537,14 +1577,10 @@ impl Engine {
         .llm_context_enabled
     }
     pub fn set_llm_context_enabled(&self, enabled: bool) -> Result<(), CoreError> {
-        let mut config = crate::util::lock_named(&self.config, "config", CoreError::ConfigError)?;
-        let previous = config.general.llm_context_enabled;
-        config.general.llm_context_enabled = enabled;
-        if let Err(error) = config.save(&self.config_dir) {
-            config.general.llm_context_enabled = previous;
-            return Err(error);
-        }
-        Ok(())
+        self.update_config(|config| {
+            config.general.llm_context_enabled = enabled;
+            Ok(())
+        })
     }
     pub fn test_llm_pipeline(&self) -> Result<crate::llm::ProviderDiagnostic, CoreError> {
         let provider = crate::util::lock_named(&self.llm, "llm", CoreError::LlmError)?
@@ -1874,19 +1910,21 @@ impl Engine {
             20.0 * (peak.max(1e-9) as f64).log10()
         );
 
-        let retain_audio = self.get_recovery_audio()
-            && crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?
-                .capture_sources(&session_id)?
-                .is_empty();
-        crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?.journal_chunk(
-            &session_id,
-            chunk_index,
-            ChunkSource::Mixed,
-            &audio_samples,
-            sample_rate,
-            chunk_overlap_secs,
-            retain_audio,
-        )?;
+        {
+            let config = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
+            let storage = crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?;
+            let retain_audio =
+                config.general.recovery_audio && storage.capture_sources(&session_id)?.is_empty();
+            storage.journal_chunk(
+                &session_id,
+                chunk_index,
+                ChunkSource::Mixed,
+                &audio_samples,
+                sample_rate,
+                chunk_overlap_secs,
+                retain_audio,
+            )?;
+        }
         // Keep the original samples in the recovery journal until the recording is saved.
         let stt_result = {
             let stt_guard = crate::util::lock_named(&self.stt, "stt", CoreError::ModelLoadFailed)?;
@@ -2084,19 +2122,21 @@ impl Engine {
             return Ok(result);
         }
 
-        let retain_audio = self.get_recovery_audio()
-            && crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?
-                .capture_sources(&session_id)?
-                .is_empty();
-        crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?.journal_chunk(
-            &session_id,
-            slice_index,
-            source,
-            &audio_samples,
-            sample_rate,
-            chunk_overlap_secs,
-            retain_audio,
-        )?;
+        {
+            let config = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
+            let storage = crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?;
+            let retain_audio =
+                config.general.recovery_audio && storage.capture_sources(&session_id)?.is_empty();
+            storage.journal_chunk(
+                &session_id,
+                slice_index,
+                source,
+                &audio_samples,
+                sample_rate,
+                chunk_overlap_secs,
+                retain_audio,
+            )?;
+        }
         // Keep the original samples in the recovery journal until the recording is saved.
         let stt_result = {
             let stt_guard = crate::util::lock_named(&self.stt, "stt", CoreError::ModelLoadFailed)?;
@@ -2278,21 +2318,38 @@ impl Engine {
         // Swift layer can surface an error to the user instead of
         // returning a successful-looking TranscriptionResult that was
         // never actually saved.
-        let saved =
-            self.auto_save_transcription(&session_id, &result, src, &mode, input, &ctx, &summary)?;
-        if let Some(id) = saved {
-            let mut sections = session.sections();
-            for section in &mut sections {
-                if section.recognized_text.is_empty() && section.error.is_some() {
-                    section.status = "speech_failed".into();
+        {
+            let storage = crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?;
+            session.commit(|| {
+                let transaction = storage
+                    .conn
+                    .unchecked_transaction()
+                    .map_err(crate::media_import::io)?;
+                let saved = Self::auto_save_transcription(
+                    &storage,
+                    &session_id,
+                    &result,
+                    src,
+                    &mode,
+                    input,
+                    &ctx,
+                    &summary,
+                )?;
+                if let Some(id) = saved {
+                    let mut sections = session.sections();
+                    for section in &mut sections {
+                        if section.recognized_text.is_empty() && section.error.is_some() {
+                            section.status = "speech_failed".into();
+                        }
+                    }
+                    storage.save_sections(&id, &sections)?;
                 }
-            }
-            crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?
-                .save_sections(&id, &sections)?;
-        }
-        if failed_chunks == 0 {
-            crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?
-                .discard_draft(&session_id)?;
+                if failed_chunks == 0 {
+                    storage.discard_draft(&session_id)?;
+                }
+                transaction.commit().map_err(crate::media_import::io)?;
+                Ok(())
+            })?;
         }
         let mut processing = crate::util::lock_named(
             &self.processing,
@@ -2445,6 +2502,41 @@ impl Engine {
 }
 
 impl Engine {
+    fn update_config(
+        &self,
+        change: impl FnOnce(&mut Config) -> Result<(), CoreError>,
+    ) -> Result<(), CoreError> {
+        let mut current = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
+        let mut updated = current.clone();
+        change(&mut updated)?;
+        self.persist_config(&mut current, updated)
+    }
+
+    fn persist_config(&self, current: &mut Config, updated: Config) -> Result<(), CoreError> {
+        if updated.general.recovery_audio {
+            updated.save(&self.config_dir)?;
+        } else {
+            let storage = crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?;
+            let transaction = storage
+                .conn
+                .unchecked_transaction()
+                .map_err(crate::media_import::io)?;
+            storage.clear_recovery_audio()?;
+            updated.save(&self.config_dir)?;
+            if let Err(error) = transaction.commit() {
+                current.save(&self.config_dir).map_err(|restore| {
+                    CoreError::ConfigError(format!(
+                        "Audio cleanup failed: {error}; could not restore settings: {restore}"
+                    ))
+                })?;
+                return Err(CoreError::IoError(error.to_string()));
+            }
+        }
+        *current = updated;
+        crate::logging::set_debug(current.general.debug_mode);
+        Ok(())
+    }
+
     pub fn install_streaming_provider(
         &self,
         provider: Box<dyn StreamingProvider>,
@@ -2571,7 +2663,7 @@ impl Engine {
     }
     #[allow(clippy::too_many_arguments)]
     fn auto_save_transcription(
-        &self,
+        storage: &Storage,
         session_id: &str,
         result: &TranscriptionResult,
         source: &str,
@@ -2634,14 +2726,7 @@ impl Engine {
             text,
         };
 
-        let storage = self.storage.lock().map_err(|e| {
-            // Lock poisoning used to silently swallow the entire save —
-            // see issue #23. Surface it loudly so callers can react.
-            log::error!("Storage lock poisoned during auto-save: {e}");
-            CoreError::TranscriptionFailed(format!("Storage lock poisoned: {e}"))
-        })?;
-
-        storage.save_complete(&transcription, &result.segments, summary)?;
+        storage.save_complete_inner(&transcription, &result.segments, summary)?;
 
         Ok(Some(transcription.id))
     }

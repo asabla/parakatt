@@ -13,7 +13,6 @@ protocol HotkeyRecording: AnyObject {
     func startRecording()
     func stopRecording()
 }
-extension AppState: HotkeyRecording {}
 
 @MainActor
 final class HotkeyService {
@@ -173,15 +172,6 @@ final class HotkeyService {
         return result
     }
 
-    /// Human-readable modifier symbols for display.
-    private func modifierSymbols(_ flags: NSEvent.ModifierFlags) -> String {
-        var parts: [String] = []
-        if flags.contains(.control) { parts.append("⌃") }
-        if flags.contains(.option) { parts.append("⌥") }
-        if flags.contains(.shift) { parts.append("⇧") }
-        if flags.contains(.command) { parts.append("⌘") }
-        return parts.joined()
-    }
 
     /// Human-readable display name for a Key.
     static func displayName(for key: Key) -> String {
@@ -197,15 +187,6 @@ final class HotkeyService {
         }
     }
 
-    /// Human-readable modifier display names.
-    static func modifierDisplayNames(_ flags: NSEvent.ModifierFlags) -> [String] {
-        var parts: [String] = []
-        if flags.contains(.control) { parts.append("⌃ Control") }
-        if flags.contains(.option) { parts.append("⌥ Option") }
-        if flags.contains(.shift) { parts.append("⇧ Shift") }
-        if flags.contains(.command) { parts.append("⌘ Command") }
-        return parts
-    }
 }
 
 /// An immutable AppKit registration token. It is only returned to removeMonitor.

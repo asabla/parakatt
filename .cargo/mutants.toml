@@ -2,7 +2,10 @@ examine_globs = [
     "crates/parakatt-core/src/config.rs",
     "crates/parakatt-core/src/dictionary.rs",
     "crates/parakatt-core/src/engine.rs",
+    "crates/parakatt-core/src/processing.rs",
+    "crates/parakatt-core/src/engine/history.rs",
+    "crates/parakatt-core/src/engine/imports.rs",
 ]
-examine_re = ["validate_profile_name|matches_context|dictionary_enabled|set_dictionary_rules"]
+examine_re = ['\b(validate_profile_name|matches_context|dictionary_enabled|set_dictionary_rules|update_config|persist_config|delete_mode|set_app_mode_default|set_recovery_audio|attach_import_media)\b|ProcessingSession::commit\b']
 # The explicit "always" arm and the fallback both return true.
 exclude_re = ['delete match arm "always" in matches_context']

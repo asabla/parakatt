@@ -129,7 +129,7 @@ fn download_manifest(
         state: DownloadState::Downloading,
         current_file: String::new(),
         file_index: 0,
-        total_files: manifest.files.len() as u32,
+        total_files: u32::try_from(manifest.files.len()).map_err(io_error)?,
         bytes_downloaded: 0,
         bytes_total: 0,
     };
@@ -146,7 +146,7 @@ fn download_manifest(
         let destination = stage.join(&file.name);
         {
             let mut p = lock_progress(progress);
-            p.file_index = index as u32;
+            p.file_index = u32::try_from(index).map_err(io_error)?;
             p.current_file = file.name.clone();
             p.bytes_total = file.size;
             p.bytes_downloaded = 0;
@@ -230,7 +230,9 @@ fn download_manifest(
         output.sync_all().map_err(io_error)?;
         drop(output);
         if let Err(error) = models::verify_file(&part, file) {
-            let _ = fs::remove_file(&part);
+            if let Err(cleanup) = fs::remove_file(&part) {
+                log::warn!("Could not remove rejected download: {cleanup}");
+            }
             return Err(error);
         }
         fs::rename(&part, &destination).map_err(io_error)?;
@@ -250,7 +252,9 @@ fn download_manifest(
                 .join(format!("{id}-rejected-{}", uuid::Uuid::new_v4()));
             fs::rename(&active, &rejected).map_err(io_error)?;
             if let Err(error) = fs::rename(&stage, &active) {
-                let _ = fs::rename(&rejected, &active);
+                if let Err(restore) = fs::rename(&rejected, &active) {
+                    log::error!("Could not restore the previous model installation: {restore}");
+                }
                 return Err(io_error(error));
             }
         }
@@ -263,7 +267,7 @@ fn download_manifest(
     p.current_file.clear();
     Ok(())
 }
-fn io_error(e: std::io::Error) -> CoreError {
+fn io_error(e: impl std::fmt::Display) -> CoreError {
     CoreError::IoError(e.to_string())
 }
 

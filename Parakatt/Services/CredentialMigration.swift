@@ -1,4 +1,3 @@
-import Foundation
 
 /// The source can be removed only after a provider-specific Keychain write succeeds.
 enum CredentialMigration {

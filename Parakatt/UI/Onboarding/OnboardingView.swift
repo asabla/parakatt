@@ -1,5 +1,4 @@
 import SwiftUI
-import ParakattCore
 
 /// First-run onboarding view that walks users through setup.
 struct OnboardingView: View {

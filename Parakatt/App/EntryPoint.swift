@@ -1,4 +1,3 @@
-import Foundation
 
 /// C-callable entry point for the stable launcher binary.
 ///

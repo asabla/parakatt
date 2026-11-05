@@ -1,4 +1,4 @@
-.PHONY: all rust cli swift-package swift-package-force media-tools xcode build release package test clean run launcher prepare-run run-detached verify-version quality fuzz-check mutation-check
+.PHONY: all rust cli swift-package swift-package-force media-tools xcode build release package test clean run launcher prepare-run run-detached verify-version quality fuzz-check mutation-check coverage-check swift-analysis
 
 # Keep the generated FFI package separate from older global Xcode artifacts.
 export PARAKATT_DERIVED_DATA ?= $(CURDIR)/target/xcode
@@ -52,6 +52,15 @@ fuzz-check:
 # Check that contract tests reject deliberate changes to critical decisions.
 mutation-check:
 	cargo mutants --timeout 60 --build-timeout 300 --output target/mutation-contracts
+
+# Compare critical Rust modules with the base commit on the same toolchain.
+coverage-check:
+	python3 scripts/run_rust_coverage.py
+
+# Requires a complete, non-incremental compiler log (the normal Swift CI job supplies it).
+swift-analysis:
+	test -n "$(COMPILER_LOG)"
+	swiftlint analyze --strict --config .swiftlint.yml --config .swiftlint-analyze.yml --compiler-log-path "$(COMPILER_LOG)"
 
 # Build Rust before fingerprinting and generating the matching Swift bindings.
 swift-package: rust

@@ -184,7 +184,10 @@ impl HttpProvider {
                 .and_then(|s| {
                     s.parse().ok().or_else(|| {
                         chrono::DateTime::parse_from_rfc2822(s).ok().map(|date| {
-                            (date.timestamp() - chrono::Utc::now().timestamp()).max(0) as u64
+                            u64::try_from(
+                                (date.timestamp() - chrono::Utc::now().timestamp()).max(0),
+                            )
+                            .unwrap_or(0)
                         })
                     })
                 });
@@ -564,6 +567,31 @@ impl Decoder {
             return Err(Failure::Protocol("empty output".into()));
         }
         Ok(self.text.trim().into())
+    }
+}
+
+/// Exercise provider event decoding without requests or credentials.
+#[cfg(feature = "fuzzing")]
+#[doc(hidden)]
+pub fn check_decoder_contract(data: &[u8]) {
+    for wire in [Wire::Ollama, Wire::Chat, Wire::Responses, Wire::Anthropic] {
+        let mut decoder = Decoder::new(wire);
+        for line in data.split(|byte| *byte == b'\n') {
+            let Ok(line) = std::str::from_utf8(line) else {
+                break;
+            };
+            let line = line.strip_prefix("data:").unwrap_or(line).trim();
+            if line.is_empty() {
+                continue;
+            }
+            if decoder.accept(line).is_err() {
+                break;
+            }
+        }
+        if let Ok(text) = decoder.finish() {
+            assert!(!text.is_empty());
+            assert!(text.len() <= 8 * 1024 * 1024);
+        }
     }
 }
 

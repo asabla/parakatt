@@ -48,7 +48,8 @@ impl Engine {
         source: ChunkSource,
         samples: Vec<f32>,
     ) -> Result<(), CoreError> {
-        if self.get_recovery_audio() {
+        let config = crate::util::lock_named(&self.config, "Config", CoreError::ConfigError)?;
+        if config.general.recovery_audio {
             crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?
                 .append_capture(&id, source, &samples)?;
         }
@@ -67,14 +68,10 @@ impl Engine {
         .recovery_audio
     }
     pub fn set_recovery_audio(&self, enabled: bool) -> Result<(), CoreError> {
-        let mut config = crate::util::lock_named(&self.config, "config", CoreError::ConfigError)?;
-        config.general.recovery_audio = enabled;
-        config.save(&self.config_dir)?;
-        if !enabled {
-            crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?
-                .clear_recovery_audio()?;
-        }
-        Ok(())
+        self.update_config(|config| {
+            config.general.recovery_audio = enabled;
+            Ok(())
+        })
     }
     pub fn list_recording_drafts(&self) -> Result<Vec<crate::recovery::RecordingDraft>, CoreError> {
         let capturing =
@@ -248,8 +245,12 @@ impl Engine {
             }
             .into(),
         };
-        crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?
-            .apply_history_processing(&id, &revision, &text, &summary, &sections)?;
+        {
+            let storage = crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?;
+            session.commit(|| {
+                storage.apply_history_processing(&id, &revision, &text, &summary, &sections)
+            })?;
+        }
         if error.is_some() {
             return Err(CoreError::LlmError(
                 "Some sections could not be processed. Recognized text was kept.".into(),
@@ -302,7 +303,8 @@ impl Engine {
                 let mut start = 0;
                 let mut index = 0;
                 while start < total {
-                    let count = (total - start).min(30 * 16000) as usize;
+                    let count = usize::try_from((total - start).min(30 * 16000))
+                        .map_err(crate::media_import::io)?;
                     for &(source, _) in &captures {
                         let mut samples =
                             crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?
@@ -324,7 +326,7 @@ impl Engine {
                             None,
                         )?;
                     }
-                    if start + count as i64 >= total {
+                    if start + i64::try_from(count).map_err(crate::media_import::io)? >= total {
                         break;
                     }
                     start += 28 * 16000;

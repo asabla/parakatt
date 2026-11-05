@@ -1,4 +1,3 @@
-import Foundation
 import ParakattCore
 
 /// Applies completed chunk replacements by identity, not callback arrival order.

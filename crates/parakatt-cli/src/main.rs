@@ -1,4 +1,14 @@
-#![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::indexing_slicing))]
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::unwrap_used,
+        clippy::indexing_slicing,
+        clippy::cast_possible_truncation,
+        clippy::cast_possible_wrap,
+        clippy::cast_sign_loss,
+        clippy::let_underscore_must_use
+    )
+)]
 use std::io::{self, Write};
 use std::path::PathBuf;
 

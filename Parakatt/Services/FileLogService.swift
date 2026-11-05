@@ -53,17 +53,6 @@ final class FileLogService: @unchecked Sendable {
         }
     }
 
-    /// Mirror an existing NSLog message to the file log.
-    /// Call this after NSLog to also persist the message to disk.
-    func mirror(_ message: String) {
-        queue.async { [weak self] in
-            guard let self else { return }
-            let timestamp = self.dateFormatter.string(from: Date())
-            let line = "[\(timestamp)] \(message)\n"
-            guard let data = line.data(using: .utf8) else { return }
-            self.fileHandle?.write(data)
-        }
-    }
 
     /// Write a startup marker to the log file.
     func logStartup() {

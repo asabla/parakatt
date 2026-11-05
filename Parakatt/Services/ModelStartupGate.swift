@@ -1,4 +1,3 @@
-import Foundation
 
 /// Retain completion work while the final model loads, without blocking recording.
 @MainActor

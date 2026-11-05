@@ -5,7 +5,6 @@ import os.log
 import ParakattCore
 import UserNotifications
 
-private let logger = Logger(subsystem: "com.parakatt.app", category: "engine")
 private let signpostLog = OSLog(subsystem: "com.parakatt.app", category: .pointsOfInterest)
 
 /// Observable application state shared across the UI.
@@ -20,7 +19,7 @@ private let signpostLog = OSLog(subsystem: "com.parakatt.app", category: .points
 /// has to explicitly hop back via `Task { @MainActor in … }` or
 /// `DispatchQueue.main.async`.
 @MainActor
-class AppState: ObservableObject {
+class AppState: ObservableObject, HotkeyRecording {
     // MARK: - Coordinators
     //
     // Long-term we want @Published state grouped by concern. PR 5 of
@@ -1019,13 +1018,6 @@ class AppState: ObservableObject {
         }
     }
 
-    func testLlmConnection() -> String {
-        do {
-            return try bridge?.testLlmConnection() ?? "No engine"
-        } catch {
-            return error.localizedDescription
-        }
-    }
 
     func listModes() -> [ModeConfig] {
         bridge?.listModes() ?? []
@@ -1055,14 +1047,23 @@ class AppState: ObservableObject {
     }
 
     func loadProfile(_ name: String) {
+        guard !isRecording, !isProcessing, !isMeetingActive else {
+            errorMessage = "Stop recording and processing before loading a profile."
+            return
+        }
         do {
-            try bridge?.loadProfile(name)
+            guard let bridge else { return }
+            try bridge.loadProfile(name)
+            settings.recoveryAudio = bridge.getRecoveryAudio()
+            settings.llmContextEnabled = bridge.getLlmContextEnabled()
             // Reload settings from the new config
-            if let ap = try? bridge?.getAutoPaste() { autoPaste = ap }
-            if let so = try? bridge?.getShowOverlay() { showRecordingOverlay = so }
-            if let dm = try? bridge?.getDebugMode() { debugMode = dm }
-            if let sl = try? bridge?.getSpeakerLabelsEnabled() { speakerLabelsEnabled = sl }
-            if let bridge { settings.activeMode = bridge.getActiveMode() }
+            if let ap = try? bridge.getAutoPaste() { autoPaste = ap }
+            if let so = try? bridge.getShowOverlay() { showRecordingOverlay = so }
+            if let dm = try? bridge.getDebugMode() { debugMode = dm }
+            if let sl = try? bridge.getSpeakerLabelsEnabled() { speakerLabelsEnabled = sl }
+            settings.activeMode = bridge.getActiveMode()
+            let hotkey = loadHotkeyConfig()
+            hotkeyService?.reconfigure(key: hotkey.key, modifiers: hotkey.modifiers, mode: hotkey.mode)
             loadLlmApiKeyFromKeychain()
             reloadSpeechModels()
             NSLog("[Parakatt] Loaded profile: %@", name)
@@ -1098,7 +1099,9 @@ class AppState: ObservableObject {
 
     func deleteMode(_ name: String) {
         do {
-            try bridge?.deleteMode(name)
+            guard let bridge else { return }
+            try bridge.deleteMode(name)
+            settings.activeMode = bridge.getActiveMode()
         } catch {
             errorMessage = "Failed to delete mode: \(error.localizedDescription)"
         }
@@ -1172,9 +1175,11 @@ class AppState: ObservableObject {
         let config = HotkeyConfig(key: keyStr, modifiers: modStrs, mode: mode)
 
         do {
-            try bridge?.setHotkeyConfig(config)
+            guard let bridge else { return }
+            try bridge.setHotkeyConfig(config)
         } catch {
-            NSLog("[Parakatt] Failed to save hotkey config: %@", error.localizedDescription)
+            errorMessage = "Could not change the keyboard shortcut: \(error.localizedDescription)"
+            return
         }
 
         hotkeyService?.reconfigure(key: key, modifiers: modifiers, mode: mode)
@@ -1184,11 +1189,12 @@ class AppState: ObservableObject {
     // MARK: - Behavior settings
 
     func setAutoPaste(_ enabled: Bool) {
-        autoPaste = enabled
         do {
-            try bridge?.setAutoPaste(enabled)
+            guard let bridge else { return }
+            try bridge.setAutoPaste(enabled)
+            autoPaste = enabled
         } catch {
-            NSLog("[Parakatt] Failed to save auto_paste setting: %@", error.localizedDescription)
+            errorMessage = "Could not change auto-paste: \(error.localizedDescription)"
         }
     }
 
@@ -1203,20 +1209,22 @@ class AppState: ObservableObject {
     }
 
     func setSpeakerLabelsEnabled(_ enabled: Bool) {
-        speakerLabelsEnabled = enabled
         do {
-            try bridge?.setSpeakerLabelsEnabled(enabled)
+            guard let bridge else { return }
+            try bridge.setSpeakerLabelsEnabled(enabled)
+            speakerLabelsEnabled = enabled
         } catch {
-            NSLog("[Parakatt] Failed to save speaker_labels_enabled setting: %@", error.localizedDescription)
+            errorMessage = "Could not change speaker labels: \(error.localizedDescription)"
         }
     }
 
     func setShowOverlay(_ enabled: Bool) {
-        showRecordingOverlay = enabled
         do {
-            try bridge?.setShowOverlay(enabled)
+            guard let bridge else { return }
+            try bridge.setShowOverlay(enabled)
+            showRecordingOverlay = enabled
         } catch {
-            NSLog("[Parakatt] Failed to save show_overlay setting: %@", error.localizedDescription)
+            errorMessage = "Could not change recording overlay: \(error.localizedDescription)"
         }
     }
 
@@ -1566,28 +1574,8 @@ class AppState: ObservableObject {
 
     // MARK: - Transcription history
 
-    func listTranscriptions(
-        searchText: String? = nil,
-        sourceFilter: String? = nil,
-        limit: UInt32 = 50,
-        offset: UInt32 = 0
-    ) -> [StoredTranscription] {
-        let query = TranscriptionQuery(
-            searchText: searchText,
-            sourceFilter: sourceFilter,
-            limit: limit,
-            offset: offset
-        )
-        return (try? bridge?.listTranscriptions(query: query)) ?? []
-    }
 
-    func searchTranscriptions(query: String) -> [StoredTranscription] {
-        (try? bridge?.searchTranscriptions(searchText: query)) ?? []
-    }
 
-    func getTranscription(id: String) -> StoredTranscription? {
-        try? bridge?.getTranscription(id: id)
-    }
 
     func updateTranscriptionTitle(id: String, title: String) {
         try? bridge?.updateTranscriptionTitle(id: id, title: title)
@@ -1620,9 +1608,6 @@ class AppState: ObservableObject {
         }
     }
 
-    func getTranscriptionSegments(id: String) -> [TimestampedSegment] {
-        (try? bridge?.getTranscriptionSegments(id: id)) ?? []
-    }
 
     // MARK: - Model management
 
@@ -1664,9 +1649,6 @@ class AppState: ObservableObject {
 
     private var downloadPollTimer: Timer?
 
-    func listModels() -> [ParakattCore.ModelInfo] {
-        bridge?.listModels() ?? []
-    }
 
     func startModelDownload(_ modelId: String) {
         do {
@@ -1773,8 +1755,6 @@ class AppState: ObservableObject {
 
     // MARK: - Processing
 
-    /// Maximum duration (seconds) for single-shot transcription. Longer recordings are chunked.
-    private let chunkDurationSecs: Double = 30.0
     /// Overlap between consecutive chunks to avoid cutting words at boundaries.
     private let overlapDurationSecs: Double = 2.0
     private let sttSampleRate: UInt32 = 16_000

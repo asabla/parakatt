@@ -1,0 +1,6 @@
+analyzer_rules:
+  - unused_declaration
+  - unused_import
+unused_import:
+  # Keep the supported framework imports that re-export AppKit and AVFAudio.
+  always_keep_imports: [Cocoa, AVFoundation]
