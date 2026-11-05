@@ -2246,15 +2246,11 @@ impl Engine {
                 "Polishing skipped: input exceeds the configured word limit".into(),
             ));
         }
-        let words: Vec<String> = self
+        let words = self
             .dictionary
             .lock()
             .unwrap()
-            .rules()
-            .iter()
-            .filter(|r| r.enabled && r.pattern == r.replacement)
-            .map(|r| r.pattern.clone())
-            .collect();
+            .domain_vocabulary(ctx, &mode.name);
         if !words.is_empty() {
             system_prompt.push_str(&format!("\n\nDomain vocabulary: {}", words.join(", ")));
         }

@@ -9,6 +9,7 @@ use regex::Regex;
 /// The dictionary engine that applies replacement rules to transcribed text.
 #[derive(Debug, Default)]
 pub struct Dictionary {
+    source_rules: Vec<ReplacementRule>,
     rules: Vec<CompiledRule>,
 }
 
@@ -20,11 +21,12 @@ struct CompiledRule {
 
 impl Dictionary {
     pub fn new() -> Self {
-        Self { rules: Vec::new() }
+        Self::default()
     }
 
     /// Replace the entire rule set, compiling patterns into regexes.
     pub fn set_rules(&mut self, rules: Vec<ReplacementRule>) {
+        self.source_rules = rules.clone();
         self.rules = rules
             .into_iter()
             .filter_map(|rule| {
@@ -42,7 +44,19 @@ impl Dictionary {
 
     /// Get the current rules (source form, for serialization/UI).
     pub fn rules(&self) -> Vec<ReplacementRule> {
-        self.rules.iter().map(|r| r.source.clone()).collect()
+        self.source_rules.clone()
+    }
+
+    /// Valid identity rules that apply to this request's context.
+    pub fn domain_vocabulary(&self, context: &AppContext, mode: &str) -> Vec<String> {
+        self.rules
+            .iter()
+            .filter(|rule| {
+                rule.source.pattern == rule.source.replacement
+                    && matches_context(&rule.source, context, mode)
+            })
+            .map(|rule| rule.source.pattern.clone())
+            .collect()
     }
 
     /// Apply all matching rules to the input text, respecting context.
@@ -77,10 +91,10 @@ const MAX_PATTERN_LENGTH: usize = 500;
 fn compile_pattern(pattern: &str) -> Option<Regex> {
     if pattern.len() > MAX_PATTERN_LENGTH {
         log::warn!(
-            "Dictionary pattern too long ({} chars, max {}): '{}'",
+            "Dictionary pattern too long ({} bytes, max {}): '{}'",
             pattern.len(),
             MAX_PATTERN_LENGTH,
-            &pattern[..50]
+            pattern.chars().take(50).collect::<String>()
         );
         return None;
     }
@@ -139,6 +153,64 @@ mod tests {
 
     fn default_ctx() -> AppContext {
         AppContext::default()
+    }
+
+    #[test]
+    fn unicode_limits_never_panic_and_preserve_source_rules() {
+        crate::init_logging(Some("warn".into()));
+        for character in ['a', 'é', '€', '𐍈', '\u{0301}'] {
+            for count in [1, 49, 50, 167, 250, 499, 500, 501] {
+                let pattern = character.to_string().repeat(count);
+                let mut dictionary = Dictionary::new();
+                dictionary.set_rules(vec![make_rule(&pattern, "replacement")]);
+                assert_eq!(dictionary.rules()[0].pattern, pattern);
+                if pattern.len() > MAX_PATTERN_LENGTH {
+                    assert!(dictionary.rules.is_empty());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn disabled_scoped_and_invalid_rules_round_trip_in_order() {
+        let mut disabled = make_rule("disabled", "unused");
+        disabled.enabled = false;
+        let mut scoped = make_rule("pr", "pull request");
+        scoped.context_type = "in_app".into();
+        scoped.context_value = Some("com.example.editor".into());
+        let rules = vec![disabled, scoped, make_rule("re:[", "invalid")];
+        let mut dictionary = Dictionary::new();
+        dictionary.set_rules(rules.clone());
+        assert_eq!(
+            serde_json::to_value(dictionary.rules()).unwrap(),
+            serde_json::to_value(rules).unwrap()
+        );
+        assert_eq!(
+            dictionary.apply("disabled pr", &default_ctx(), "dictation"),
+            "disabled pr"
+        );
+    }
+
+    #[test]
+    fn vocabulary_uses_only_compiled_rules_in_the_requested_context() {
+        let mut disabled = make_rule("disabled", "disabled");
+        disabled.enabled = false;
+        let mut scoped = make_rule("Parakatt", "Parakatt");
+        scoped.context_type = "in_app".into();
+        scoped.context_value = Some("com.example.editor".into());
+        let mut dictionary = Dictionary::new();
+        dictionary.set_rules(vec![disabled, scoped, make_rule("re:[", "re:[")]);
+        assert!(dictionary
+            .domain_vocabulary(&default_ctx(), "clean")
+            .is_empty());
+        let context = AppContext {
+            app_bundle_id: Some("com.example.editor".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            dictionary.domain_vocabulary(&context, "clean"),
+            vec!["Parakatt"]
+        );
     }
 
     #[test]
@@ -249,14 +321,14 @@ mod tests {
 
     #[test]
     fn test_pattern_length_limit_drops_rule() {
-        // ReDoS guard: patterns longer than MAX_PATTERN_LENGTH must be
-        // dropped at compile time, not stored and matched at runtime.
+        // Oversized patterns stay editable but must never be compiled or matched.
         let mut dict = Dictionary::new();
         let huge = "a".repeat(MAX_PATTERN_LENGTH + 1);
         dict.set_rules(vec![make_rule(&huge, "X")]);
 
-        // Rule was dropped — list of compiled rules is empty.
-        assert_eq!(dict.rules().len(), 0);
+        // The source rule survives; the compiled rule list is empty.
+        assert_eq!(dict.rules().len(), 1);
+        assert!(dict.rules.is_empty());
         // And applying to text that *would* have matched is a no-op.
         let result = dict.apply(&format!("{} word", huge), &default_ctx(), "dictation");
         assert!(result.contains(&huge));
@@ -272,7 +344,8 @@ mod tests {
             make_rule("hello", "HELLO"),
         ]);
 
-        assert_eq!(dict.rules().len(), 1, "only the valid rule survives");
+        assert_eq!(dict.rules().len(), 2, "source rules remain editable");
+        assert_eq!(dict.rules.len(), 1, "only the valid rule is compiled");
         assert_eq!(
             dict.apply("say hello there", &default_ctx(), "dictation"),
             "say HELLO there"
