@@ -64,13 +64,13 @@ def synchronize(root, version=None, build_number=None, check=False, tag=None):
     updates["crates/parakatt-core/Cargo.toml"] = replace_once(
         manifest, r'(^version = ")[^"]*("\s*$)', version, "Rust package version"
     )
-    lock = (root / "Cargo.lock").read_text()
-    updates["Cargo.lock"] = replace_once(
-        lock,
-        r'(^name = "parakatt-core"\nversion = ")[^"]*("\s*$)',
-        version,
-        "locked Rust package version",
-    )
+    for name in ("Cargo.lock", "fuzz/Cargo.lock"):
+        updates[name] = replace_once(
+            (root / name).read_text(),
+            r'(^name = "parakatt-core"\nversion = ")[^"]*("\s*$)',
+            version,
+            "locked Rust package version",
+        )
 
     mismatches = [name for name, content in updates.items() if (root / name).read_text() != content]
     if check:

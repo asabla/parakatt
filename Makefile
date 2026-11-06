@@ -180,7 +180,7 @@ benchmark:
 	cargo build --locked --release --example model_bench --features "$(PARAKATT_SPEECH_FEATURES)"
 	python3 scripts/benchmark.py $(ARGS)
 
-# Candidate package only. Production selection still requires a validation matrix entry.
+# Automatic selection requires a validation entry; explicit WebGPU tries the runtime.
 swift-package-webgpu:
 	PARAKATT_SPEECH_FEATURES=webgpu python3 scripts/swift-package.py
 

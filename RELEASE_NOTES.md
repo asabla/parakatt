@@ -1,16 +1,15 @@
-# Parakatt 0.7.3
+# Parakatt 0.7.4
 
-This release fixes transcript loss at chunk boundaries, preserves multilingual words and saved corrections, and makes recording mode selection consistent.
+This release lets you select WebGPU on other Apple Silicon Macs, including M4. It also includes fixes for imports, saved settings, and recording state.
 
 ## Changes
 
-- Preserve new speech when a sentence crosses a chunk overlap. Live transcription checks word timing before grouping sentences.
-- Preserve recognized multilingual words before dictionary rules and optional LLM processing. English filler expressions are no longer stripped automatically.
-- Preserve dollar signs in plain dictionary replacements. Explicit `re:` rules retain capture expansion.
-- Keep saved import corrections through pause, resume, restart, completion, and backup restoration. Undoing the first manual edit returns to the latest generated text; later edits and processing retries restore the preceding display text.
-- Save the selected global mode and use the mode and application context captured at the start of each push-to-talk recording, including per-app defaults.
-- Correct the meeting setting to describe microphone and system audio labels. All system audio is labelled `Speaker 1`; individual speakers are not identified.
-- Include the experimental output-only file CLI in source. It supports bounded 16 kHz mono WAV and raw float input on macOS and Linux. It does not save history or use app settings, dictionary rules, or LLM processing. Build it from source as described in the README; the macOS app packages remain separate.
+- Select **WebGPU** under **Settings > Models > Speech settings > Execution**, then click **Apply speech settings** to try GPU acceleration. The app no longer requires your Mac and macOS build to appear in its validation list for this explicit selection.
+- Use CPU automatically if WebGPU initialization or inference fails. Settings shows the backend in use. The encoder uses WebGPU; the decoder and Nemotron streaming preview use CPU.
+- Keep **Automatic** restricted to combinations with recorded validation results. Explicit WebGPU selection does not imply that the hardware has passed the same accuracy and performance checks.
+- Restore YouTube link imports with an optional, explicitly selected browser session. Request browser-folder access when macOS requires it, and report access failures.
+- Preserve dictionary rules, saved settings, recovery audio, and transcript history when saving or processing fails.
+- Keep recording controls, hotkey events, and clipboard restoration consistent.
 
 ## Installation
 
@@ -18,4 +17,4 @@ This release fixes transcript loss at chunk boundaries, preserves multilingual w
 - The app is ad-hoc signed and is not notarized by Apple. See the [installation instructions](https://github.com/asabla/parakatt#unsigned-builds) if Gatekeeper blocks it.
 - Public YouTube downloads remain subject to site restrictions.
 
-[Changes since 0.7.2](https://github.com/asabla/parakatt/compare/v0.7.2...v0.7.3)
+[Changes since 0.7.3](https://github.com/asabla/parakatt/compare/v0.7.3...v0.7.4)

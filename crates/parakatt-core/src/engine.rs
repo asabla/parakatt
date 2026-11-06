@@ -320,7 +320,7 @@ impl Engine {
                 Box::new(ParakeetProvider::load_with_backend(
                     &model_path,
                     model_id,
-                    crate::speech::validated_backend(&settings),
+                    crate::speech::execution_backend(&settings),
                     settings.cpu_threads,
                     true,
                 )?)
@@ -407,20 +407,18 @@ impl Engine {
     pub fn speech_runtime_status(&self) -> crate::speech::SpeechRuntimeStatus {
         let settings = self.get_speech_settings();
         let state = (|| {
-            let actual_backend =
-                crate::util::lock_named(&self.stt, "stt", CoreError::ModelLoadFailed)?
-                    .as_ref()
-                    .map(|p| p.backend())
-                    .unwrap_or(crate::speech::SpeechBackend::Cpu);
+            let backend = crate::util::lock_named(&self.stt, "stt", CoreError::ModelLoadFailed)?
+                .as_ref()
+                .map(|p| p.backend());
             let readiness = crate::util::lock_named(
                 &self.streaming_readiness,
                 "streaming_readiness",
                 CoreError::ModelLoadFailed,
             )?
             .clone();
-            Ok::<_, CoreError>((actual_backend, readiness))
+            Ok::<_, CoreError>((backend, readiness))
         })();
-        let (actual_backend, readiness) = match state {
+        let (backend, readiness) = match state {
             Ok(state) => state,
             Err(error) => {
                 return crate::speech::SpeechRuntimeStatus {
@@ -433,13 +431,24 @@ impl Engine {
                 };
             }
         };
+        let actual_backend = backend.unwrap_or(crate::speech::SpeechBackend::Cpu);
+        let message = (settings.backend == crate::speech::SpeechBackend::WebGpu
+            && actual_backend != crate::speech::SpeechBackend::WebGpu)
+            .then(|| {
+                if !cfg!(feature = "webgpu") {
+                    "This build does not include WebGPU; using CPU."
+                } else if backend.is_none() {
+                    "WebGPU will be tried when the speech model loads."
+                } else {
+                    "WebGPU could not run the speech model; using CPU."
+                }
+                .into()
+            });
         crate::speech::SpeechRuntimeStatus {
             readiness,
             requested_backend: settings.backend,
             actual_backend,
-            message: (settings.backend == crate::speech::SpeechBackend::WebGpu && actual_backend != crate::speech::SpeechBackend::WebGpu).then(|| {
-                "WebGPU is unavailable or has not passed release validation on this system; using CPU".into()
-            }),
+            message,
         }
     }
 

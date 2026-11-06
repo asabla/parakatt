@@ -205,6 +205,42 @@ impl SttProvider for Speech {
         })
     }
 }
+#[test]
+fn explicit_webgpu_status_distinguishes_pending_model_and_cpu_fallback() {
+    use crate::speech::{SpeechBackend, SpeechSettings};
+    let dir = tempfile::tempdir().unwrap();
+    let e = engine(dir.path());
+    e.set_speech_settings(SpeechSettings {
+        backend: SpeechBackend::WebGpu,
+        ..Default::default()
+    })
+    .unwrap();
+    let status = e.speech_runtime_status();
+    assert_eq!(status.requested_backend, SpeechBackend::WebGpu);
+    assert_eq!(status.actual_backend, SpeechBackend::Cpu);
+    assert_eq!(
+        status.message.as_deref(),
+        Some(if cfg!(feature = "webgpu") {
+            "WebGPU will be tried when the speech model loads."
+        } else {
+            "This build does not include WebGPU; using CPU."
+        })
+    );
+    *e.stt.lock().unwrap() = Some(Box::new(Speech));
+    let status = e.speech_runtime_status();
+    assert_eq!(status.actual_backend, SpeechBackend::Cpu);
+    assert_eq!(
+        status.message.as_deref(),
+        Some(if cfg!(feature = "webgpu") {
+            "WebGPU could not run the speech model; using CPU."
+        } else {
+            "This build does not include WebGPU; using CPU."
+        })
+    );
+    e.set_speech_settings(SpeechSettings::default()).unwrap();
+    assert!(e.speech_runtime_status().message.is_none());
+}
+
 fn wait_for_processing_finish(session: &crate::processing::ProcessingSession) {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     loop {

@@ -31,10 +31,15 @@ func runMaintenanceSmokeIfRequested() -> Bool {
         try FileManager.default.createDirectory(at: data, withIntermediateDirectories: true)
         let modelRoot = environment["PARAKATT_SMOKE_MODEL_ROOT"] ?? data.appendingPathComponent("models").path
         let core = try CoreBridge(modelsDir: modelRoot, configDir: data.appendingPathComponent("config").path, activeMode: "dictation")
+        if let backend = environment["PARAKATT_SMOKE_BACKEND"] {
+            var settings = core.getSpeechSettings()
+            settings.backend = backend == "webgpu" ? .webGpu : backend == "cpu" ? .cpu : .automatic
+            try core.setSpeechSettings(settings)
+        }
         if environment["PARAKATT_SMOKE_MODEL_ROOT"] != nil { try core.loadModel("parakeet-tdt-0.6b-v3") }
-        let status = core.speechRuntimeStatus()
-        report = ["started": true, "model_loaded": core.isModelLoaded(), "actual_backend": status.actualBackend == .webGpu ? "webgpu" : "cpu", "os": ProcessInfo.processInfo.operatingSystemVersionString]
+        report = ["started": true, "model_loaded": core.isModelLoaded(), "os": ProcessInfo.processInfo.operatingSystemVersionString]
         if let source = environment["PARAKATT_SMOKE_MEDIA"] { report["media"] = try await mediaImportSmoke(core: core, source: URL(fileURLWithPath: source)) }
+        report["actual_backend"] = core.speechRuntimeStatus().actualBackend == .webGpu ? "webgpu" : "cpu"
     } catch { report["error"] = error.localizedDescription }
     report["microphone_authorization"] = MicrophoneAuthorization.description(AVCaptureDevice.authorizationStatus(for: .audio))
     if let data = try? JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]) {

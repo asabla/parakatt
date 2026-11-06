@@ -25,6 +25,7 @@ class ReleaseTests(unittest.TestCase):
             "Parakatt/Info.plist",
             "crates/parakatt-core/Cargo.toml",
             "Cargo.lock",
+            "fuzz/Cargo.lock",
             "homebrew/parakatt.rb",
             "RELEASE_NOTES.md",
             "CHANGELOG.md",
@@ -48,7 +49,7 @@ class ReleaseTests(unittest.TestCase):
     def test_bump_keeps_dependencies_and_cask_unchanged(self):
         cask = (self.root / "homebrew/parakatt.rb").read_bytes()
         manifest = (self.root / "crates/parakatt-core/Cargo.toml").read_text()
-        lock = (self.root / "Cargo.lock").read_text()
+        locks = {name: (self.root / name).read_text() for name in ("Cargo.lock", "fuzz/Cargo.lock")}
         synchronize(self.root, self.next_version)
         self.assertEqual(
             synchronize(self.root, check=True), (self.next_version, str(self.build + 1))
@@ -57,13 +58,14 @@ class ReleaseTests(unittest.TestCase):
             (self.root / "crates/parakatt-core/Cargo.toml").read_text(),
             manifest.replace(f'version = "{self.version}"', f'version = "{self.next_version}"', 1),
         )
-        self.assertEqual(
-            (self.root / "Cargo.lock").read_text(),
-            lock.replace(
-                f'name = "parakatt-core"\nversion = "{self.version}"',
-                f'name = "parakatt-core"\nversion = "{self.next_version}"',
-            ),
-        )
+        for name, lock in locks.items():
+            self.assertEqual(
+                (self.root / name).read_text(),
+                lock.replace(
+                    f'name = "parakatt-core"\nversion = "{self.version}"',
+                    f'name = "parakatt-core"\nversion = "{self.next_version}"',
+                ),
+            )
         self.assertEqual((self.root / "homebrew/parakatt.rb").read_bytes(), cask)
 
     def test_sync_same_version_does_not_bump_build(self):
@@ -72,17 +74,21 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(self.snapshot(), before)
 
     def test_check_detects_stale_lock_without_writing(self):
-        lock = self.root / "Cargo.lock"
-        lock.write_text(
-            lock.read_text().replace(
-                f'name = "parakatt-core"\nversion = "{self.version}"',
-                'name = "parakatt-core"\nversion = "0.0.1"',
-            )
-        )
-        before = self.snapshot()
-        with self.assertRaisesRegex(ValueError, "Cargo.lock"):
-            synchronize(self.root, check=True)
-        self.assertEqual(self.snapshot(), before)
+        for name in ("Cargo.lock", "fuzz/Cargo.lock"):
+            with self.subTest(name=name):
+                lock = self.root / name
+                original = lock.read_text()
+                lock.write_text(
+                    original.replace(
+                        f'name = "parakatt-core"\nversion = "{self.version}"',
+                        'name = "parakatt-core"\nversion = "0.0.1"',
+                    )
+                )
+                before = self.snapshot()
+                with self.assertRaisesRegex(ValueError, name):
+                    synchronize(self.root, check=True)
+                self.assertEqual(self.snapshot(), before)
+                lock.write_text(original)
 
     def test_invalid_versions_do_not_write(self):
         before = self.snapshot()

@@ -11,11 +11,13 @@ import tempfile
 parser = argparse.ArgumentParser()
 parser.add_argument("app", type=Path)
 parser.add_argument("--models", type=Path)
+parser.add_argument("--backend", choices=["automatic", "cpu", "webgpu"], default="automatic")
 parser.add_argument("--expect-backend", choices=["cpu", "webgpu"])
 parser.add_argument("--output", type=Path)
 args = parser.parse_args()
 with tempfile.TemporaryDirectory(prefix="parakatt-startup-") as directory:
     env = dict(os.environ, PARAKATT_SMOKE_TEST="1", PARAKATT_DATA_ROOT=directory)
+    env["PARAKATT_SMOKE_BACKEND"] = args.backend
     if args.models:
         env["PARAKATT_SMOKE_MODEL_ROOT"] = str(args.models.resolve())
     with (Path(directory) / "startup.log").open("w") as log:
@@ -33,7 +35,7 @@ with tempfile.TemporaryDirectory(prefix="parakatt-startup-") as directory:
             + (Path(directory) / "startup.log").read_text()[-4000:]
         )
     report = json.loads(path.read_text())
-    if not report["started"]:
+    if not report["started"] or "error" in report:
         raise SystemExit(json.dumps(report))
     if args.models and not report["model_loaded"]:
         raise SystemExit("Model failed to load")
