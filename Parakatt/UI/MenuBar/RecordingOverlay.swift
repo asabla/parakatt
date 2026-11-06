@@ -81,6 +81,7 @@ struct RecordingOverlayView: View {
     var captureWarning: String?
     var meter: OverlayMeterState?
     var stopInstruction = "Release to stop"
+    var onStop: @MainActor () -> Void
 
     /// True when the LocalAgreement-2 path has produced anything to
     /// display. We prefer the committed/tentative split when it's
@@ -134,15 +135,24 @@ struct RecordingOverlayView: View {
 
                     Spacer()
 
-                    Text(stopInstruction)
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background(.ultraThinMaterial, in: Capsule())
+                    Button {
+                        onStop()
+                    } label: {
+                        Label("Stop", systemImage: "stop.fill")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.red)
+                    .controlSize(.small)
+                    .help("Stop recording and transcribe")
                 }
                 .padding(.horizontal, 18)
                 .padding(.vertical, 12)
+
+                Text(stopInstruction)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 18)
+                    .padding(.bottom, 8)
 
                 if !inputDeviceName.isEmpty {
                     HStack {
@@ -282,7 +292,8 @@ class RecordingOverlayController {
                     silenceDetected: silenceDetected,
                     clippingDetected: clippingDetected,
                     inputDeviceName: capture.0, modelStatus: capture.1, captureWarning: capture.2,
-                    meter: self?.meter, stopInstruction: self?.appState.loadHotkeyConfig().mode == "toggle" ? "Press shortcut to stop" : "Release to stop"
+                    meter: self?.meter, stopInstruction: self?.appState.loadHotkeyConfig().mode == "toggle" ? "Press shortcut to stop" : "Release to stop",
+                    onStop: { [weak self] in self?.appState.stopRecording() }
                 )
                 self?.hostingView?.rootView = newView
 
@@ -358,9 +369,10 @@ class RecordingOverlayController {
         let view = RecordingOverlayView(
             isRecording: false, isProcessing: false, liveText: nil,
             committedText: "", tentativeText: "",
-            audioLevel: 0, silenceDetected: false, clippingDetected: false
+            audioLevel: 0, silenceDetected: false, clippingDetected: false,
+            onStop: { [weak self] in self?.appState.stopRecording() }
         )
-        let hosting = NSHostingView(rootView: view)
+        let hosting = RecordingOverlayHostingView(rootView: view)
         let size = hosting.fittingSize
 
         let panel = NSPanel(
@@ -389,4 +401,8 @@ class RecordingOverlayController {
         self.panel = panel
         self.hostingView = hosting
     }
+}
+
+private final class RecordingOverlayHostingView: NSHostingView<RecordingOverlayView> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }

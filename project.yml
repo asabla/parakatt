@@ -68,11 +68,12 @@ targets:
       properties:
         LSUIElement: true
         NSMicrophoneUsageDescription: "Parakatt needs microphone access to transcribe your voice."
+        NSAudioCaptureUsageDescription: "Parakatt needs system audio access to transcribe other participants in meetings."
         NSAccessibilityUsageDescription: "Parakatt needs accessibility access to insert transcribed text into other applications."
         NSScreenCaptureUsageDescription: "Parakatt needs Screen Recording access to capture system audio for meeting transcription."
         CFBundleDisplayName: Parakatt
-        CFBundleShortVersionString: "0.7.5"
-        CFBundleVersion: "7"
+        CFBundleShortVersionString: "0.7.6"
+        CFBundleVersion: "8"
     entitlements:
       path: Parakatt/Parakatt.entitlements
       properties:
@@ -83,8 +84,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.parakatt.app
         PRODUCT_NAME: Parakatt
-        MARKETING_VERSION: "0.7.5"
-        CURRENT_PROJECT_VERSION: "7"
+        MARKETING_VERSION: "0.7.6"
+        CURRENT_PROJECT_VERSION: "8"
         MACOSX_DEPLOYMENT_TARGET: "14.0"
         SWIFT_VERSION: "6.0"
         SWIFT_STRICT_CONCURRENCY: complete

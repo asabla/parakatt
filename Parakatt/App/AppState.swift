@@ -1442,7 +1442,7 @@ class AppState: ObservableObject, HotkeyRecording {
         case .empty(let forSeconds) where forSeconds >= meetingSilenceWarnAfterSecs:
             meetingAudioStatus = .systemEmpty
             if errorMessage == nil {
-                errorMessage = "System-audio tap is delivering empty buffers. This usually means the selected output device isn't the one your meeting app is using."
+                errorMessage = "System audio is not arriving. Check Parakatt's System Audio Recording permission, the selected meeting app, and its audio output device."
             }
         case .empty(let forSeconds) where forSeconds >= 2.0:
             // Intermediate state: tap isn't delivering yet but it's early
