@@ -118,6 +118,7 @@ package: verify-launcher release
 	cp "$(LAUNCHER_BIN)" "$(RELEASE_BUILD_DIR)/$(APP_NAME).app/Contents/MacOS/$(APP_NAME)"
 	python3 scripts/verify-app.py "$(RELEASE_BUILD_DIR)/$(APP_NAME).app"
 	python3 scripts/smoke-app.py "$(RELEASE_BUILD_DIR)/$(APP_NAME).app"
+	python3 scripts/smoke-app.py "$(RELEASE_BUILD_DIR)/$(APP_NAME).app" --normal-startup
 	@mkdir -p dist
 	ditto -c -k --keepParent target/media-tools/sources "dist/$(APP_NAME)-$(VERSION)-media-sources.zip"
 	ditto -c -k --keepParent "$(RELEASE_BUILD_DIR)/$(APP_NAME).app" "dist/$(ZIP_NAME)"

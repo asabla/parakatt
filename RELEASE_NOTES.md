@@ -1,15 +1,12 @@
-# Parakatt 0.7.4
+# Parakatt 0.7.5
 
-This release lets you select WebGPU on other Apple Silicon Macs, including M4. It also includes fixes for imports, saved settings, and recording state.
+This release fixes an immediate startup crash in 0.7.4. It keeps explicit WebGPU selection for Apple Silicon Macs, including M4.
 
 ## Changes
 
-- Select **WebGPU** under **Settings > Models > Speech settings > Execution**, then click **Apply speech settings** to try GPU acceleration. The app no longer requires your Mac and macOS build to appear in its validation list for this explicit selection.
-- Use CPU automatically if WebGPU initialization or inference fails. Settings shows the backend in use. The encoder uses WebGPU; the decoder and Nemotron streaming preview use CPU.
-- Keep **Automatic** restricted to combinations with recorded validation results. Explicit WebGPU selection does not imply that the hardware has passed the same accuracy and performance checks.
-- Restore YouTube link imports with an optional, explicitly selected browser session. Request browser-folder access when macOS requires it, and report access failures.
-- Preserve dictionary rules, saved settings, recovery audio, and transcript history when saving or processing fails.
-- Keep recording controls, hotkey events, and clipboard restoration consistent.
+- Prevent an immediate crash when macOS returns the notification permission result on a background queue. Notification delivery callbacks can also run safely on a background queue.
+- Check the normal app startup path, engine initialization, and notification callback before packaging a release.
+- To use WebGPU, select **WebGPU** under **Settings > Models > Speech settings > Execution**, then click **Apply speech settings**. GPU initialization or inference failure still falls back to CPU. Automatic keeps its existing validation rules.
 
 ## Installation
 
@@ -17,4 +14,4 @@ This release lets you select WebGPU on other Apple Silicon Macs, including M4. I
 - The app is ad-hoc signed and is not notarized by Apple. See the [installation instructions](https://github.com/asabla/parakatt#unsigned-builds) if Gatekeeper blocks it.
 - Public YouTube downloads remain subject to site restrictions.
 
-[Changes since 0.7.3](https://github.com/asabla/parakatt/compare/v0.7.3...v0.7.4)
+[Changes since 0.7.4](https://github.com/asabla/parakatt/compare/v0.7.4...v0.7.5)

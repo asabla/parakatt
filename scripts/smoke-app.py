@@ -8,13 +8,27 @@ from pathlib import Path
 import subprocess
 import tempfile
 
+from startup_check import check_normal_startup
+
 parser = argparse.ArgumentParser()
 parser.add_argument("app", type=Path)
 parser.add_argument("--models", type=Path)
 parser.add_argument("--backend", choices=["automatic", "cpu", "webgpu"], default="automatic")
 parser.add_argument("--expect-backend", choices=["cpu", "webgpu"])
 parser.add_argument("--output", type=Path)
+parser.add_argument("--normal-startup", action="store_true")
 args = parser.parse_args()
+if args.normal_startup:
+    if args.models or args.expect_backend or args.backend != "automatic":
+        parser.error("Normal startup checks do not accept model or backend options")
+    try:
+        report = check_normal_startup(args.app)
+    except RuntimeError as error:
+        raise SystemExit(str(error)) from error
+    if args.output:
+        args.output.write_text(json.dumps(report, indent=2) + "\n")
+    print(json.dumps(report, indent=2))
+    raise SystemExit(0)
 with tempfile.TemporaryDirectory(prefix="parakatt-startup-") as directory:
     env = dict(os.environ, PARAKATT_SMOKE_TEST="1", PARAKATT_DATA_ROOT=directory)
     env["PARAKATT_SMOKE_BACKEND"] = args.backend

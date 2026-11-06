@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.7.5
+
+### Fixed
+- Prevent an immediate startup crash when the notification permission callback runs on a background queue under Swift 6
+- Make notification delivery callbacks safe on background queues
+- Verify normal app startup, engine initialization, and completion of the notification callback before packaging a release
+
 ## 0.7.4
 
 ### Fixed

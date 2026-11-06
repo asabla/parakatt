@@ -2167,7 +2167,7 @@ class AppState: ObservableObject, HotkeyRecording {
     // MARK: - Notifications
 
     func requestNotificationPermission() {
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, error in
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { @Sendable granted, error in
             if let error {
                 NSLog("[Parakatt] Notification permission error: %@", error.localizedDescription)
             } else {
@@ -2188,7 +2188,7 @@ class AppState: ObservableObject, HotkeyRecording {
             content: content,
             trigger: nil
         )
-        UNUserNotificationCenter.current().add(request) { error in
+        UNUserNotificationCenter.current().add(request) { @Sendable error in
             if let error {
                 NSLog("[Parakatt] Failed to send notification: %@", error.localizedDescription)
             }

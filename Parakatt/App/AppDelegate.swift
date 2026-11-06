@@ -51,6 +51,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
             }
         }
+        NSLog("[Parakatt] Normal startup complete")
     }
 
     private func showOnboarding() {
