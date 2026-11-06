@@ -35,7 +35,7 @@ with tempfile.TemporaryDirectory(prefix="parakatt-startup-") as directory:
             + (Path(directory) / "startup.log").read_text()[-4000:]
         )
     report = json.loads(path.read_text())
-    if not report["started"]:
+    if not report["started"] or "error" in report:
         raise SystemExit(json.dumps(report))
     if args.models and not report["model_loaded"]:
         raise SystemExit("Model failed to load")
