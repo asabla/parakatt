@@ -31,6 +31,11 @@ func runMaintenanceSmokeIfRequested() -> Bool {
         try FileManager.default.createDirectory(at: data, withIntermediateDirectories: true)
         let modelRoot = environment["PARAKATT_SMOKE_MODEL_ROOT"] ?? data.appendingPathComponent("models").path
         let core = try CoreBridge(modelsDir: modelRoot, configDir: data.appendingPathComponent("config").path, activeMode: "dictation")
+        if let backend = environment["PARAKATT_SMOKE_BACKEND"] {
+            var settings = core.getSpeechSettings()
+            settings.backend = backend == "webgpu" ? .webGpu : backend == "cpu" ? .cpu : .automatic
+            try core.setSpeechSettings(settings)
+        }
         if environment["PARAKATT_SMOKE_MODEL_ROOT"] != nil { try core.loadModel("parakeet-tdt-0.6b-v3") }
         let status = core.speechRuntimeStatus()
         report = ["started": true, "model_loaded": core.isModelLoaded(), "actual_backend": status.actualBackend == .webGpu ? "webgpu" : "cpu", "os": ProcessInfo.processInfo.operatingSystemVersionString]

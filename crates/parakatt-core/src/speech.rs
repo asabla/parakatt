@@ -1,4 +1,4 @@
-//! Persisted speech preferences and conservative backend selection.
+//! Persisted speech preferences and backend selection.
 use crate::CoreError;
 
 #[derive(
@@ -69,8 +69,8 @@ impl SpeechSettings {
         Ok(())
     }
 }
-// No backend is promoted without a checked-in acceptance result for its exact
-// model revision, OS and hardware. Development benchmarks bypass this policy.
+// Automatic selection requires acceptance results for the exact model revision,
+// OS and hardware. Explicit WebGPU selection tries the runtime with CPU fallback.
 #[derive(serde::Deserialize)]
 struct Validation {
     model_revision: String,
@@ -98,9 +98,12 @@ fn system_value(key: &str) -> String {
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().into())
         .unwrap_or_default()
 }
-pub fn validated_backend(settings: &SpeechSettings) -> SpeechBackend {
-    if settings.backend == SpeechBackend::Cpu || !cfg!(feature = "webgpu") {
+pub fn execution_backend(settings: &SpeechSettings) -> SpeechBackend {
+    if !cfg!(feature = "webgpu") {
         return SpeechBackend::Cpu;
+    }
+    if settings.backend != SpeechBackend::Automatic {
+        return settings.backend;
     }
     static SYSTEM: std::sync::OnceLock<(String, String)> = std::sync::OnceLock::new();
     let (hardware, os_build) = SYSTEM.get_or_init(|| {
@@ -128,8 +131,8 @@ fn select_backend(
     os_build: &str,
     revision: &str,
 ) -> SpeechBackend {
-    if settings.backend == SpeechBackend::Cpu {
-        return SpeechBackend::Cpu;
+    if settings.backend != SpeechBackend::Automatic {
+        return settings.backend;
     }
     let threads = if settings.cpu_threads == 0 {
         4
@@ -159,6 +162,37 @@ fn select_backend(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn explicit_webgpu_does_not_require_a_validated_hardware_or_os_combination() {
+        let matrix = Matrix { validated: vec![] };
+        let mut settings = SpeechSettings {
+            backend: SpeechBackend::WebGpu,
+            cpu_threads: 2,
+            ..Default::default()
+        };
+        for hardware in ["Apple M4", "Apple M4 Pro", "Apple M4 Max"] {
+            assert_eq!(
+                select_backend(&settings, &matrix, hardware, "unvalidated-os", "model"),
+                SpeechBackend::WebGpu
+            );
+            assert_eq!(
+                execution_backend(&settings),
+                if cfg!(feature = "webgpu") {
+                    SpeechBackend::WebGpu
+                } else {
+                    SpeechBackend::Cpu
+                }
+            );
+        }
+        settings.backend = SpeechBackend::Automatic;
+        assert_eq!(
+            select_backend(&settings, &matrix, "Apple M4", "unvalidated-os", "model"),
+            SpeechBackend::Cpu
+        );
+        settings.backend = SpeechBackend::Cpu;
+        assert_eq!(execution_backend(&settings), SpeechBackend::Cpu);
+    }
+
     #[test]
     fn automatic_selection_requires_every_release_gate_and_keeps_explicit_cpu() {
         let mut matrix = Matrix {

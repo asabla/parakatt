@@ -99,7 +99,7 @@ Configuration is stored at `~/Library/Application Support/Parakatt/config/config
 
 Select speech models and execution settings in **Settings > Models**. Downloads use pinned revisions and verify every required file. Parakeet v3 produces the final transcript. Nemotron 3.5 is an optional multilingual preview; select English, Swedish, or Automatic language detection. New preview downloads do not change an existing selection.
 
-Automatic execution uses WebGPU only for combinations in `crates/parakatt-core/backend-validation.json`. Other systems use CPU. CPU remains available as an explicit setting and as a fallback. See [maintenance validation](reports/maintenance/README.md) for measured results and limits.
+Automatic execution uses WebGPU only for combinations in `crates/parakatt-core/backend-validation.json`. Other systems use CPU in Automatic mode. To try GPU acceleration on another Apple Silicon Mac, select **WebGPU** under **Settings > Models > Speech settings > Execution**, then click **Apply speech settings**. This selection does not require a validation-list entry. If GPU initialization or inference fails, Parakatt uses CPU. The encoder uses WebGPU; the decoder and Nemotron streaming preview use CPU. See [maintenance validation](reports/maintenance/README.md) for measured results and limits.
 
 Configure optional LLM processing in **Settings > LLM**. Ollama and LM Studio run locally. OpenAI and Anthropic require a model and a provider-specific Keychain credential. They remain disabled until configured. Recognized text appears first; completed processing replaces each accepted chunk. Failures and queue limits preserve recognized text. History keeps the recognized timeline separate from processed text.
 

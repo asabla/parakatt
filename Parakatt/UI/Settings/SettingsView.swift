@@ -291,7 +291,7 @@ private struct SpeechPreferencesView: View {
                         Text("WebGPU").tag(SpeechBackend.webGpu)
                     }
                     Stepper("CPU threads: \(current.cpuThreads == 0 ? "Automatic" : String(current.cpuThreads))", value: Binding(get: { current.cpuThreads }, set: { settings?.cpuThreads = $0 }), in: 0...64)
-                    Text("Automatic uses validated combinations. WebGPU uses CPU if validation or runtime support is missing. Download a preview model below before selecting it.")
+                    Text("Automatic uses validated combinations. WebGPU tries GPU acceleration and uses CPU if it fails. Download a preview model below before selecting it.")
                         .font(.caption).foregroundStyle(.secondary)
                     Button("Apply speech settings") { if let settings { appState.saveSpeechSettings(settings) } }
                         .disabled(recording.isRecording || recording.isProcessing || meeting.isMeetingActive)

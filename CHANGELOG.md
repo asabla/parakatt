@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.7.4
+
+### Fixed
+- Let an explicit WebGPU selection try GPU acceleration on other Apple Silicon Macs, including M4, with CPU fallback if initialization or inference fails
+- Keep Automatic restricted to validated hardware and OS combinations and report WebGPU loading and fallback states correctly
+- Restore YouTube link imports with an optional, explicitly selected browser session and browser-folder access
+- Preserve dictionary rules, saved settings, recovery audio, and transcript history when saving or processing fails
+- Keep recording controls, hotkey events, and clipboard restoration consistent
+
 ## 0.7.3
 
 ### Fixed
