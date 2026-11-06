@@ -22,6 +22,9 @@ for field, filename in (
     if info.get(field) != expected:
         raise SystemExit(f"Packaged {field} is {info.get(field)!r}; expected {expected!r}")
 print("Verified packaged version and build number")
+for key in ("NSMicrophoneUsageDescription", "NSAudioCaptureUsageDescription"):
+    if not isinstance(info.get(key), str) or not info[key].strip():
+        raise SystemExit("Missing capture permission description: " + key)
 subprocess.run(
     ["python3", str(root / "scripts/verify-launcher.py"), str(app / "Contents/MacOS/Parakatt")],
     check=True,

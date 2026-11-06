@@ -85,6 +85,10 @@ class MenuBarManager: NSObject {
         meetingMenuItem.target = self
         menu.addItem(meetingMenuItem)
 
+        let historyItem = NSMenuItem(title: "Transcription History...", action: #selector(openHistory), keyEquivalent: "h")
+        historyItem.target = self
+        menu.addItem(historyItem)
+
         menu.addItem(.separator())
 
         statusMenuItem = NSMenuItem(title: "Loading model...", action: nil, keyEquivalent: "")
@@ -145,10 +149,6 @@ class MenuBarManager: NSObject {
             let item = NSMenuItem(title: title, action: #selector(openImports), keyEquivalent: "")
             item.target = self; menu.addItem(item)
         }
-
-        let historyItem = NSMenuItem(title: "Transcription History...", action: #selector(openHistory), keyEquivalent: "h")
-        historyItem.target = self
-        menu.addItem(historyItem)
 
         menu.addItem(.separator())
 

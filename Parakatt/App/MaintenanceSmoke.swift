@@ -3,7 +3,7 @@ import AVFoundation
 import Foundation
 import ParakattCore
 
-/// Explicit packaged-app startup check. It uses isolated data and requests no permissions.
+/// Explicit packaged-app checks with isolated data. Capture requires a separate test PID.
 @MainActor
 func runMaintenanceSmokeIfRequested() -> Bool {
     let environment = ProcessInfo.processInfo.environment
@@ -38,6 +38,12 @@ func runMaintenanceSmokeIfRequested() -> Bool {
         }
         if environment["PARAKATT_SMOKE_MODEL_ROOT"] != nil { try core.loadModel("parakeet-tdt-0.6b-v3") }
         report = ["started": true, "model_loaded": core.isModelLoaded(), "os": ProcessInfo.processInfo.operatingSystemVersionString]
+        if let process = environment["PARAKATT_SMOKE_SYSTEM_AUDIO_PID"] {
+            guard #available(macOS 14.2, *), let pid = pid_t(process), pid > 0 else {
+                throw NSError(domain: "ParakattCaptureSmoke", code: 2, userInfo: [NSLocalizedDescriptionKey: "A valid test process and macOS 14.2 or later are required."])
+            }
+            report["system_audio"] = try await systemAudioCaptureSmoke(processID: pid)
+        }
         if let source = environment["PARAKATT_SMOKE_MEDIA"] { report["media"] = try await mediaImportSmoke(core: core, source: URL(fileURLWithPath: source)) }
         report["actual_backend"] = core.speechRuntimeStatus().actualBackend == .webGpu ? "webgpu" : "cpu"
     } catch { report["error"] = error.localizedDescription }

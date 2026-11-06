@@ -1,4 +1,5 @@
 import AVFoundation
+import AppKit
 import CoreAudio
 import Foundation
 
@@ -12,6 +13,11 @@ import Foundation
 // Tap callbacks use callbackQueue; converter/device snapshots use stateLock.
 // Lifecycle calls and device rebuilds run on the main actor.
 final class SystemAudioCaptureService: @unchecked Sendable {
+    typealias IOHandler = @Sendable (
+        UnsafePointer<AudioTimeStamp>, UnsafePointer<AudioBufferList>,
+        UnsafePointer<AudioTimeStamp>, UnsafeMutablePointer<AudioBufferList>,
+        UnsafePointer<AudioTimeStamp>
+    ) -> Void
     @Locked var onAudioSamples: (@Sendable ([Float]) -> Void)?
     /// Periodic health signal reflecting what the tap is actually delivering.
     /// Emitted every ~2s from the capture callback queue. Lets the UI distinguish
@@ -44,6 +50,9 @@ final class SystemAudioCaptureService: @unchecked Sendable {
     // listener can rebuild the aggregate with the same target.
     private var activeProcessID: pid_t?
     private var outputChangeListener: AudioObjectPropertyListenerBlock?
+    private var processChangeListener: AudioObjectPropertyListenerBlock?
+    private var activeTarget: AudioApplicationTarget?
+    private var activeTapDescription: CATapDescription?
 
     /// Start capturing system audio.
     /// - Parameter processID: If provided, capture audio from this process only.
@@ -54,15 +63,22 @@ final class SystemAudioCaptureService: @unchecked Sendable {
         // 1. Create the process tap.
         let tapDescription: CATapDescription
         if let pid = processID {
-            let objectID = try Self.translatePID(pid)
-            tapDescription = CATapDescription(monoMixdownOfProcesses: [objectID])
+            let app = NSRunningApplication(processIdentifier: pid)
+            let target = AudioApplicationTarget(pid: pid, bundleIdentifier: app?.bundleIdentifier, bundleURL: app?.bundleURL)
+            let objects = target.processObjectIDs(in: Self.audioProcesses())
+            guard !objects.isEmpty else { throw SystemAudioCaptureError.processNotFound(pid) }
+            activeTarget = target
+            tapDescription = CATapDescription(monoMixdownOfProcesses: objects)
+            NSLog("[Parakatt] System audio: selected app has %d audio processes", objects.count)
         } else {
             // Global tap excluding our own process.
-            let selfObjectID = try Self.translatePID(ProcessInfo.processInfo.processIdentifier)
-            tapDescription = CATapDescription(monoGlobalTapButExcludeProcesses: [selfObjectID])
+            let ownProcess = try? Self.translatePID(ProcessInfo.processInfo.processIdentifier)
+            tapDescription = CATapDescription(monoGlobalTapButExcludeProcesses: ownProcess.map { [$0] } ?? [])
+            activeTarget = nil
         }
         tapDescription.uuid = UUID()
         tapDescription.muteBehavior = .unmuted
+        tapDescription.isPrivate = true
 
         var newTapID: AudioObjectID = AudioObjectID.max
         let tapErr = AudioHardwareCreateProcessTap(tapDescription, &newTapID)
@@ -73,6 +89,9 @@ final class SystemAudioCaptureService: @unchecked Sendable {
             throw SystemAudioCaptureError.tapCreationFailed(tapErr)
         }
         self.tapID = newTapID
+        activeTapDescription = tapDescription
+        var started = false
+        defer { if !started { teardown() } }
 
         // 2. Create an aggregate device that includes the tap.
         // The aggregate's main sub-device must be the one the user's other
@@ -114,24 +133,14 @@ final class SystemAudioCaptureService: @unchecked Sendable {
 
         // 3. Create an IOProc on the aggregate device to receive audio.
         var procID: AudioDeviceIOProcID?
-        let ioErr = AudioDeviceCreateIOProcIDWithBlock(&procID, aggregateDeviceID, callbackQueue) {
-            [weak self] _, inInputData, _, _, _ in
-            self?.handleAudioCallback(inInputData)
-        }
+        let ioErr = AudioDeviceCreateIOProcIDWithBlock(&procID, aggregateDeviceID, callbackQueue, makeIOHandler())
         guard ioErr == noErr, let procID else {
             teardown()
             throw SystemAudioCaptureError.ioProcFailed(ioErr)
         }
         self.ioProcID = procID
 
-        // 4. Start the device.
-        let startErr = AudioDeviceStart(aggregateDeviceID, procID)
-        guard startErr == noErr else {
-            teardown()
-            throw SystemAudioCaptureError.deviceStartFailed(startErr)
-        }
-
-        // Reset diagnostic counters.
+        // Reset counters before the device can schedule its first callback.
         emptyBufferCount = 0
         callbackCount = 0
         totalSamplesDelivered = 0
@@ -142,6 +151,12 @@ final class SystemAudioCaptureService: @unchecked Sendable {
         lastNonSilentTime = now
         lastNonEmptyTime = now
 
+        // 4. Start the device.
+        let startErr = AudioDeviceStart(aggregateDeviceID, procID)
+        guard startErr == noErr else {
+            throw SystemAudioCaptureError.deviceStartFailed(startErr)
+        }
+
         let osVersion = ProcessInfo.processInfo.operatingSystemVersion
         NSLog("[Parakatt] System audio capture STARTED via Core Audio tap (pid: %@, macOS %d.%d.%d)",
               processID.map { String($0) } ?? "all",
@@ -151,6 +166,8 @@ final class SystemAudioCaptureService: @unchecked Sendable {
         // (e.g. user plugs in AirPods mid-meeting).
         activeProcessID = processID
         registerOutputChangeListener()
+        if activeTarget != nil { registerProcessChangeListener() }
+        started = true
     }
 
     @MainActor func stopCapture() {
@@ -163,6 +180,12 @@ final class SystemAudioCaptureService: @unchecked Sendable {
     }
 
     // MARK: - Audio callback
+
+    @MainActor func makeIOHandler() -> IOHandler {
+        { @Sendable [weak self] _, input, _, _, _ in
+            self?.handleAudioCallback(input)
+        }
+    }
 
     private func handleAudioCallback(_ inputData: UnsafePointer<AudioBufferList>) {
         let bufferList = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: inputData))
@@ -259,7 +282,7 @@ final class SystemAudioCaptureService: @unchecked Sendable {
         }
 
         if abs(sourceSampleRate - targetSampleRate) < 1.0 {
-            onAudioSamples?(samples)
+            recordAndDeliver(samples)
             return
         }
 
@@ -327,15 +350,19 @@ final class SystemAudioCaptureService: @unchecked Sendable {
         }
         let resampled = Array(UnsafeBufferPointer(start: data[0], count: count))
 
+        recordAndDeliver(resampled)
+    }
+
+    private func recordAndDeliver(_ samples: [Float]) {
         callbackCount += 1
-        totalSamplesDelivered += resampled.count
+        totalSamplesDelivered += samples.count
         if callbackCount % 50 == 1 {
             NSLog("[Parakatt] System audio callback #%d, total samples: %d (%.1fs)",
                   callbackCount, totalSamplesDelivered, Double(totalSamplesDelivered) / 16000.0)
         }
 
-        maybeEmitHealth(emptyThisTick: false, deliveredSamples: resampled)
-        onAudioSamples?(resampled)
+        maybeEmitHealth(emptyThisTick: false, deliveredSamples: samples)
+        onAudioSamples?(samples)
     }
 
     // MARK: - Teardown
@@ -350,9 +377,11 @@ final class SystemAudioCaptureService: @unchecked Sendable {
         aggregateDeviceID = AudioObjectID.max
         tapID = AudioObjectID.max
         converter = nil
+        activeTapDescription = nil
         stateLock.unlock()
 
         unregisterOutputChangeListener()
+        unregisterProcessChangeListener()
 
         if let procID, aggID != AudioObjectID.max {
             AudioDeviceStop(aggID, procID)
@@ -369,6 +398,43 @@ final class SystemAudioCaptureService: @unchecked Sendable {
     }
 
     // MARK: - Default-output-device listener
+
+    private func registerProcessChangeListener() {
+        guard processChangeListener == nil else { return }
+        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyProcessObjectList, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+        let block: AudioObjectPropertyListenerBlock = { @Sendable [weak self] _, _ in
+            DispatchQueue.main.async { [weak self] in self?.refreshSelectedProcesses() }
+        }
+        if AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &address, callbackQueue, block) == noErr {
+            processChangeListener = block
+        }
+    }
+
+    private func unregisterProcessChangeListener() {
+        guard let block = processChangeListener else { return }
+        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyProcessObjectList, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+        AudioObjectRemovePropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &address, callbackQueue, block)
+        processChangeListener = nil
+    }
+
+    @MainActor private func refreshSelectedProcesses() {
+        guard tapID != AudioObjectID.max, let target = activeTarget, let description = activeTapDescription else { return }
+        let objects = target.processObjectIDs(in: Self.audioProcesses())
+        guard description.processes != objects else { return }
+        // An empty inclusive list captures nothing; never widen the selection to all apps.
+        let replacement = CATapDescription(monoMixdownOfProcesses: objects)
+        replacement.uuid = description.uuid
+        replacement.isPrivate = true
+        replacement.muteBehavior = .unmuted
+        var value = replacement
+        var address = AudioObjectPropertyAddress(mSelector: kAudioTapPropertyDescription, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+        let error = withUnsafeMutablePointer(to: &value) {
+            AudioObjectSetPropertyData(tapID, &address, 0, nil, UInt32(MemoryLayout<CATapDescription>.size), $0)
+        }
+        NSLog("[Parakatt] System audio: updated selected app processes (%d, status %d)", objects.count, error)
+        if error == noErr { activeTapDescription = replacement }
+        else { onHealth?(.empty(forSeconds: 0)) }
+    }
 
     /// Register a property listener for the system's default output device.
     /// When it changes (e.g. AirPods connect mid-meeting), the aggregate we
@@ -443,6 +509,34 @@ final class SystemAudioCaptureService: @unchecked Sendable {
 
     // MARK: - Core Audio helpers
 
+    @MainActor private static func audioProcesses() -> [AudioProcessIdentity] {
+        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyProcessObjectList, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size) == noErr else { return [] }
+        var objects = [AudioObjectID](repeating: 0, count: Int(size) / MemoryLayout<AudioObjectID>.size)
+        guard !objects.isEmpty else { return [] }
+        let error = objects.withUnsafeMutableBufferPointer {
+            guard let base = $0.baseAddress else { return kAudioHardwareBadPropertySizeError }
+            return AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, base)
+        }
+        guard error == noErr else { return [] }
+        return objects.compactMap { object in
+            var pid: pid_t = 0
+            var pidSize = UInt32(MemoryLayout<pid_t>.size)
+            var pidAddress = AudioObjectPropertyAddress(mSelector: kAudioProcessPropertyPID, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+            guard AudioObjectGetPropertyData(object, &pidAddress, 0, nil, &pidSize, &pid) == noErr, pid > 0 else { return nil }
+            let app = NSRunningApplication(processIdentifier: pid)
+            var bundle: Unmanaged<CFString>?
+            var bundleSize = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+            var bundleAddress = AudioObjectPropertyAddress(mSelector: kAudioProcessPropertyBundleID, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+            let bundleError = withUnsafeMutablePointer(to: &bundle) {
+                AudioObjectGetPropertyData(object, &bundleAddress, 0, nil, &bundleSize, $0)
+            }
+            let identifier = (bundleError == noErr ? bundle.map { $0.takeRetainedValue() as String } : nil) ?? app?.bundleIdentifier
+            return AudioProcessIdentity(objectID: object, pid: pid, bundleIdentifier: identifier, bundleURL: app?.bundleURL)
+        }
+    }
+
     private static func translatePID(_ pid: pid_t) throws -> AudioObjectID {
         var pid = pid
         var objectID: AudioObjectID = AudioObjectID.max
@@ -462,7 +556,7 @@ final class SystemAudioCaptureService: @unchecked Sendable {
             &size,
             &objectID
         )
-        guard err == noErr else {
+        guard err == noErr, objectID != kAudioObjectUnknown, objectID != AudioObjectID.max else {
             throw SystemAudioCaptureError.processNotFound(pid)
         }
         return objectID
@@ -568,7 +662,7 @@ enum SystemAudioCaptureError: Error, LocalizedError {
         case .deviceStartFailed(let s):
             return "Failed to start audio device (error \(s))"
         case .processNotFound:
-            return "The selected audio app is unavailable. Open it and select it again, or explicitly choose all system audio."
+            return "No audio process is available for the selected app. Start its call or audio playback and select it again, or explicitly choose All System Audio."
         case .noOutputDevice:
             return "No audio output device found"
         case .deviceUIDNotFound:

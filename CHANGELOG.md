@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 0.7.6
+
+### Changed
+- Move Transcription History directly below the recording commands in the menu
+- Add a Stop button to the recording popup that works while another app is active
+
+### Fixed
+- Declare the system-audio capture permission required for meeting audio
+- Include audio helper processes when capturing Slack and other selected apps, and update the tap when those processes change
+- Run Core Audio callbacks safely on their audio queue under Swift 6
+- Report audio health for 16 kHz input and clarify checks when system audio is missing
+
 ## 0.7.5
 
 ### Fixed
