@@ -79,6 +79,28 @@ pub fn check(data: &[u8]) {
         expected
     );
 
+    for provider in [
+        parakatt_core::transcript_import::TranscriptProvider::Teams,
+        parakatt_core::transcript_import::TranscriptProvider::Slack,
+    ] {
+        let request = parakatt_core::transcript_import::TranscriptImportRequest {
+            provider,
+            source_id: None,
+            title: "Fuzzed meeting".into(),
+            content: text.to_string(),
+        };
+        if let Ok(utterances) = parakatt_core::transcript_import::parse_transcript(&request) {
+            assert!(!utterances.is_empty());
+            for utterance in utterances {
+                if let (Some(start), Some(end)) = (utterance.start_secs, utterance.end_secs) {
+                    assert!(start.is_finite() && end.is_finite() && start >= 0.0 && end > start);
+                } else {
+                    assert!(utterance.start_secs.is_none() && utterance.end_secs.is_none());
+                }
+            }
+        }
+    }
+
     if let Ok(config) = toml::from_str::<Config>(&text) {
         let serialized = toml::to_string(&config).unwrap();
         let restored: Config = toml::from_str(&serialized).unwrap();

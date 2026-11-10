@@ -1,6 +1,7 @@
 import Cocoa
 import Combine
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// A menu-item view that adapts to the menu width without expanding it.
 private class TranscriptionItemView: NSView {
@@ -149,6 +150,9 @@ class MenuBarManager: NSObject {
             let item = NSMenuItem(title: title, action: #selector(openImports), keyEquivalent: "")
             item.target = self; menu.addItem(item)
         }
+        let transcriptItem = NSMenuItem(title: "Import Transcript…", action: #selector(openTranscriptImport), keyEquivalent: "")
+        transcriptItem.target = self
+        menu.addItem(transcriptItem)
 
         menu.addItem(.separator())
 
@@ -434,6 +438,31 @@ class MenuBarManager: NSObject {
             NSPasteboard.general.setString(text, forType: .string)
             NSLog("[Parakatt] Copied transcription to clipboard")
         }
+    }
+
+    @objc private func openTranscriptImport() {
+        let panel = NSOpenPanel()
+        panel.title = "Import Teams or Slack Huddle Transcript"
+        panel.allowedContentTypes = [.json, UTType(filenameExtension: "vtt") ?? .plainText]
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        appState.changeHistory({ bridge in
+            let access = url.startAccessingSecurityScopedResource()
+            defer { if access { url.stopAccessingSecurityScopedResource() } }
+            let file = try FileHandle(forReadingFrom: url)
+            defer { try? file.close() }
+            let bytes = try file.read(upToCount: 8 * 1024 * 1024 + 1) ?? Data()
+            guard bytes.count <= 8 * 1024 * 1024, let text = String(data: bytes, encoding: .utf8) else {
+                throw NSError(domain: "Parakatt", code: 1, userInfo: [NSLocalizedDescriptionKey: "Select a UTF-8 transcript no larger than 8 MiB."])
+            }
+            _ = try bridge.importTranscript(TranscriptImportRequest(
+                provider: url.pathExtension.lowercased() == "json" ? .slack : .teams,
+                sourceId: nil, title: url.deletingPathExtension().lastPathComponent, content: text
+            ))
+        }, completion: { [weak self] error in
+            if let error { self?.appState.errorMessage = error }
+            else { self?.openHistory() }
+        })
     }
 
     @objc private func openImports() {

@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools==80.9.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "parakatt-desktop"
+version = "0.1.0"
+description = "Linux desktop frontend for the Parakatt Rust engine"
+requires-python = ">=3.12"
+dependencies = ["PySide6==6.10.2", "keyring==25.7.0", "yt-dlp[default]==2026.10.26", "msal==1.39.0", "cryptography>=50.0.0"]
+
+[project.scripts]
+parakatt-desktop = "parakatt_linux.app:main"
+parakatt-import = "parakatt_linux.import_cli:main"
+
+[tool.setuptools.package-data]
+parakatt_linux = ["_native/*.so", "_native/*.so.*", "_native/*.txt", "assets/*.svg"]
+
+[tool.setuptools.packages.find]
+include = ["parakatt_linux*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "B", "UP", "I", "C4", "SIM", "ASYNC", "RUF100", "S102", "S307", "S506"]

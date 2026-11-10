@@ -1,0 +1,6 @@
+{
+  "version": "1.28.0",
+  "directory": "onnxruntime-linux-x64-1.28.0",
+  "url": "https://github.com/microsoft/onnxruntime/releases/download/v1.28.0/onnxruntime-linux-x64-1.28.0.tgz",
+  "sha256": "a3e1b79d7bb1bf09696ce675f49e4064e6c81f6202b8225624fff0e93f8d6407"
+}

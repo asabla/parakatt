@@ -1,0 +1,25 @@
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: Ruff correctness checks
+        entry: target/quality-venv/bin/ruff check --force-exclude
+        language: system
+        types: [python]
+      - id: ruff-format
+        name: Ruff formatting
+        entry: target/quality-venv/bin/ruff format --check --force-exclude
+        language: system
+        types: [python]
+      - id: rustfmt
+        name: Rust formatting
+        entry: cargo fmt --all --check
+        language: system
+        types: [rust]
+        pass_filenames: false
+      - id: typed-boundaries
+        name: Strict Python boundary types
+        entry: target/quality-venv/bin/pyright --project linux/pyrightconfig.json
+        language: system
+        files: ^linux/parakatt_linux/(preferences|providers|meeting_notes)\.py$
+        pass_filenames: false
