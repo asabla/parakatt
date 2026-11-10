@@ -1,0 +1,51 @@
+name: Linux desktop
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  desktop:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.1.0
+        with:
+          python-version: "3.12"
+      - uses: dtolnay/rust-toolchain@1.99.1
+      - uses: Swatinem/rust-cache@v2.9.3
+      - name: Install desktop build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg pulseaudio-utils libegl1 libopengl0 libxcb-cursor0 libssl-dev pkg-config cmake
+      - name: Build and install the desktop frontend
+        run: |
+          make linux-desktop
+          python3 -m venv target/quality-venv
+          target/quality-venv/bin/python -m pip install -r requirements-quality.txt
+      - name: Check Linux sources and desktop behavior
+        env:
+          QT_QPA_PLATFORM: offscreen
+          PARAKATT_TEST_QT: "1"
+        run: |
+          target/quality-venv/bin/ruff check linux scripts/build-linux.py scripts/install-linux-desktop.py
+          target/quality-venv/bin/ruff format --check linux scripts/build-linux.py scripts/install-linux-desktop.py
+          target/quality-venv/bin/pyright --project linux/pyrightconfig.json
+          target/quality-venv/bin/pip-audit --strict --require-hashes --disable-pip -r linux/requirements.lock
+          make linux-test
+          target/linux-venv/bin/parakatt-desktop --diagnostics
+      - name: Verify real Linux desktop recognition and persistence
+        run: |
+          ORT_LIB_PATH="$PWD/target/linux-runtime/onnxruntime-linux-x64-1.28.0/lib" ORT_PREFER_DYNAMIC_LINK=1 \
+          LD_LIBRARY_PATH="$PWD/target/linux-runtime/onnxruntime-linux-x64-1.28.0/lib" \
+            cargo run --locked --release -p parakatt-core --example install_model -- target/linux-models parakeet-tdt-0.6b-v3
+          python3 scripts/prepare-fixtures.py --languages en_us --count 1 --output target/linux-fixtures
+          PARAKATT_TEST_MODELS="$PWD/target/linux-models" \
+          PARAKATT_TEST_AUDIO="$(python3 -c 'import json; print(json.load(open("target/linux-fixtures/manifest.json"))["samples"][0]["path"])')" \
+            PYTHONPATH=linux target/linux-venv/bin/python -m unittest discover -s linux/tests -p test_native.py -v

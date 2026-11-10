@@ -26,6 +26,20 @@ rust:
 cli:
 	cargo build --locked --release -p parakatt-cli
 
+# Linux desktop: native bindings first, then install into a user-owned venv.
+.PHONY: linux-native linux-desktop linux-test
+linux-native:
+	python3 scripts/build-linux.py
+
+linux-desktop: linux-native
+	python3 -m venv target/linux-venv
+	target/linux-venv/bin/python -m pip install --require-hashes -r linux/requirements.lock
+	target/linux-venv/bin/python -m pip install --no-deps ./linux
+	@echo "Run target/linux-venv/bin/parakatt-desktop"
+
+linux-test:
+	PYTHONPATH=linux target/linux-venv/bin/python -m unittest discover -s linux/tests -v
+
 # Run Rust tests
 test:
 	cargo test --locked

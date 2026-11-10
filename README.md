@@ -2,6 +2,10 @@
 
 Local-first voice-to-text transcription for macOS. Lives in your menu bar, transcribes speech using [NVIDIA Parakeet](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx) running entirely on-device, and pastes the result into whatever app you're using.
 
+An experimental [Linux desktop frontend](docs/linux.md) shares the same Rust engine and supports dictation, meeting capture, history, settings, and media imports. Its first target is Ubuntu/Fedora with GNOME on Wayland. The macOS frontend remains the stable release.
+
+[Transcript import and office follow-up](docs/transcript-imports.md) add shared Teams WebVTT/structured Slack Huddle ingestion, source attribution, reversible speaker labels, and confirmed action items. Connected import commands in the Linux preview require approved account/app configuration; they do not identify voices from mixed meeting audio.
+
 ## Features
 
 - Menu bar app with global hotkey (Option+Space) to start/stop recording

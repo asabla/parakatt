@@ -59,6 +59,8 @@ impl Storage {
         storage.migrate()?;
         storage.migrate_recovery()?;
         storage.migrate_imports()?;
+        storage.migrate_transcript_imports()?;
+        storage.migrate_meeting_actions()?;
         Ok(storage)
     }
 
@@ -481,8 +483,10 @@ impl Storage {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT text, start_secs, end_secs, speaker FROM transcript_segments
-                 WHERE transcription_id = ?1 ORDER BY start_secs ASC",
+                "SELECT s.text, s.start_secs, s.end_secs, COALESCE(a.display_name,s.speaker)
+                 FROM transcript_segments s LEFT JOIN transcript_speaker_aliases a
+                 ON a.transcription_id=s.transcription_id AND a.original=s.speaker
+                 WHERE s.transcription_id = ?1 ORDER BY s.start_secs ASC",
             )
             .map_err(|e| CoreError::IoError(format!("Failed to query segments: {e}")))?;
 

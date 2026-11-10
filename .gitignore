@@ -36,3 +36,10 @@ dist/
 
 # Python maintenance scripts
 __pycache__/
+linux/parakatt_linux/_native/*.py
+!linux/parakatt_linux/_native/__init__.py
+linux/parakatt_linux/_native/*.so*
+linux/parakatt_linux/_native/*.txt
+linux/*.egg-info/
+linux/build/
+linux/dist/

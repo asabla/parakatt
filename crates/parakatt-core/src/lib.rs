@@ -20,6 +20,7 @@ pub mod llm;
 pub mod local_agreement;
 mod logging;
 pub mod media_import;
+pub mod meeting_actions;
 pub mod models;
 pub mod modes;
 pub mod processing;
@@ -29,6 +30,7 @@ pub mod speech;
 pub mod storage;
 pub mod stt;
 pub mod text_assembly;
+pub mod transcript_import;
 pub(crate) mod util;
 pub mod vad;
 

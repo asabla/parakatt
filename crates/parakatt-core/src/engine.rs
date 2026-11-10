@@ -2,6 +2,7 @@
 mod contracts;
 mod history;
 mod imports;
+mod transcripts;
 
 /// Core engine that orchestrates the full pipeline:
 /// audio → preprocessing → STT → dictionary → LLM → result.

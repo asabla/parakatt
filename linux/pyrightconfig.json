@@ -1,0 +1,7 @@
+{
+  "include": ["parakatt_linux/preferences.py", "parakatt_linux/providers.py", "parakatt_linux/meeting_notes.py"],
+  "typeCheckingMode": "strict",
+  "pythonVersion": "3.12",
+  "venvPath": "../target",
+  "venv": "linux-venv"
+}

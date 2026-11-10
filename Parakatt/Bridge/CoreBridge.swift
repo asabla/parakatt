@@ -8,6 +8,10 @@ import ParakattCore
 class CoreBridge: LivePreviewCore, @unchecked Sendable {
     private let engine: Engine
 
+    func importTranscript(_ request: TranscriptImportRequest) throws -> TranscriptImportResult {
+        try engine.importTranscript(request: request)
+    }
+
     func createImport(kind: String, input: String, title: String, mode: String) throws -> ImportJob { try engine.createImportJob(kind: kind, input: input, title: title, mode: mode) }
     func importJobs() throws -> [ImportJob] { try engine.listImportJobs() }
     func importJob(_ id: String) throws -> ImportJob { try engine.getImportJob(id: id) }

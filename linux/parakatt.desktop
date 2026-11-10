@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Parakatt
+Comment=Local speech transcription, meetings, and media imports
+Exec=parakatt-desktop
+Icon=audio-input-microphone
+Terminal=false
+Categories=AudioVideo;Audio;Utility;
+StartupNotify=true
+Keywords=speech;transcription;dictation;
