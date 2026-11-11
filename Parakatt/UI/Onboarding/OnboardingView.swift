@@ -125,9 +125,11 @@ struct OnboardingView: View {
 
             VStack(spacing: 8) {
                 ModeInfoRow(icon: "waveform", color: .blue,
-                           name: "Dictation", desc: "Raw transcription \u{2014} exactly what you said")
+                            name: "Off", desc: "Transcription only \u{2014} no AI request")
+                ModeInfoRow(icon: "textformat", color: .blue,
+                            name: "Punctuation", desc: "Fix punctuation without rewriting your words")
                 ModeInfoRow(icon: "text.badge.checkmark", color: .green,
-                           name: "Clean", desc: "Fix grammar, punctuation, and formatting")
+                           name: "Grammar + punctuation", desc: "Correct grammar, spelling, and punctuation")
                 ModeInfoRow(icon: "envelope.fill", color: .orange,
                            name: "Email", desc: "Structure output as a professional email")
                 ModeInfoRow(icon: "chevron.left.forwardslash.chevron.right", color: .purple,
@@ -135,7 +137,7 @@ struct OnboardingView: View {
             }
             .padding(.horizontal, 20)
 
-            Text("Dictation works out of the box. Other modes require an LLM\n(Ollama, LM Studio, or OpenAI) \u{2014} configure in Settings later.")
+            Text("Transcription works out of the box. AI cleanup requires a provider\n(Ollama, LM Studio, ChatGPT plan, or an API provider) \u{2014} configure in Settings later.")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)

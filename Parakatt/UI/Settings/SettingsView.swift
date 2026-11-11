@@ -83,7 +83,7 @@ struct DashboardSettingsView: View {
                         Divider().padding(.leading, 40)
                         DashboardStatusRow(
                             label: "Processing Mode",
-                            value: appState.activeMode.capitalized,
+                            value: TextProcessingPresentation.title(appState.activeMode),
                             icon: "wand.and.stars",
                             color: .blue
                         )
@@ -423,11 +423,12 @@ struct GeneralSettingsView: View {
         let isCustom: Bool
     }
 
-    private static let builtinNames = Set(["dictation", "clean", "email", "code"])
+    private static let builtinNames = Set(["dictation", "punctuation", "clean", "email", "code"])
 
     private static func iconForMode(_ name: String) -> String {
         switch name.lowercased() {
         case "dictation": return "waveform"
+        case "punctuation": return "textformat"
         case "clean": return "text.badge.checkmark"
         case "email": return "envelope.fill"
         case "code": return "chevron.left.forwardslash.chevron.right"
@@ -460,7 +461,7 @@ struct GeneralSettingsView: View {
             }
             return ModeOption(
                 id: m.name,
-                label: m.name.capitalized,
+                label: TextProcessingPresentation.title(m.name),
                 description: desc,
                 icon: Self.iconForMode(m.name),
                 color: Self.colorForMode(m.name),
@@ -471,8 +472,7 @@ struct GeneralSettingsView: View {
 
     private func builtinDescription(_ name: String) -> String {
         switch name.lowercased() {
-        case "dictation": return "Raw transcription — exactly what you said"
-        case "clean": return "Fix grammar, punctuation, and formatting"
+        case "dictation", "punctuation", "clean": return TextProcessingPresentation.description(name)
         case "email": return "Structure output as a professional email"
         case "code": return "Code-aware — preserves identifiers and syntax"
         default: return ""
@@ -562,9 +562,11 @@ struct GeneralSettingsView: View {
                 .onAppear { loadCurrentHotkey() }
 
                 // MARK: - Processing mode section
+                TextProcessingSettingsView()
+                    .id(loadedModes.map(\.name))
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {
-                        Label("Processing Mode", systemImage: "wand.and.stars")
+                        Label("Custom modes", systemImage: "wand.and.stars")
                             .font(.system(.subheadline, weight: .semibold))
                             .foregroundStyle(.secondary)
                             .textCase(.uppercase)
@@ -583,7 +585,7 @@ struct GeneralSettingsView: View {
                     }
 
                     VStack(spacing: 0) {
-                        ForEach(Array(modes.enumerated()), id: \.element.id) { index, mode in
+                        ForEach(modes.filter(\.isCustom)) { mode in
                             GeneralModeRow(
                                 mode: mode,
                                 isSelected: appState.activeMode == mode.id,
@@ -599,9 +601,6 @@ struct GeneralSettingsView: View {
                                 } : nil
                             )
 
-                            if index < modes.count - 1 {
-                                Divider().padding(.leading, 44)
-                            }
                         }
                     }
                     .background {
@@ -1080,6 +1079,10 @@ private struct NewModeSheet: View {
                     .foregroundStyle(.secondary)
                 TextField("e.g., Summary, Translate, Notes", text: $name)
                     .textFieldStyle(.roundedBorder)
+                if TextProcessingPresentation.isReservedName(name) {
+                    Text("Choose another name; this name is used by a built-in processing choice.")
+                        .font(.caption).foregroundStyle(.orange)
+                }
             }
 
             VStack(alignment: .leading, spacing: 4) {
@@ -1106,7 +1109,7 @@ private struct NewModeSheet: View {
                     dismiss()
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+                .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || TextProcessingPresentation.isReservedName(name))
             }
         }
         .padding(20)
@@ -1114,7 +1117,7 @@ private struct NewModeSheet: View {
     }
 }
 
-private struct GenerationPreferencesView: View {
+struct GenerationPreferencesView: View {
     let appState: AppState
     @State private var generation: GenerationSettings?
     @State private var controls: [String] = []
@@ -1147,257 +1150,6 @@ private struct GenerationPreferencesView: View {
             else if let think = generation?.think { selectedControl = think ? "true" : "false" }
             if !selectedControl.isEmpty { controls = [selectedControl] }
         }
-    }
-}
-
-// MARK: - LLM Settings
-
-struct LlmSettingsView: View {
-    @EnvironmentObject var appState: AppState
-    @State private var availableModels: [String] = []
-    @State private var statusMessage = ""
-    @State private var isFetching = false
-    @State private var isTestingProvider = false
-
-    fileprivate struct ProviderOption: Identifiable {
-        let id: String
-        let label: String
-        let description: String
-        let icon: String
-        let color: Color
-    }
-
-    private let providers: [ProviderOption] = [
-        ProviderOption(id: "", label: "None", description: "Dictation only — no post-processing", icon: "mic.fill", color: .secondary),
-        ProviderOption(id: "ollama", label: "Ollama", description: "Local inference server", icon: "desktopcomputer", color: .blue),
-        ProviderOption(id: "lmstudio", label: "LM Studio", description: "Local model runtime", icon: "cpu.fill", color: .purple),
-        ProviderOption(id: "openai", label: "OpenAI", description: "Remote API — requires key", icon: "globe", color: .green),
-        ProviderOption(id: "anthropic", label: "Anthropic", description: "Remote API — requires key", icon: "globe", color: .orange),
-    ]
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-
-                // MARK: Provider selection
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Provider")
-                        .font(.headline)
-                    Text("Choose an LLM backend for post-processing transcriptions.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    VStack(spacing: 6) {
-                        ForEach(providers) { provider in
-                            LlmProviderRow(
-                                provider: provider,
-                                isSelected: appState.llmProvider == provider.id
-                            ) {
-                                appState.selectLlmProvider(provider.id)
-                                availableModels = []
-                                statusMessage = ""
-                            }
-                        }
-                    }
-                }
-
-                // MARK: Connection settings
-                if !appState.llmProvider.isEmpty {
-                    Divider()
-
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "link")
-                                .foregroundStyle(.secondary)
-                                .font(.caption)
-                            Text("Connection")
-                                .font(.headline)
-                        }
-
-                        VStack(alignment: .leading, spacing: 10) {
-                            Toggle("Use preceding speech as context", isOn: Binding(get: { appState.settings.llmContextEnabled }, set: { appState.setLlmContextEnabled($0) }))
-                                .help("Provide up to 120 earlier words from the same speaker source to help keep names and sentences consistent. The original recognized text remains available.")
-                            if ["openai", "anthropic"].contains(appState.llmProvider) {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text("API Key")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                    SecureField("sk-...", text: $appState.settings.llmApiKey)
-                                        .textFieldStyle(.roundedBorder)
-                                }
-                            }
-
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Server URL")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                TextField("http://localhost:11434", text: $appState.settings.llmBaseUrl)
-                                    .textFieldStyle(.roundedBorder)
-                            }
-
-                            HStack {
-                                if availableModels.isEmpty {
-                                    Button {
-                                        fetchModels()
-                                    } label: {
-                                        HStack(spacing: 4) {
-                                            if isFetching {
-                                                ProgressView()
-                                                    .controlSize(.small)
-                                            } else {
-                                                Image(systemName: "arrow.down.circle")
-                                                    .font(.caption)
-                                            }
-                                            Text(isFetching ? "Fetching..." : "Fetch Models")
-                                        }
-                                    }
-                                    .disabled(isFetching)
-                                } else {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text("Model")
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                        HStack {
-                                            Picker("", selection: $appState.settings.llmModel) {
-                                                Text("Select a model...").tag("")
-                                                ForEach(availableModels, id: \.self) { model in
-                                                    Text(model).tag(model)
-                                                }
-                                            }
-                                            .labelsHidden()
-
-                                            Button {
-                                                fetchModels()
-                                            } label: {
-                                                Image(systemName: "arrow.clockwise")
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            if !appState.llmModel.isEmpty {
-                                HStack(spacing: 8) {
-                                    Button("Apply") { applyConfig() }
-
-                                    Button("Test selected model") { testConnection() }.disabled(isTestingProvider)
-                                        .help("Send a short synthetic request to the selected provider. No recording is sent.")
-
-                                    if !statusMessage.isEmpty {
-                                        HStack(spacing: 4) {
-                                            Image(systemName: statusMessage.contains("OK") || statusMessage.contains("reachable") ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                                                .font(.caption)
-                                            Text(statusMessage)
-                                                .font(.caption)
-                                        }
-                                        .foregroundStyle(statusMessage.contains("OK") || statusMessage.contains("reachable") ? .green : .orange)
-                                    }
-                                }
-                            }
-                        }
-                        .padding(12)
-                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
-                    }
-
-                    GenerationPreferencesView(appState: appState)
-
-                    // MARK: How it works
-                    HStack(alignment: .top, spacing: 8) {
-                        Image(systemName: "info.circle.fill")
-                            .foregroundStyle(.blue)
-                            .font(.caption)
-                            .padding(.top, 1)
-                        Text("When a mode other than \"Dictation\" is active, the transcription is sent to the LLM for post-processing (grammar fixing, email formatting, etc). Domain words from the Dictionary are included as context.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.blue.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
-                }
-            }
-            .padding()
-        }
-    }
-
-
-    private func fetchModels() {
-        isFetching = true
-        statusMessage = ""
-
-        appState.fetchLlmModels { models in
-            isFetching = false
-            availableModels = models
-            if models.isEmpty {
-                statusMessage = "No models found — is the server running?"
-            }
-        }
-    }
-
-    private func applyConfig() {
-        statusMessage = appState.configureLlm() ? "OK — \(appState.llmModel)" : (appState.errorMessage ?? "Configuration failed")
-    }
-
-    private func testConnection() {
-        guard appState.configureLlm() else { statusMessage = "Could not apply provider settings"; return }
-        isTestingProvider = true
-        let testedModel = appState.llmModel
-        statusMessage = "Testing selected model with synthetic text…"
-        appState.testLlmPipeline { statusMessage = "Model: \(testedModel)\n" + $0; isTestingProvider = false }
-    }
-}
-
-private struct LlmProviderRow: View {
-    let provider: LlmSettingsView.ProviderOption
-    let isSelected: Bool
-    let onSelect: () -> Void
-
-    var body: some View {
-        Button(action: onSelect) {
-            HStack(spacing: 10) {
-                Image(systemName: provider.icon)
-                    .font(.system(size: 14))
-                    .foregroundStyle(provider.color)
-                    .frame(width: 22)
-
-                VStack(alignment: .leading, spacing: 1) {
-                    HStack(spacing: 6) {
-                        Text(provider.label)
-                            .font(.system(.body, weight: .medium))
-                            .foregroundStyle(.primary)
-                        if isSelected && !provider.id.isEmpty {
-                            Text("Active")
-                                .font(.caption2)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(provider.color.opacity(0.15), in: Capsule())
-                                .foregroundStyle(provider.color)
-                        }
-                    }
-                    Text(provider.description)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer()
-
-                if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(isSelected && !provider.id.isEmpty ? provider.color : .secondary)
-                        .font(.system(size: 14))
-                }
-            }
-            .padding(10)
-            .background(
-                isSelected ? AnyShapeStyle(provider.color.opacity(0.06)) : AnyShapeStyle(.quaternary),
-                in: RoundedRectangle(cornerRadius: 8)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .strokeBorder(isSelected ? provider.color.opacity(0.3) : .clear, lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
     }
 }
 
@@ -1687,7 +1439,7 @@ struct StatisticsSettingsView: View {
                             ForEach(Array(modes.enumerated()), id: \.element.0) { index, stat in
                                 let modeName = String(stat.0.dropFirst(6)) // Drop "Mode: "
                                 StatRow(
-                                    label: modeName.capitalized,
+                                    label: TextProcessingPresentation.title(modeName),
                                     value: stat.1,
                                     icon: modeIcon(modeName),
                                     color: modeColor(modeName)

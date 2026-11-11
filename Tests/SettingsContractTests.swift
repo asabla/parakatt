@@ -15,18 +15,18 @@ final class SettingsContractTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         let bridge = try CoreBridge(modelsDir: directory.appendingPathComponent("models").path, configDir: directory.path)
         try bridge.setRecoveryAudio(false)
-        try bridge.setLlmContextEnabled(false)
+        try bridge.setActiveMode("dictation")
         try bridge.saveProfile("off")
         let state = SettingsFixture(bridge: bridge)
         state.setRecoveryAudio(true)
-        state.setLlmContextEnabled(true)
+        state.activeMode = "punctuation"
         XCTAssertTrue(state.settings.recoveryAudio)
-        XCTAssertTrue(state.settings.llmContextEnabled)
+        XCTAssertEqual(state.activeMode, "punctuation")
         state.loadProfile("off")
         XCTAssertFalse(bridge.getRecoveryAudio())
-        XCTAssertFalse(bridge.getLlmContextEnabled())
+        XCTAssertEqual(bridge.getActiveMode(), "dictation")
         XCTAssertFalse(state.settings.recoveryAudio)
-        XCTAssertFalse(state.settings.llmContextEnabled)
+        XCTAssertEqual(state.activeMode, "dictation")
     }
     @MainActor
     func testFailedBehaviorSavesKeepVisibleSettings() throws {
@@ -45,6 +45,9 @@ final class SettingsContractTests: XCTestCase {
         XCTAssertTrue(state.showRecordingOverlay)
         state.setSpeakerLabelsEnabled(true)
         XCTAssertFalse(state.speakerLabelsEnabled)
+        state.activeMode = "punctuation"
+        XCTAssertEqual(state.activeMode, "dictation")
+        XCTAssertEqual(bridge.getActiveMode(), "dictation")
         XCTAssertNotNil(state.errorMessage)
     }
     @MainActor
