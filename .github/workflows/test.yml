@@ -16,6 +16,7 @@ concurrency:
 env:
   DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
   MACOSX_DEPLOYMENT_TARGET: "14.0"
+  CARGO_SWIFT_VERSION: "0.11.1"
 
 jobs:
   rust:
@@ -118,10 +119,10 @@ jobs:
         run: python3 scripts/ci_build_inputs.py environment >> "$GITHUB_OUTPUT"
       - name: Cache pinned build tools
         id: tools
-        uses: actions/cache@v6.1.0
+        uses: actions/cache/restore@v6.1.0
         with:
           path: target/ci-tools
-          key: macos-ci-tools-v1-${{ steps.environment.outputs.environment }}-${{ hashFiles('scripts/install-xcodegen.sh', 'scripts/install-swiftlint.py', '.github/workflows/test.yml') }}
+          key: macos-ci-tools-v2-${{ steps.environment.outputs.environment }}-${{ env.CARGO_SWIFT_VERSION }}-${{ hashFiles('scripts/install-xcodegen.sh', 'scripts/install-swiftlint.py', 'rust-toolchain.toml') }}
       - name: Cache generated Rust framework and Swift bindings
         id: bindings
         uses: actions/cache@v6.1.0
@@ -129,7 +130,7 @@ jobs:
           path: |
             ParakattCore
             .swift-package-fingerprint
-          key: swift-webgpu-v1-${{ steps.environment.outputs.environment }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'Makefile', '.cargo/**', 'crates/**/*.rs', 'crates/**/*.toml', 'crates/**/*.json', 'vendor/**/*.rs', 'vendor/**/Cargo.toml', 'scripts/swift-package.py', 'scripts/ci_build_inputs.py', '.github/workflows/test.yml') }}
+          key: swift-webgpu-v2-${{ steps.environment.outputs.environment }}-${{ env.CARGO_SWIFT_VERSION }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'Makefile', '.cargo/**', 'crates/**/*.rs', 'crates/**/*.toml', 'crates/**/*.json', 'vendor/**/*.rs', 'vendor/**/Cargo.toml', 'scripts/swift-package.py', 'scripts/ci_build_inputs.py') }}
       - name: Cache Rust build dependencies
         if: steps.bindings.outputs.cache-hit != 'true' || steps.tools.outputs.cache-hit != 'true'
         uses: Swatinem/rust-cache@v2.9.3
@@ -144,7 +145,7 @@ jobs:
           cp "$RUNNER_TEMP/parakatt-xcodegen/.build/release/xcodegen" target/ci-tools/bin/
           mkdir -p target/ci-tools/share/xcodegen
           cp -R "$RUNNER_TEMP/parakatt-xcodegen/SettingPresets" target/ci-tools/share/xcodegen/
-          cargo install cargo-swift --version 0.11.1 --locked --root target/ci-tools
+          cargo install cargo-swift --version "$CARGO_SWIFT_VERSION" --locked --root target/ci-tools
           python3 scripts/install-swiftlint.py
           cp target/tools/bin/swiftlint target/ci-tools/bin/
       - name: Select and verify pinned tools
@@ -154,6 +155,14 @@ jobs:
           test "$(target/ci-tools/bin/swiftlint version)" = '0.65.1'
           test -f target/ci-tools/share/xcodegen/SettingPresets/base.yml
           test -f target/ci-tools/share/xcodegen/SettingPresets/Configs/debug.yml
+          test -x target/ci-tools/bin/cargo-swift
+      # rust-cache prunes target/ in its post-job hook. Save tools before that runs.
+      - name: Save verified build tools before Rust cache cleanup
+        if: steps.tools.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6.1.0
+        with:
+          path: target/ci-tools
+          key: ${{ steps.tools.outputs.cache-primary-key }}
       - name: Check Swift sources
         run: target/ci-tools/bin/swiftlint lint --strict --no-cache
       - name: Build Rust framework and generate bindings on cache miss
@@ -217,7 +226,8 @@ jobs:
 
   swift:
     name: Swift Build & Tests${{ matrix.suffix }}
-    runs-on: macos-15
+    # Report preparation failures without waiting for scarce macOS runners.
+    runs-on: ${{ needs.swift-inputs.result == 'success' && needs.media-inputs.result == 'success' && 'macos-15' || 'ubuntu-24.04' }}
     timeout-minutes: 60
     needs: [swift-inputs, media-inputs]
     # A failed preparation must fail the existing required test checks, not skip them.

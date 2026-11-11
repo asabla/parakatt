@@ -12,11 +12,16 @@ The normal, Thread Sanitizer, and Address Sanitizer jobs download the same input
 - Native caches include architecture, Xcode version/build, SDK version/build, and deployment target. Rust framework keys also cover the pinned toolchain, Cargo manifests/lockfile, native manifests, source files, build configuration, and binding generator inputs.
 - Media keys include both dependency manifests, preparation scripts, runtime entitlements, and vendored notices. Only finished outputs are cached; Python environments, compiler work directories, and VLCKit unpacking trees are not shared.
 - Download caches use exact manifest keys: some upstream filenames stay the same across versions, so falling back to a different manifest would restore stale files. Preparation still checks every downloaded file against its pinned checksum. Native framework caches likewise have no fallback to a different source/toolchain configuration.
-- Tool cache keys include the pinned installation scripts and workflow. Source lint runs even when tool/framework caches hit.
+- Tool cache keys include the pinned installation scripts, Rust toolchain, and cargo-swift version. Native/tool keys do not include the entire workflow, so unrelated workflow edits do not rebuild them. Source lint runs even when tool/framework caches hit.
+- Tools are explicitly saved immediately after verification, before the Rust cache's post-job cleanup prunes `target/`. Do not switch this to post-job saving: it can save an almost-empty tool cache even though the build succeeded.
 
 Artifacts are tar archives inside GitHub artifacts to preserve executable permissions and framework symlinks. Restoration checks the commit, native environment, bundle type, and allowed paths before extraction. All test variants and release packaging receive the full media license/source set.
 
 A failed shared-preparation job explicitly fails the existing Swift checks rather than leaving required checks skipped. Superseded pull-request runs are cancelled; main-branch commits and tagged release runs are not cancelled by this rule.
+
+## Quality checks
+
+Source/dependency policy, bounded fuzzing, and contract mutation testing run in independent Linux jobs, without reducing their checks or iteration counts. Each has its own Rust cache; fuzzing caches `fuzz/target` with the pinned nightly in its key, rather than only the root workspace target directory. The existing **Source and Dependency Policy** required check aggregates all three results and fails if any job fails or is skipped unexpectedly.
 
 ## Validation and timing
 

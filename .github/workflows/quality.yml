@@ -16,6 +16,23 @@ concurrency:
 jobs:
   quality:
     name: Source and Dependency Policy
+    needs: [source-policy, fuzz, mutation]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every quality check to pass
+        env:
+          SOURCE_RESULT: ${{ needs.source-policy.result }}
+          FUZZ_RESULT: ${{ needs.fuzz.result }}
+          MUTATION_RESULT: ${{ needs.mutation.result }}
+        run: |
+          test "$SOURCE_RESULT" = success
+          test "$FUZZ_RESULT" = success
+          test "$MUTATION_RESULT" = success
+
+  source-policy:
+    name: Source and Dependency Checks
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -39,16 +56,42 @@ jobs:
           target/tools/bin/actionlint
       - uses: dtolnay/rust-toolchain@1.99.1
       - uses: Swatinem/rust-cache@v2.9.3
+        with:
+          key: quality-policy
       - name: Check dependency licenses and sources
         run: |
           cargo install cargo-deny --version 0.20.2 --locked
           cargo deny --locked check licenses bans sources
           cargo deny --manifest-path fuzz/Cargo.toml --locked check licenses bans sources
+
+  fuzz:
+    name: Fuzz Input Contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: dtolnay/rust-toolchain@1.99.1
+      - name: Install pinned fuzzing toolchain
+        run: rustup toolchain install nightly-2026-11-04 --profile minimal
+      - uses: Swatinem/rust-cache@v2.9.3
+        with:
+          key: quality-fuzz-nightly-2026-11-04
+          workspaces: "fuzz -> target"
       - name: Fuzz input contracts
         run: |
-          rustup toolchain install nightly-2026-11-04 --profile minimal
           cargo install cargo-fuzz --version 0.13.2 --locked
           make fuzz-check
+
+  mutation:
+    name: Contract Mutation Tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: dtolnay/rust-toolchain@1.99.1
+      - uses: Swatinem/rust-cache@v2.9.3
+        with:
+          key: quality-mutation
       - name: Check contract test sensitivity
         run: |
           cargo install cargo-mutants --version 27.1.0 --locked
