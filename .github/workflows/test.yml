@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
   MACOSX_DEPLOYMENT_TARGET: "14.0"
@@ -96,9 +100,128 @@ jobs:
           name: dependency-advisories
           path: dependency-advisories.json
 
+  swift-inputs:
+    name: Prepare Shared Swift Inputs
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.1.0
+        with:
+          python-version: "3.13"
+      - uses: dtolnay/rust-toolchain@1.99.1
+        with:
+          targets: aarch64-apple-darwin
+      - name: Identify native build environment
+        id: environment
+        run: python3 scripts/ci_build_inputs.py environment >> "$GITHUB_OUTPUT"
+      - name: Cache pinned build tools
+        id: tools
+        uses: actions/cache@v6.1.0
+        with:
+          path: target/ci-tools
+          key: macos-ci-tools-v1-${{ steps.environment.outputs.environment }}-${{ hashFiles('scripts/install-xcodegen.sh', 'scripts/install-swiftlint.py', '.github/workflows/test.yml') }}
+      - name: Cache generated Rust framework and Swift bindings
+        id: bindings
+        uses: actions/cache@v6.1.0
+        with:
+          path: |
+            ParakattCore
+            .swift-package-fingerprint
+          key: swift-webgpu-v1-${{ steps.environment.outputs.environment }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'Makefile', '.cargo/**', 'crates/**/*.rs', 'crates/**/*.toml', 'crates/**/*.json', 'vendor/**/*.rs', 'vendor/**/Cargo.toml', 'scripts/swift-package.py', 'scripts/ci_build_inputs.py', '.github/workflows/test.yml') }}
+      - name: Cache Rust build dependencies
+        if: steps.bindings.outputs.cache-hit != 'true' || steps.tools.outputs.cache-hit != 'true'
+        uses: Swatinem/rust-cache@v2.9.3
+        with:
+          workspaces: ". -> target"
+          key: swift-inputs
+      - name: Install pinned build tools on cache miss
+        if: steps.tools.outputs.cache-hit != 'true'
+        run: |
+          ./scripts/install-xcodegen.sh
+          mkdir -p target/ci-tools/bin
+          cp "$RUNNER_TEMP/parakatt-xcodegen/.build/release/xcodegen" target/ci-tools/bin/
+          mkdir -p target/ci-tools/share/xcodegen
+          cp -R "$RUNNER_TEMP/parakatt-xcodegen/SettingPresets" target/ci-tools/share/xcodegen/
+          cargo install cargo-swift --version 0.11.1 --locked --root target/ci-tools
+          python3 scripts/install-swiftlint.py
+          cp target/tools/bin/swiftlint target/ci-tools/bin/
+      - name: Select and verify pinned tools
+        run: |
+          echo "$PWD/target/ci-tools/bin" >> "$GITHUB_PATH"
+          test "$(target/ci-tools/bin/xcodegen --version)" = 'Version: 2.46.0'
+          test "$(target/ci-tools/bin/swiftlint version)" = '0.65.1'
+          test -f target/ci-tools/share/xcodegen/SettingPresets/base.yml
+          test -f target/ci-tools/share/xcodegen/SettingPresets/Configs/debug.yml
+      - name: Check Swift sources
+        run: target/ci-tools/bin/swiftlint lint --strict --no-cache
+      - name: Build Rust framework and generate bindings on cache miss
+        if: steps.bindings.outputs.cache-hit != 'true'
+        run: make swift-package
+      - name: Archive prepared Swift inputs
+        run: python3 scripts/ci_build_inputs.py pack swift target/ci-artifacts/swift-inputs.tar.gz --revision "$GITHUB_SHA" --environment '${{ steps.environment.outputs.environment }}'
+      - name: Share Swift inputs with all test variants
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: swift-build-inputs
+          path: target/ci-artifacts/swift-inputs.tar.gz
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
+
+  media-inputs:
+    name: Prepare Shared Media Inputs
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.1.0
+        with:
+          python-version: "3.13"
+      - name: Identify native build environment
+        id: environment
+        run: python3 scripts/ci_build_inputs.py environment >> "$GITHUB_OUTPUT"
+      - name: Cache prepared media binaries and source notices
+        id: media
+        uses: actions/cache@v6.1.0
+        with:
+          path: |
+            target/media-tools
+            target/playback-engine/VLCKit.framework
+            target/playback-engine/COPYING.txt
+            target/playback-engine/licenses
+            target/playback-engine/stamp
+          key: macos-media-v1-${{ steps.environment.outputs.environment }}-${{ hashFiles('config/media-tools.json', 'config/playback-engine.json', 'config/media-notices/**', 'config/media-runtime.entitlements', 'scripts/prepare-media-tools.py', 'scripts/prepare-playback-engine.py', 'scripts/media_tool_downloads.py', 'scripts/media_build_environment.py', 'scripts/collect-deno-notices.py', 'scripts/ci_build_inputs.py') }}
+      - name: Cache checksum-verified dependency downloads
+        if: steps.media.outputs.cache-hit != 'true'
+        uses: actions/cache@v6.1.0
+        with:
+          path: target/media-cache
+          key: macos-media-downloads-v1-${{ hashFiles('config/media-tools.json', 'config/playback-engine.json') }}
+      - name: Test media dependency downloads
+        run: python3 scripts/test_media_tool_downloads.py
+      - name: Prepare pinned media dependencies
+        run: make media-tools
+      - name: Archive prepared media inputs
+        run: python3 scripts/ci_build_inputs.py pack media target/ci-artifacts/media-inputs.tar.gz --revision "$GITHUB_SHA" --environment '${{ steps.environment.outputs.environment }}'
+      - name: Share media inputs with all test variants
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: media-build-inputs
+          path: target/ci-artifacts/media-inputs.tar.gz
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
+
   swift:
     name: Swift Build & Tests${{ matrix.suffix }}
     runs-on: macos-15
+    timeout-minutes: 60
+    needs: [swift-inputs, media-inputs]
+    # A failed preparation must fail the existing required test checks, not skip them.
+    if: ${{ !cancelled() }}
     strategy:
       fail-fast: false
       matrix:
@@ -110,6 +233,13 @@ jobs:
           - sanitizer: address
             suffix: " (Address Sanitizer)"
     steps:
+      - name: Require successful shared preparation
+        env:
+          SWIFT_INPUTS_RESULT: ${{ needs.swift-inputs.result }}
+          MEDIA_INPUTS_RESULT: ${{ needs.media-inputs.result }}
+        run: |
+          test "$SWIFT_INPUTS_RESULT" = success
+          test "$MEDIA_INPUTS_RESULT" = success
       - name: Checkout
         uses: actions/checkout@v7.0.1
 
@@ -118,38 +248,27 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@1.99.1
+      - name: Identify native build environment
+        id: environment
+        run: python3 scripts/ci_build_inputs.py environment >> "$GITHUB_OUTPUT"
+
+      - name: Download shared Swift inputs
+        uses: actions/download-artifact@v8.0.2
         with:
-          targets: aarch64-apple-darwin
-
-      - name: Cache Rust
-        uses: Swatinem/rust-cache@v2.9.3
+          name: swift-build-inputs
+          path: target/ci-artifacts
+      - name: Download shared media inputs
+        uses: actions/download-artifact@v8.0.2
         with:
-          workspaces: ". -> target"
-
-      - name: Install build tools
+          name: media-build-inputs
+          path: target/ci-artifacts
+      - name: Restore prepared inputs with framework links and executable permissions
         run: |
-          brew install create-dmg
-          ./scripts/install-xcodegen.sh
-          cargo install cargo-swift --version 0.11.1 --locked
-
-      - name: Check Swift sources
-        run: |
-          python3 scripts/install-swiftlint.py
-          target/tools/bin/swiftlint lint --strict --no-cache
-
-      - name: Build Rust core
-        run: make rust
-
-      - name: Test media dependency downloads
-        run: python3 scripts/test_media_tool_downloads.py
-
-      - name: Generate Swift package
-        run: make swift-package
-
-      - name: Generate Xcode project
-        run: make xcode
+          python3 scripts/ci_build_inputs.py restore swift target/ci-artifacts/swift-inputs.tar.gz --revision "$GITHUB_SHA" --environment '${{ steps.environment.outputs.environment }}'
+          python3 scripts/ci_build_inputs.py restore media target/ci-artifacts/media-inputs.tar.gz --revision "$GITHUB_SHA" --environment '${{ steps.environment.outputs.environment }}'
+          echo "$PWD/target/ci-tools/bin" >> "$GITHUB_PATH"
+      - name: Generate Xcode project without rebuilding dependencies
+        run: xcodegen generate
 
       - name: Run Swift tests
         env:
@@ -195,6 +314,7 @@ jobs:
       - name: Build and verify release package
         if: matrix.sanitizer == 'none'
         run: |
+          brew install create-dmg
           make package
           ls dist/*.zip dist/*.dmg
 
