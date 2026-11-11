@@ -14,9 +14,31 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  changes:
+    name: Select Rust Contract Checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      rust_checks: ${{ steps.select.outputs.rust_checks }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.1.0
+        with:
+          python-version: "3.13"
+      - name: Fetch pull request base
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: git fetch --no-tags --depth=1 origin "$BASE_SHA"
+      - name: Select checks conservatively
+        id: select
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: python3 scripts/ci_changes.py --base "$BASE_SHA" >> "$GITHUB_OUTPUT"
+
   quality:
     name: Source and Dependency Policy
-    needs: [source-policy, fuzz, mutation]
+    needs: [changes, source-policy, fuzz, mutation]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -24,12 +46,21 @@ jobs:
       - name: Require every quality check to pass
         env:
           SOURCE_RESULT: ${{ needs.source-policy.result }}
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          RUST_CHECKS: ${{ needs.changes.outputs.rust_checks }}
           FUZZ_RESULT: ${{ needs.fuzz.result }}
           MUTATION_RESULT: ${{ needs.mutation.result }}
         run: |
           test "$SOURCE_RESULT" = success
-          test "$FUZZ_RESULT" = success
-          test "$MUTATION_RESULT" = success
+          test "$CHANGES_RESULT" = success
+          if [ "$RUST_CHECKS" = true ]; then
+            test "$FUZZ_RESULT" = success
+            test "$MUTATION_RESULT" = success
+          else
+            test "$RUST_CHECKS" = false
+            test "$FUZZ_RESULT" = skipped
+            test "$MUTATION_RESULT" = skipped
+          fi
 
   source-policy:
     name: Source and Dependency Checks
@@ -66,6 +97,8 @@ jobs:
 
   fuzz:
     name: Fuzz Input Contracts
+    needs: [changes]
+    if: needs.changes.outputs.rust_checks == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -83,9 +116,15 @@ jobs:
           make fuzz-check
 
   mutation:
-    name: Contract Mutation Tests
+    name: Contract Mutation Tests (${{ matrix.shard }}/2)
+    needs: [changes]
+    if: needs.changes.outputs.rust_checks == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1]
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: dtolnay/rust-toolchain@1.99.1
@@ -93,6 +132,8 @@ jobs:
         with:
           key: quality-mutation
       - name: Check contract test sensitivity
+        env:
+          MUTATION_SHARD: ${{ matrix.shard }}
         run: |
           cargo install cargo-mutants --version 27.1.0 --locked
-          make mutation-check
+          make mutation-check MUTATION_FLAGS="--shard $MUTATION_SHARD/2 --no-shuffle"

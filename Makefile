@@ -52,7 +52,7 @@ fuzz-check:
 # Check that contract tests reject deliberate changes to critical decisions.
 mutation-check:
 	mkdir -p target
-	cargo mutants --timeout 60 --build-timeout 300 --output target/mutation-contracts
+	cargo mutants --timeout 60 --build-timeout 300 --output target/mutation-contracts $(MUTATION_FLAGS)
 
 # Compare critical Rust modules with the base commit on the same toolchain.
 coverage-check:
