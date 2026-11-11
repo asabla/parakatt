@@ -631,6 +631,7 @@ class AppState: ObservableObject, HotkeyRecording {
         stopStreamingUpdates()
         captureHealthTimer?.invalidate()
         captureHealthTimer = nil
+        isProcessing = true
         isRecording = false
         currentAudioLevel = 0
         isCaptureDraining = true
@@ -675,8 +676,12 @@ class AppState: ObservableObject, HotkeyRecording {
         // the commit pipeline finishes processing the buffer tail.
         if audioInput.previewActive {
             audioInput.previewActive = false
+            let generation = speechGeneration
+            let previewText = liveTranscription
             audioInput.preview?.stop { [weak self] finalText in
-                guard let self, !self.isRecording, self.isProcessing, !finalText.isEmpty else { return }
+                guard let self, self.speechGeneration == generation,
+                      self.liveTranscription == previewText,
+                      !self.isRecording, self.isProcessing, !finalText.isEmpty else { return }
                 self.livePreviewCommitted = finalText
                 self.livePreviewTentative = ""
                 self.liveTranscription = finalText
@@ -763,8 +768,8 @@ class AppState: ObservableObject, HotkeyRecording {
                     DispatchQueue.main.async {
                         guard self.speechGeneration == generation else { return }
                         self.closeProcessing()
+                        self.liveTranscription = result.text
                         self.isProcessing = false
-                        self.liveTranscription = nil
                         self.pttAccumulatedText = nil
                         self.lastTranscription = result.text
                         self.historyRevision &+= 1
@@ -788,7 +793,6 @@ class AppState: ObservableObject, HotkeyRecording {
                         guard self.speechGeneration == generation else { return }
                         self.closeProcessing()
                         self.isProcessing = false
-                        self.liveTranscription = nil
                         self.pttAccumulatedText = nil
                         self.pttSessionId = nil
                         self.errorMessage = "Transcription failed: \(error.localizedDescription)"
@@ -798,7 +802,6 @@ class AppState: ObservableObject, HotkeyRecording {
             }
         } else {
             // Path A: short recording, no session — single-shot processing.
-            liveTranscription = nil
             NSLog("[Parakatt] Recording stopped (short, single-shot)")
 
             audioInput.lock.lock()
@@ -1814,6 +1817,7 @@ class AppState: ObservableObject, HotkeyRecording {
                 DispatchQueue.main.async {
                     guard self.speechGeneration == generation else { return }
                     self.closeProcessing()
+                    self.liveTranscription = result.text
                     self.isProcessing = false
                     self.lastTranscription = result.text
                     self.historyRevision &+= 1

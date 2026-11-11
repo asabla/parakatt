@@ -81,14 +81,16 @@ struct RecordingOverlayView: View {
     var captureWarning: String?
     var meter: OverlayMeterState?
     var stopInstruction = "Release to stop"
+    var minimumHeight: CGFloat = 44
     var onStop: @MainActor () -> Void
 
     /// True when the LocalAgreement-2 path has produced anything to
     /// display. We prefer the committed/tentative split when it's
-    /// available because it gives the user a much clearer signal of
-    /// what's stable vs what might change.
+    /// available during recording. While finishing, the best-current
+    /// transcript takes precedence over the last tentative preview.
     private var hasLA2Text: Bool {
-        !committedText.isEmpty || !tentativeText.isEmpty
+        if !isRecording, let liveText, !liveText.isEmpty { return false }
+        return !committedText.isEmpty || !tentativeText.isEmpty
     }
 
     private var hasText: Bool {
@@ -104,7 +106,7 @@ struct RecordingOverlayView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Red accent bar along the top edge
-            if isRecording {
+            if isRecording || isProcessing {
                 LinearGradient(
                     colors: [.red.opacity(0.9), .orange.opacity(0.7)],
                     startPoint: .leading,
@@ -121,15 +123,18 @@ struct RecordingOverlayView: View {
                 )
             }
 
-            if isRecording {
+            if isRecording || isProcessing {
                 // Header bar — larger sizing for visibility
                 HStack(spacing: 10) {
-                    RecordingDot()
+                    if isRecording {
+                        RecordingDot()
+                        if let meter { LiveOverlayMeter(state: meter) }
+                        else { AudioLevelBarsView(level: audioLevel, tint: .red.opacity(0.8)) }
+                    } else {
+                        ProgressView().controlSize(.small)
+                    }
 
-                    if let meter { LiveOverlayMeter(state: meter) }
-                    else { AudioLevelBarsView(level: audioLevel, tint: .red.opacity(0.8)) }
-
-                    Text("Recording")
+                    Text(isRecording ? "Recording" : "Finishing…")
                         .font(.system(.body, weight: .semibold))
                         .foregroundStyle(.primary)
 
@@ -144,11 +149,14 @@ struct RecordingOverlayView: View {
                     .tint(.red)
                     .controlSize(.small)
                     .help("Stop recording and transcribe")
+                    .opacity(isRecording ? 1 : 0)
+                    .disabled(!isRecording)
+                    .accessibilityHidden(!isRecording)
                 }
                 .padding(.horizontal, 18)
                 .padding(.vertical, 12)
 
-                Text(stopInstruction)
+                Text(isRecording ? stopInstruction : "Your preview stays visible while finishing.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 18)
@@ -200,22 +208,10 @@ struct RecordingOverlayView: View {
                     .padding(.horizontal, 18)
                     .padding(.vertical, 10)
                 }
-
-            } else if isProcessing {
-                HStack(spacing: 10) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Processing...")
-                        .font(.system(.body, weight: .medium))
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                }
-                .padding(.horizontal, 18)
-                .padding(.vertical, 12)
             }
         }
         .frame(width: 400)
-        .frame(minHeight: 44)
+        .frame(minHeight: minimumHeight, alignment: .top)
         .fixedSize(horizontal: false, vertical: true)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(
@@ -235,6 +231,7 @@ class RecordingOverlayController {
     private let appState: AppState
     private let meter = OverlayMeterState()
     private var isVisible = false
+    private var visibilityGeneration = 0
 
     init(appState: AppState) {
         self.appState = appState
@@ -282,9 +279,10 @@ class RecordingOverlayController {
                 let (isRecording, isProcessing, liveText) = coreState
                 let (committed, tentative) = la2State
                 let (silenceDetected, clippingDetected) = warnings
+                // Keep the finishing body (including final text) mounted during dismissal.
                 let newView = RecordingOverlayView(
                     isRecording: isRecording,
-                    isProcessing: isProcessing,
+                    isProcessing: isProcessing || !isRecording,
                     liveText: liveText,
                     committedText: committed,
                     tentativeText: tentative,
@@ -293,6 +291,7 @@ class RecordingOverlayController {
                     clippingDetected: clippingDetected,
                     inputDeviceName: capture.0, modelStatus: capture.1, captureWarning: capture.2,
                     meter: self?.meter, stopInstruction: self?.appState.loadHotkeyConfig().mode == "toggle" ? "Press shortcut to stop" : "Release to stop",
+                    minimumHeight: self?.sessionMaxHeight ?? 44,
                     onStop: { [weak self] in self?.appState.stopRecording() }
                 )
                 self?.hostingView?.rootView = newView
@@ -322,6 +321,7 @@ class RecordingOverlayController {
 
     private func showOverlay() {
         guard !isVisible else { return }
+        visibilityGeneration += 1
         if panel == nil { createPanel() }
         sessionMaxHeight = 0
 
@@ -347,20 +347,31 @@ class RecordingOverlayController {
     private func hideOverlay() {
         guard isVisible else { return }
         isVisible = false
+        visibilityGeneration += 1
+        let generation = visibilityGeneration
 
         if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
             panel?.orderOut(nil)
             return
         }
 
+        // Give the throttled final text update time to reach the existing panel.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            guard let self, self.visibilityGeneration == generation, !self.isVisible else { return }
+            self.animateHide(generation: generation)
+        }
+    }
+
+    private func animateHide(generation: Int) {
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = 0.25
             context.timingFunction = CAMediaTimingFunction(name: .easeIn)
             panel?.animator().alphaValue = 0.0
         }, completionHandler: { [weak self] in
             Task { @MainActor in
-                self?.panel?.orderOut(nil)
-                self?.panel?.alphaValue = 1.0
+                guard let self, self.visibilityGeneration == generation, !self.isVisible else { return }
+                self.panel?.orderOut(nil)
+                self.panel?.alphaValue = 1.0
             }
         })
     }
@@ -382,6 +393,7 @@ class RecordingOverlayController {
             defer: true
         )
         panel.contentView = hosting
+        panel.identifier = NSUserInterfaceItemIdentifier("recordingOverlay")
         panel.isFloatingPanel = true
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
