@@ -1,7 +1,10 @@
 """Keep shared preparation from accidentally weakening the existing CI gates."""
 
 from pathlib import Path
+import os
 import re
+import subprocess
+import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -90,6 +93,30 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn(
             "cargo deny --manifest-path fuzz/Cargo.toml", self.job("source-policy", workflow)
         )
+
+    def test_mutation_target_runs_without_a_preexisting_build_directory(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "VERSION").write_text("0.0.0\n")
+            binaries = root / "bin"
+            binaries.mkdir()
+            cargo = binaries / "cargo"
+            cargo.write_text(
+                '#!/bin/sh\n[ -d target ] || exit 42\nprintf "%s\\n" "$@" > arguments.txt\n'
+            )
+            cargo.chmod(0o755)
+            subprocess.run(
+                ["make", "-f", str(ROOT / "Makefile"), "mutation-check"],
+                cwd=root,
+                env=os.environ
+                | {
+                    "PATH": str(binaries) + os.pathsep + os.environ["PATH"],
+                    "SDKROOT": os.environ.get("SDKROOT", ""),
+                },
+                check=True,
+                capture_output=True,
+            )
+            self.assertIn("target/mutation-contracts", (root / "arguments.txt").read_text())
 
     def test_sanitizers_coverage_packaging_and_playback_remain_enabled(self):
         swift = self.job("swift")
