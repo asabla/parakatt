@@ -58,7 +58,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn("restore-keys:", job)
         self.assertIn("steps.environment.outputs.environment", job)
         self.assertIn("config/media-tools.json", job)
-        self.assertIn("rust-toolchain.toml", job)
+        self.assertIn("steps.environment.outputs.native_sources", job)
 
     def test_tool_cache_is_saved_before_rust_post_job_cleanup(self):
         swift = self.job("swift")
@@ -89,6 +89,13 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn("'.github/workflows/test.yml'", swift)
         self.assertIn("env.CARGO_SWIFT_VERSION", swift)
         self.assertIn('--version "$CARGO_SWIFT_VERSION"', swift)
+        bindings = swift.split("- name: Cache generated Rust framework", 1)[1].split(
+            "- name: Cache Rust build dependencies", 1
+        )[0]
+        self.assertIn("steps.environment.outputs.native_sources", bindings)
+        self.assertNotIn("Makefile", bindings)
+        self.assertNotIn(".cargo/**", bindings)
+        self.assertIn('python3 scripts/native_build_inputs.py >> "$GITHUB_OUTPUT"', swift)
 
     def test_quality_checks_are_parallel_and_keep_the_required_aggregate(self):
         workflow = (ROOT / ".github/workflows/quality.yml").read_text()
@@ -205,6 +212,7 @@ class WorkflowTests(unittest.TestCase):
     def test_only_release_work_is_conditional_and_ordinary_prs_keep_runtime_checks(self):
         swift = self.job("swift")
         for name in (
+            "Analyze Swift declarations and imports",
             "Build and verify release package",
             "Verify DMG and prepare release metadata",
             "Save release candidate",
@@ -215,7 +223,6 @@ class WorkflowTests(unittest.TestCase):
             self.assertIn("startsWith(github.head_ref, 'release/')", step)
         for name in (
             "Run Swift tests",
-            "Analyze Swift declarations and imports",
             "Check bundled video playback",
         ):
             step = swift.split(f"- name: {name}\n", 1)[1].split("- name:", 1)[0]

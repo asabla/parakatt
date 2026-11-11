@@ -118,7 +118,9 @@ jobs:
           targets: aarch64-apple-darwin
       - name: Identify native build environment
         id: environment
-        run: python3 scripts/ci_build_inputs.py environment >> "$GITHUB_OUTPUT"
+        run: |
+          python3 scripts/ci_build_inputs.py environment >> "$GITHUB_OUTPUT"
+          python3 scripts/native_build_inputs.py >> "$GITHUB_OUTPUT"
       - name: Cache pinned build tools
         id: tools
         uses: actions/cache/restore@v6.1.0
@@ -132,7 +134,7 @@ jobs:
           path: |
             ParakattCore
             .swift-package-fingerprint
-          key: swift-webgpu-v2-${{ steps.environment.outputs.environment }}-${{ env.CARGO_SWIFT_VERSION }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'Makefile', '.cargo/**', 'crates/**/*.rs', 'crates/**/*.toml', 'crates/**/*.json', 'vendor/**/*.rs', 'vendor/**/Cargo.toml', 'scripts/swift-package.py', 'scripts/ci_build_inputs.py') }}
+          key: swift-webgpu-v3-${{ steps.environment.outputs.environment }}-${{ env.CARGO_SWIFT_VERSION }}-${{ steps.environment.outputs.native_sources }}
       - name: Cache Rust build dependencies
         if: steps.bindings.outputs.cache-hit != 'true' || steps.tools.outputs.cache-hit != 'true'
         uses: Swatinem/rust-cache@v2.9.3
@@ -254,6 +256,7 @@ jobs:
             CODE_SIGNING_REQUIRED=NO 2>&1 | tee target/swift-tests.log
 
       - name: Analyze Swift declarations and imports
+        if: github.event_name == 'push' || startsWith(github.head_ref, 'codex/release-') || startsWith(github.head_ref, 'release/')
         run: make swift-analysis COMPILER_LOG=target/swift-tests.log
 
       - name: Require settings-function coverage
