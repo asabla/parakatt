@@ -11,6 +11,7 @@
 )]
 pub mod audio;
 mod capture_recovery;
+pub mod chatgpt;
 pub mod config;
 mod credentials;
 pub mod dictionary;
@@ -23,6 +24,7 @@ pub mod media_import;
 pub mod models;
 pub mod modes;
 pub mod processing;
+mod punctuation;
 pub mod recovery;
 pub mod session;
 pub mod speech;
@@ -70,6 +72,14 @@ pub enum CoreError {
     TranscriptionFailed(String),
     #[error("LLM processing error: {0}")]
     LlmError(String),
+    #[error("ChatGPT {code}: {message}")]
+    ChatGptError {
+        code: String,
+        message: String,
+        request_id: Option<String>,
+        http_status: Option<u16>,
+        param: Option<String>,
+    },
     #[error("Configuration error: {0}")]
     ConfigError(String),
     #[error("Audio processing error: {0}")]

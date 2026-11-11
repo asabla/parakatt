@@ -53,6 +53,7 @@ struct Job {
     key: Key,
     provider: Arc<dyn LlmProvider>,
     request: LlmRequest,
+    policy: crate::punctuation::OutputPolicy,
 }
 #[derive(Default)]
 struct State {
@@ -70,9 +71,13 @@ pub struct ProcessingSession {
     committed: Mutex<bool>,
     wake: Condvar,
     cancellation: CancellationToken,
+    pub dictation_punctuation_enabled: bool,
 }
 impl ProcessingSession {
     pub fn new(id: String) -> Arc<Self> {
+        Self::with_dictation_punctuation(id, false)
+    }
+    pub fn with_dictation_punctuation(id: String, enabled: bool) -> Arc<Self> {
         let session = Arc::new(Self {
             id,
             operation: Mutex::new(()),
@@ -80,6 +85,7 @@ impl ProcessingSession {
             committed: Mutex::new(false),
             wake: Condvar::new(),
             cancellation: CancellationToken::new(),
+            dictation_punctuation_enabled: enabled,
         });
         let worker = session.clone();
         std::thread::spawn(move || worker.run());
@@ -120,8 +126,26 @@ impl ProcessingSession {
         index: u32,
         source: ChunkSource,
         raw: String,
+        work: Option<(Arc<dyn LlmProvider>, LlmRequest)>,
+        skip: Option<String>,
+    ) -> Result<(), CoreError> {
+        self.enqueue_with_policy(
+            index,
+            source,
+            raw,
+            work,
+            skip,
+            crate::punctuation::OutputPolicy::Rewrite,
+        )
+    }
+    pub(crate) fn enqueue_with_policy(
+        &self,
+        index: u32,
+        source: ChunkSource,
+        raw: String,
         mut work: Option<(Arc<dyn LlmProvider>, LlmRequest)>,
         skip: Option<String>,
+        policy: crate::punctuation::OutputPolicy,
     ) -> Result<(), CoreError> {
         let mut state =
             crate::util::lock_named(&self.state, "processing state", CoreError::LlmError)?;
@@ -183,6 +207,7 @@ impl ProcessingSession {
                     key,
                     provider,
                     request,
+                    policy,
                 });
                 self.wake.notify_all();
             }
@@ -230,9 +255,13 @@ impl ProcessingSession {
                 self.emit(&mut state, job.key, ProcessingState::Processing, 1);
                 job
             };
-            let result =
-                job.provider
-                    .process_cancellable(&job.request, &self.cancellation, &|_| {});
+            let result = job
+                .provider
+                .process_cancellable(&job.request, &self.cancellation, &|_| {})
+                .and_then(|text| {
+                    job.policy.validate(&job.request.text, &text)?;
+                    Ok(text)
+                });
             let mut state =
                 crate::util::lock_named(&self.state, "processing state", CoreError::LlmError)?;
             state.active = false;

@@ -111,7 +111,20 @@ impl Engine {
         source: String,
         mode: String,
     ) -> Result<(), CoreError> {
-        self.start_session(session_id.clone())?;
+        let enabled = crate::util::lock_named(&self.config, "config", CoreError::ConfigError)?
+            .general
+            .dictation_punctuation_enabled;
+        self.start_recording_with_punctuation(session_id, source, mode, enabled)
+    }
+    /// An explicit recording-start snapshot, including delayed push-to-talk sessions.
+    pub fn start_recording_with_punctuation(
+        &self,
+        session_id: String,
+        source: String,
+        mode: String,
+        dictation_punctuation_enabled: bool,
+    ) -> Result<(), CoreError> {
+        self.start_session_with_punctuation(session_id.clone(), dictation_punctuation_enabled)?;
         let result = crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?
             .update_draft(&session_id, &source, &mode);
         if result.is_err() {
@@ -175,6 +188,7 @@ impl Engine {
         };
         // Work on a private session; cancellation/queue behavior matches live processing.
         let job_id = format!("history:{id}");
+        let punctuation_enabled = self.get_dictation_punctuation_enabled();
         let session = {
             let mut active = crate::util::lock_named(
                 &self.processing,
@@ -186,7 +200,10 @@ impl Engine {
                     "History processing is already running".into(),
                 ));
             }
-            let session = crate::processing::ProcessingSession::new(job_id.clone());
+            let session = crate::processing::ProcessingSession::with_dictation_punctuation(
+                job_id.clone(),
+                punctuation_enabled,
+            );
             active.insert(job_id.clone(), session.clone());
             session
         };
@@ -201,7 +218,7 @@ impl Engine {
                 section.text.clone()
             };
             let work = if section.status == "failed" {
-                match self.llm_request(&input, &item.mode, &context) {
+                match self.llm_request(&input, &item.mode, &context, punctuation_enabled) {
                     Ok(Some(work)) => Some(work),
                     Ok(None) => {
                         session.cancel();
@@ -217,7 +234,14 @@ impl Engine {
             } else {
                 None
             };
-            session.enqueue(section.chunk_id, section.source, input, work, None)?;
+            session.enqueue_with_policy(
+                section.chunk_id,
+                section.source,
+                input,
+                work,
+                None,
+                crate::punctuation::OutputPolicy::for_mode(&item.mode),
+            )?;
             session.wait_idle()?;
         }
         let (text, _, error) = session.finish()?;
