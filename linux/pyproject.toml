@@ -14,7 +14,7 @@ parakatt-desktop = "parakatt_linux.app:main"
 parakatt-import = "parakatt_linux.import_cli:main"
 
 [tool.setuptools.package-data]
-parakatt_linux = ["_native/*.so", "_native/*.so.*", "_native/*.txt", "assets/*.svg"]
+parakatt_linux = ["_native/*.so", "_native/*.so.*", "_native/*.txt", "assets/*.svg", "assets/*.png"]
 
 [tool.setuptools.packages.find]
 include = ["parakatt_linux*"]

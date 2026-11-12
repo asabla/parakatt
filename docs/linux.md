@@ -29,7 +29,7 @@ target/linux-venv/bin/parakatt-desktop
 
 On x86_64 the build script downloads Microsoft's ONNX Runtime 1.28.0 release, checks the SHA-256 pinned in `config/linux-runtime.json`, and bundles its shared library and notices. `ORT_LIB_PATH` can select an existing matching runtime instead. Other architectures require an explicit compatible runtime and are not validated here. Python bindings are generated from an unstripped build; the installed library uses the release build. Wheels are architecture-specific and must be built on a compatible Linux baseline.
 
-Model installation is explicit: open **Models**, select Parakeet v3, and choose **Download / repair**. An existing installation can be used with `--models-dir /path/to/models`. Use `--data-dir /path/to/isolated-data` for isolated testing. Offline dictation does not require any API credentials.
+Model installation is explicit: open **Settings → Models → Manage downloads…**, select Parakeet v3, and choose **Download / repair**. An existing installation can be used with `--models-dir /path/to/models`. Use `--data-dir /path/to/isolated-data` for isolated testing. Offline dictation does not require any API credentials.
 
 For a launcher in the application menu:
 
@@ -45,10 +45,10 @@ This creates a per-user launcher pointing at the project's virtual environment; 
 | --- | --- |
 | Dictation | Mono 16 kHz microphone capture through FFmpeg's PulseAudio input, bounded chunk queue, shared dictionary and optional LLM processing |
 | Preview | Buffered Parakeet preview; optional installed Nemotron streaming preview. Preview loss does not discard committed capture |
-| Meetings | Selected microphone plus selected output monitor, processed separately with optional **Me** / **Speaker 1** source labels |
-| History | Shared SQLite storage, full-text search, pagination, titles, edits and undo, original recognized text, failed LLM retries |
+| Meetings | Separate transcription window, pause/resume and discard, selected microphone plus output monitor, optional **Me** / **Speaker 1** source labels |
+| History | Split list/detail window, All/Notes/Meetings/Videos filters, full-text search, pagination, in-transcript find, editable processed text, recognized timeline, undo and retries |
 | Export | Text, Markdown, SRT, and WebVTT; subtitle timing comes from recognized segments |
-| Settings | Input devices, speech settings, modes, dictionary rules, provider settings, context, output limit, recovery, retention, and profiles |
+| Settings | Dashboard, General, Models, LLM, Dictionary and Statistics tabs; devices, processing modes, clipboard/overlay behavior, recovery and retention; profiles in Tools |
 | Credentials | Provider-specific keys in Secret Service / GNOME Keyring; no plaintext fallback. Verified migration of legacy keys |
 | Media | Local audio/video, multiple audio tracks, direct/YouTube links through yt-dlp, durable chunk checkpoints, pause/resume, source fingerprint checks |
 | Playback | Qt multimedia plays the original source, with seeking, volume, speed, and sentence-to-time navigation |
@@ -58,7 +58,17 @@ This creates a per-user launcher pointing at the project's virtual environment; 
 
 Imports run one at a time and yield to live capture between chunks. A changed source or changed processing configuration cannot silently resume an old import. Files imported from disk stay external; **Remove downloaded media** only removes files under Parakatt's own media directory. Removing a transcript does not delete external files. Database backups do not include source videos or downloaded speech models.
 
-YouTube browser sign-in is selected for one attempt in the Imports tab. Sign into the browser first. Cookie access is handled by yt-dlp; the app does not save cookies or the browser selection in history or settings. Live streams, playlists, DRM, and non-media web pages are not a supported import contract.
+YouTube browser sign-in is selected for one attempt in **Parakatt → Imports…**. Sign into the browser first. Cookie access is handled by yt-dlp; the app does not save cookies or the browser selection in history or settings. Live streams, playlists, DRM, and non-media web pages are not a supported import contract.
+
+## Interface and review screenshots
+
+The Linux interface follows the supplied macOS references: compact history toolbar, blue selected list rows, processed text and timed timeline views, grouped settings, separate meeting controls, and a compact recording overlay. Linux keeps its own window decorations. Recording controls are in the **Parakatt** menu and tray where available; imports and recovery tools remain reachable in their own windows.
+
+The **Meetings** filter includes imported Teams and Slack transcripts. **Videos** includes audio/video imports. The pencil enables editing; **Save changes** commits it, while background refreshes preserve an open edit. The transcript overflow menu exposes original recognized text, speaker corrections, meeting actions, undo, and retry. Ctrl+F focuses transcript find when an item is selected and history search otherwise. The selection control enables multiple selection and batch deletion.
+
+The overlay uses measured microphone levels and does not request keyboard focus. Its visibility follows **General → Show recording overlay**. Closing the meeting window leaves capture running; Stop finishes and saves, while Discard confirms deletion of the active recording and its recovery data. Pause drains incoming audio without retaining it for recognition or recovery; the elapsed timer excludes paused time. Recognition may still finish processing audio captured before the pause.
+
+[Review screenshots and reproduction instructions](linux-ux.md) cover the empty/selected history states, timeline, settings and recording controls. All preview transcripts are synthetic.
 
 ## GNOME and Wayland
 
@@ -80,6 +90,6 @@ PARAKATT_TEST_MODELS=/path/to/models PARAKATT_TEST_AUDIO=/path/to/short-speech.w
 target/linux-venv/bin/parakatt-desktop --diagnostics
 ```
 
-The tests cover checkpoint overlap and pause/resume, changed-source rejection, bounded capture behavior, paths, subtitles, native settings persistence, actual recognition/history edits when a model is supplied, and recording lifecycle/recovery using an injected audio source. The Qt test exercises settings, history selection, and clipboard use. CI builds the native bindings and runs these checks on Ubuntu, including real recognition from pinned speech fixtures.
+The tests cover checkpoint overlap and pause/resume, changed-source rejection, bounded capture behavior, paths, subtitles, native settings persistence, actual recognition/history edits when a model is supplied, and recording lifecycle/recovery using an injected audio source. The Qt tests exercise category filters and pagination (including Teams/Slack classification), find/timeline navigation, explicit edit/save, settings persistence, clipboard use, separate panels, pause/discard, and original-video playback. CI builds the native bindings and runs these checks on Ubuntu, including real recognition from pinned speech fixtures.
 
 Offscreen tests do not prove microphone access, output-monitor capture, browser-cookie access, GNOME shortcut handling, Wayland clipboard ownership, or visible video/audio playback. Verify those in a real logged-in GNOME session before treating the port as a daily-use replacement. No claim is made that Fedora, actual audio devices, or GNOME integration have been validated by the cloud tests.

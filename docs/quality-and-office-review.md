@@ -2,7 +2,7 @@
 
 Implementation has started; see [current capabilities and integration setup](transcript-imports.md). Scope is confirmed as Teams meetings and Slack Huddles, with limited, explained administrator-approved work-account access. The audit below records the pre-implementation baseline.
 
-Reviewed 2026-11-10 against the current workspace, including the uncommitted Linux prototype. This is an audit and proposed implementation sequence, not a claim that the changes below are implemented. UI fidelity work remains paused pending macOS references. No account was connected and no meeting data was accessed.
+Reviewed 2026-11-10 against the current workspace, including the uncommitted Linux prototype. This is an audit and proposed implementation sequence, not a claim that the changes below are implemented. The macOS references have since been supplied; the Linux alignment is documented in [the UX review](linux-ux.md). No account was connected and no meeting data was accessed.
 
 ## Evidence and scope
 

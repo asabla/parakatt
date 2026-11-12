@@ -119,7 +119,7 @@ class DesktopTests(unittest.TestCase):
         "Set PARAKATT_TEST_VIDEO for original-source playback checks",
     )
     def test_media_player_decodes_and_seeks_original_video(self):
-        from PySide6.QtCore import QEventLoop, QTimer, QUrl
+        from PySide6.QtCore import QEventLoop, QTimer
 
         from parakatt_linux.app import Window
         from parakatt_linux.backend import Backend, Paths, fingerprint
@@ -127,7 +127,29 @@ class DesktopTests(unittest.TestCase):
         source = Path(os.environ["PARAKATT_TEST_VIDEO"]).resolve()
         before = fingerprint(source)
         with tempfile.TemporaryDirectory() as directory:
-            window = Window(Backend(Paths.discover(data=directory)))
+            backend = Backend(Paths.discover(data=directory))
+            job = backend.engine.create_import_job(
+                "file", str(source), "Playback check", "dictation"
+            )
+            backend.engine.attach_import_media(
+                job.id,
+                backend.api.MediaAttachment(
+                    path=str(source),
+                    bookmark=b"",
+                    fingerprint=before,
+                    review_path="",
+                    audio_track=0,
+                    duration_secs=11.0,
+                ),
+            )
+            window = Window(backend)
+            window.show()
+            for _ in range(3):
+                window.pool.waitForDone()
+                self.app.processEvents()
+            window.history.setCurrentRow(0)
+            window.load_video()
+            self.assertTrue(window.video.isVisible())
             frames = []
             loop = QEventLoop()
             window.video.videoSink().videoFrameChanged.connect(
@@ -135,7 +157,6 @@ class DesktopTests(unittest.TestCase):
                     (frames.append(frame.isValid()), loop.quit()) if frame.isValid() else None
                 )
             )
-            window.player.setSource(QUrl.fromLocalFile(str(source)))
             window.player.play()
             QTimer.singleShot(10000, loop.quit)
             loop.exec()
