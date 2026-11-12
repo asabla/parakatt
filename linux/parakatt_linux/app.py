@@ -1,6 +1,7 @@
 """Qt desktop UI for the shared Parakatt engine."""
 
 import argparse
+import contextlib
 import json
 import os
 import subprocess
@@ -8,19 +9,26 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QRunnable, QSize, Qt, QThreadPool, QTimer, QUrl, Signal
-from PySide6.QtGui import QAction, QIcon, QKeySequence, QShortcut
+from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, QTimer, QUrl, Signal
+from PySide6.QtGui import (
+    QAction,
+    QColor,
+    QIcon,
+    QKeySequence,
+    QShortcut,
+    QTextCursor,
+    QTextDocument,
+)
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
-    QDialogButtonBox,
     QFileDialog,
-    QFormLayout,
     QFrame,
     QHBoxLayout,
     QInputDialog,
@@ -31,14 +39,10 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMenu,
     QMessageBox,
-    QPushButton,
     QSlider,
-    QSpinBox,
     QSplitter,
-    QStyle,
+    QStackedWidget,
     QSystemTrayIcon,
-    QTableWidget,
-    QTableWidgetItem,
     QTabWidget,
     QTextEdit,
     QVBoxLayout,
@@ -52,11 +56,26 @@ from .backend import (
     Importer,
     Paths,
     Recording,
-    audio_sources,
     diagnostics,
     probe,
     subtitle_text,
 )
+from .desktop_widgets import (
+    ROW_DATA,
+    HistoryDelegate,
+    RecordingOverlay,
+    RecordingWindow,
+    SegmentedControl,
+    TimelineDelegate,
+    add_segment,
+    ask,
+    button,
+    duration,
+    empty_state,
+    icon,
+    source_label,
+)
+from .settings import Settings
 
 
 class Events(QObject):
@@ -75,316 +94,6 @@ class Task(QRunnable):
             self.events.message.emit("error", str(error))
 
 
-def button(label, function, layout):
-    widget = QPushButton(label)
-    widget.clicked.connect(function)
-    layout.addWidget(widget)
-    return widget
-
-
-def ask(parent, title, function):
-    try:
-        return function()
-    except Exception as error:
-        QMessageBox.warning(parent, title, str(error))
-        return None
-
-
-class Settings(QDialog):
-    def __init__(self, backend, parent):
-        super().__init__(parent)
-        self.backend, self.core = backend, backend.engine
-        self.setWindowTitle("Parakatt settings")
-        self.resize(760, 700)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(28, 24, 28, 24)
-        layout.setSpacing(18)
-        layout.addWidget(ui_label("Make it yours", "heading"))
-        layout.addWidget(ui_label("Audio, speech, and the way you work."))
-        tabs = QTabWidget()
-        layout.addWidget(tabs)
-        general = QWidget()
-        form = QFormLayout(general)
-        self.microphone = QComboBox()
-        self.system_audio = QComboBox()
-        self.microphone.addItem("System default microphone", "")
-        self.system_audio.addItem("Monitor of default output", "")
-        try:
-            for name, description in audio_sources():
-                self.microphone.addItem(description, name)
-                self.system_audio.addItem(description, name)
-        except Exception as error:
-            notice = ui_label("Audio devices will appear when the audio service is available.")
-            notice.setToolTip(str(error))
-            notice.setWordWrap(True)
-            form.addRow(notice)
-        for widget, key in [(self.microphone, "microphone"), (self.system_audio, "system_audio")]:
-            index = widget.findData(backend.preferences.get(key, ""))
-            widget.setCurrentIndex(max(0, index))
-        form.addRow("Microphone", self.microphone)
-        form.addRow("Meeting system audio", self.system_audio)
-        self.chunk = QSpinBox()
-        self.chunk.setRange(10, 30)
-        self.chunk.setValue(self.core.get_chunk_duration())
-        form.addRow("Audio chunk seconds", self.chunk)
-        self.copy = QCheckBox("Copy completed dictation to clipboard")
-        self.copy.setChecked(backend.preferences.get("copy", True))
-        form.addRow(self.copy)
-        self.paste = QCheckBox("Paste into the focused application (X11 only; requires xdotool)")
-        self.paste.setChecked(self.core.get_auto_paste())
-        self.paste.setEnabled(os.environ.get("XDG_SESSION_TYPE") == "x11")
-        form.addRow(self.paste)
-        self.recovery = QCheckBox("Keep recovery audio for interrupted recordings")
-        self.recovery.setChecked(self.core.get_recovery_audio())
-        form.addRow(self.recovery)
-        self.labels = QCheckBox("Label meeting microphone as Me and system audio as Speaker 1")
-        self.labels.setChecked(self.core.get_speaker_labels_enabled())
-        form.addRow(self.labels)
-        self.retention = QSpinBox()
-        self.retention.setRange(0, 36500)
-        self.retention.setSpecialValueText("Keep all")
-        self.retention.setValue(self.core.get_retention_days())
-        form.addRow("History retention days", self.retention)
-        shortcut = QLabel(
-            "Add a GNOME custom shortcut for <b>parakatt-desktop --toggle</b>.<br>On Wayland, paste completed text with Ctrl+V."
-        )
-        shortcut.setWordWrap(True)
-        form.addRow(shortcut)
-        tabs.addTab(general, "General")
-
-        llm = QWidget()
-        form = QFormLayout(llm)
-        settings = self.core.get_llm_settings()
-        self.provider = QComboBox()
-        self.provider.addItems(["none", "ollama", "lmstudio", "openai", "anthropic"])
-        self.provider.setCurrentText(settings.provider or "none")
-        self.url = QLineEdit(settings.base_url)
-        self.model = QLineEdit(settings.model)
-        self.key = QLineEdit()
-        self.key.setEchoMode(QLineEdit.EchoMode.Password)
-        self.key.setPlaceholderText("Leave blank to keep the stored key")
-        form.addRow("Provider", self.provider)
-        form.addRow("Server URL", self.url)
-        form.addRow("Model", self.model)
-        form.addRow("API key (desktop keyring)", self.key)
-        self.context = QCheckBox("Use preceding recognized speech as context")
-        self.context.setChecked(self.core.get_llm_context_enabled())
-        form.addRow(self.context)
-        generation = self.core.get_generation_settings()
-        self.tokens = QSpinBox()
-        self.tokens.setRange(1, 1000000)
-        self.tokens.setValue(generation.output_limit)
-        form.addRow("Output token limit", self.tokens)
-        self.provider.currentTextChanged.connect(self.provider_changed)
-        form.addRow(
-            QLabel("Keys are stored in Secret Service / GNOME Keyring, never in settings files.")
-        )
-        tabs.addTab(llm, "LLM")
-
-        speech = QWidget()
-        form = QFormLayout(speech)
-        selected = self.core.get_speech_settings()
-        self.threads = QSpinBox()
-        self.threads.setRange(0, 64)
-        self.threads.setValue(selected.cpu_threads)
-        self.threads.setSpecialValueText("Automatic")
-        self.language = QComboBox()
-        self.language.addItems(["Automatic", "English", "Swedish"])
-        self.language.setCurrentIndex(
-            [
-                backend.api.SpeechLanguage.AUTOMATIC,
-                backend.api.SpeechLanguage.ENGLISH,
-                backend.api.SpeechLanguage.SWEDISH,
-            ].index(selected.language)
-        )
-        self.preview = QComboBox()
-        self.preview.addItem("Disabled", None)
-        for model in parent.model_catalog:
-            if model.provider_type == "nemotron-streaming":
-                self.preview.addItem(model.display_name, model.id)
-        self.preview.setCurrentIndex(max(0, self.preview.findData(selected.preview_model)))
-        form.addRow("CPU threads", self.threads)
-        form.addRow("Preview language", self.language)
-        form.addRow("Preview model", self.preview)
-        form.addRow(QLabel("Linux inference uses CPU. Install speech models in the Models tab."))
-        tabs.addTab(speech, "Speech")
-
-        dictionary = QWidget()
-        form = QVBoxLayout(dictionary)
-        form.addWidget(QLabel("Correct names and phrases. Patterns support regular expressions."))
-        self.rules = QTableWidget(0, 5)
-        self.rules.setHorizontalHeaderLabels(
-            ["Pattern", "Replacement", "When", "Application / mode", "Enabled"]
-        )
-        for rule in self.core.get_dictionary_rules():
-            self.add_rule(rule)
-        form.addWidget(self.rules)
-        row = QHBoxLayout()
-        button("Add rule", lambda: self.add_rule(), row)
-        button("Remove rule", lambda: self.rules.removeRow(self.rules.currentRow()), row)
-        form.addLayout(row)
-        tabs.addTab(dictionary, "Dictionary")
-        modes = QWidget()
-        form = QVBoxLayout(modes)
-        form.addWidget(QLabel("Double-click a cell to edit a processing mode or its instructions."))
-        self.modes = QTableWidget(0, 4)
-        self.modes.setHorizontalHeaderLabels(["Name", "LLM provider", "Instructions", "Dictionary"])
-        self.original_modes = {mode.name: mode for mode in self.core.list_modes()}
-        for mode in self.original_modes.values():
-            self.add_mode(mode)
-        self.modes.horizontalHeader().setStretchLastSection(True)
-        form.addWidget(self.modes)
-        row = QHBoxLayout()
-        button("Add mode", lambda: self.add_mode(), row)
-        button("Remove custom mode", self.remove_mode, row)
-        form.addLayout(row)
-        tabs.addTab(modes, "Modes")
-        actions = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
-        )
-        actions.accepted.connect(lambda: ask(self, "Settings", self.save))
-        actions.rejected.connect(self.reject)
-        layout.addWidget(actions)
-        actions.button(QDialogButtonBox.StandardButton.Save).setProperty("role", "primary")
-        for form in self.findChildren(QFormLayout):
-            form.setContentsMargins(14, 22, 14, 16)
-            form.setVerticalSpacing(15)
-        for action in actions.buttons():
-            if actions.buttonRole(action) == QDialogButtonBox.ButtonRole.AcceptRole:
-                action.setProperty("role", "primary")
-
-    def provider_changed(self, provider):
-        settings = self.core.get_provider_settings(provider)
-        self.url.setText(settings.base_url)
-        self.model.setText(settings.model)
-        self.key.clear()
-
-    def add_rule(self, rule=None):
-        row = self.rules.rowCount()
-        self.rules.insertRow(row)
-        values = (
-            [rule.pattern, rule.replacement, rule.context_value or ""] if rule else ["", "", ""]
-        )
-        for column, value in zip([0, 1, 3], values, strict=True):
-            self.rules.setItem(row, column, QTableWidgetItem(value))
-        context = QComboBox()
-        for label, value in [
-            ("Always", "always"),
-            ("In application", "in_app"),
-            ("In mode", "when_mode"),
-        ]:
-            context.addItem(label, value)
-        context.setCurrentIndex(max(0, context.findData(rule.context_type if rule else "always")))
-        self.rules.setCellWidget(row, 2, context)
-        enabled = QTableWidgetItem()
-        enabled.setCheckState(
-            Qt.CheckState.Checked if rule is None or rule.enabled else Qt.CheckState.Unchecked
-        )
-        self.rules.setItem(row, 4, enabled)
-
-    def add_mode(self, mode=None):
-        row = self.modes.rowCount()
-        self.modes.insertRow(row)
-        for column, value in enumerate(
-            [mode.name, mode.llm_provider or "", mode.system_prompt or ""]
-            if mode
-            else ["New mode", "", ""]
-        ):
-            self.modes.setItem(row, column, QTableWidgetItem(value))
-        enabled = QTableWidgetItem()
-        enabled.setCheckState(
-            Qt.CheckState.Checked
-            if mode is None or mode.dictionary_enabled
-            else Qt.CheckState.Unchecked
-        )
-        self.modes.setItem(row, 3, enabled)
-
-    def remove_mode(self):
-        row = self.modes.currentRow()
-        if row >= 0:
-            name = self.modes.item(row, 0).text()
-            if name.lower() in ("dictation", "clean", "email", "code"):
-                QMessageBox.information(
-                    self, "Mode", "Built-in modes can be edited but cannot be removed."
-                )
-            else:
-                self.modes.removeRow(row)
-
-    def save(self):
-        rules = [
-            self.backend.api.ReplacementRule(
-                pattern=self.rules.item(row, 0).text(),
-                replacement=self.rules.item(row, 1).text(),
-                context_type=self.rules.cellWidget(row, 2).currentData(),
-                context_value=self.rules.item(row, 3).text() or None,
-                enabled=self.rules.item(row, 4).checkState() == Qt.CheckState.Checked,
-            )
-            for row in range(self.rules.rowCount())
-        ]
-        modes = []
-        for row in range(self.modes.rowCount()):
-            name = self.modes.item(row, 0).text().strip()
-            if not name or name.lower() in [mode.name.lower() for mode in modes]:
-                raise ValueError("Each mode needs a unique, non-empty name")
-            original = self.original_modes.get(name)
-            modes.append(
-                self.backend.api.ModeConfig(
-                    name=name,
-                    stt_provider=original.stt_provider if original else None,
-                    llm_provider=self.modes.item(row, 1).text() or None,
-                    system_prompt=self.modes.item(row, 2).text() or None,
-                    dictionary_enabled=self.modes.item(row, 3).checkState()
-                    == Qt.CheckState.Checked,
-                )
-            )
-        names = {mode.name.lower() for mode in modes}
-        if not {"dictation", "clean", "email", "code"}.issubset(names):
-            raise ValueError(
-                "Keep the four built-in mode names; add a custom mode for a different name"
-            )
-        for rule in rules:
-            message = self.core.validate_dictionary_pattern(rule.pattern)
-            if message:
-                raise ValueError(message)
-        self.backend.configure_llm(
-            self.provider.currentText(), self.url.text(), self.model.text(), self.key.text()
-        )
-        self.core.set_dictionary_rules(rules)
-        for mode in modes:
-            self.core.save_mode(mode)
-        for name in self.original_modes:
-            if name.lower() not in names:
-                self.core.delete_mode(name)
-        self.core.set_chunk_duration(self.chunk.value())
-        self.core.set_recovery_audio(self.recovery.isChecked())
-        self.core.set_speaker_labels_enabled(self.labels.isChecked())
-        self.core.set_retention_days(self.retention.value())
-        self.core.set_auto_paste(self.paste.isChecked())
-        self.core.set_llm_context_enabled(self.context.isChecked())
-        generation = self.core.get_generation_settings()
-        generation.output_limit = self.tokens.value()
-        self.core.set_generation_settings(generation)
-        speech = self.core.get_speech_settings()
-        speech.cpu_threads = self.threads.value()
-        speech.language = [
-            self.backend.api.SpeechLanguage.AUTOMATIC,
-            self.backend.api.SpeechLanguage.ENGLISH,
-            self.backend.api.SpeechLanguage.SWEDISH,
-        ][self.language.currentIndex()]
-        speech.backend = self.backend.api.SpeechBackend.CPU
-        speech.preview_model = self.preview.currentData()
-        self.core.set_speech_settings(speech)
-        self.core.unload_model()
-        preferences = dict(
-            self.backend.preferences,
-            microphone=self.microphone.currentData(),
-            system_audio=self.system_audio.currentData(),
-            copy=self.copy.isChecked(),
-        )
-        self.backend.save_preferences(preferences)
-        self.accept()
-
-
 class Window(QMainWindow):
     def __init__(self, backend):
         super().__init__()
@@ -401,90 +110,44 @@ class Window(QMainWindow):
         self.history_generation = 0
         self.model_catalog = []
         self.quitting = False
-        self.setWindowTitle("Parakatt")
-        self.resize(1280, 840)
-        self.setMinimumSize(1080, 700)
-        self.setWindowIcon(
-            QIcon.fromTheme(
-                "audio-input-microphone",
-                self.style().standardIcon(QStyle.StandardPixmap.SP_MediaVolume),
-            )
-        )
-        central = QWidget()
-        shell = QHBoxLayout(central)
-        shell.setContentsMargins(0, 0, 0, 0)
-        shell.setSpacing(0)
-        sidebar = QFrame()
-        sidebar.setObjectName("sidebar")
-        sidebar.setFixedWidth(212)
-        side = QVBoxLayout(sidebar)
-        side.setContentsMargins(20, 30, 20, 24)
-        side.setSpacing(14)
-        brand = QHBoxLayout()
-        mark = QLabel("≋")
-        mark.setObjectName("brandMark")
-        mark.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        mark.setFixedSize(40, 40)
-        brand.addWidget(mark)
-        brand.addWidget(ui_label("parakatt", "section"))
-        brand.addStretch()
-        side.addLayout(brand)
-        side.addSpacing(28)
-        side.addWidget(ui_label("YOUR WORKSPACE", "eyebrow"))
-        self.navigation = QListWidget()
-        self.navigation.setObjectName("navigation")
-        self.navigation.addItems(
-            ["Capture", "History", "Imports", "Speech models", "Tools & recovery"]
-        )
-        side.addWidget(self.navigation)
-        private = QFrame()
-        private_layout = QVBoxLayout(private)
-        private_layout.setContentsMargins(8, 8, 8, 8)
-        private_layout.addWidget(ui_label("●  Local by design", "badge"))
-        private_layout.addWidget(ui_label("Your voice stays with you."))
-        side.addWidget(private)
-        settings_row = QHBoxLayout()
-        self.settings_button = button("Settings", self.settings, settings_row)
-        self.settings_button.setProperty("role", "quiet")
-        side.addLayout(settings_row)
-        shell.addWidget(sidebar)
-        workspace = QWidget()
-        layout = QVBoxLayout(workspace)
-        layout.setContentsMargins(32, 28, 32, 18)
-        layout.setSpacing(25)
-        bar = QHBoxLayout()
-        heading = QVBoxLayout()
-        heading.setSpacing(5)
-        self.page_heading = ui_label("Capture", "heading")
-        self.page_description = ui_label("A little less typing. A little more thinking.")
-        heading.addWidget(self.page_heading)
-        heading.addWidget(self.page_description)
-        bar.addLayout(heading)
-        bar.addStretch()
-        self.mode = QComboBox()
-        self.mode.setMinimumWidth(120)
+        self.setWindowTitle("Transcription History")
+        self.resize(1240, 820)
+        self.setMinimumSize(850, 570)
+        self.setWindowIcon(QIcon(str(Path(__file__).parent / "assets" / "appicon.png")))
+        self.mode = QComboBox(self)
+        self.mode.hide()
         self.refresh_modes()
         self.mode.currentTextChanged.connect(
             lambda name: ask(self, "Mode", lambda: self.core.set_active_mode(name))
         )
-        bar.addWidget(self.mode)
-        self.meeting_button = button("Start meeting", lambda: self.toggle_recording(True), bar)
-        self.record_button = button("●  Record", self.toggle_recording, bar)
-        self.record_button.setProperty("role", "primary")
-        layout.addLayout(bar)
+        self.panels = {}
+        self.panel_windows = {}
         self.tabs = QTabWidget()
         self.tabs.tabBar().hide()
-        self.navigation.currentRowChanged.connect(self.tabs.setCurrentIndex)
-        self.tabs.currentChanged.connect(self.change_page)
-        layout.addWidget(self.tabs)
-        shell.addWidget(workspace, 1)
-        self.setCentralWidget(central)
+        self.setCentralWidget(self.tabs)
         self.setup_live()
         self.setup_history()
         self.setup_imports()
         self.setup_models()
         self.setup_tools()
-        self.navigation.setCurrentRow(0)
+        file_menu = self.menuBar().addMenu("Parakatt")
+        self.record_button = file_menu.addAction("Record voice note", self.toggle_recording)
+        self.meeting_button = file_menu.addAction(
+            "Start meeting", lambda: self.toggle_recording(True)
+        )
+        file_menu.addSeparator()
+        self.settings_button = file_menu.addAction("Settings…", self.settings)
+        self.settings_button.setShortcut(QKeySequence("Ctrl+,"))
+        file_menu.addAction("Imports…", lambda: self.open_panel("imports"))
+        file_menu.addAction("Tools & recovery…", lambda: self.open_panel("tools"))
+        file_menu.addSeparator()
+        file_menu.addAction("Quit", self.quit, QKeySequence("Ctrl+Q"))
+        imports_menu = self.menuBar().addMenu("Import")
+        imports_menu.addAction("Video or audio…", self.import_file)
+        imports_menu.addAction("Link…", self.import_link)
+        imports_menu.addAction("Teams / Slack transcript…", self.import_transcript)
+        self.find_shortcut = QShortcut(QKeySequence("Ctrl+F"), self)
+        self.find_shortcut.activated.connect(self.focus_find)
         self.statusBar().showMessage(
             "; ".join(backend.startup_warnings) or "Ready. Speech processing runs locally."
         )
@@ -517,147 +180,190 @@ class Window(QMainWindow):
     def task(self, function, kind="done"):
         self.pool.start(Task(function, self.events, kind))
 
-    def change_page(self, index):
-        titles = [
-            "Capture",
-            "Your words, collected.",
-            "Bring it all together.",
-            "A voice for every thought.",
-            "A little housekeeping.",
-        ]
-        descriptions = [
-            "A little less typing. A little more thinking.",
-            "Recordings, meetings, and ideas worth keeping.",
-            "Turn audio and video into something you can use.",
-            "Speech recognition that runs right here on your computer.",
-            "Backups, profiles, and interrupted recordings.",
-        ]
-        self.page_heading.setText(titles[index])
-        self.page_description.setText(descriptions[index])
-        self.navigation.blockSignals(True)
-        self.navigation.setCurrentRow(index)
-        self.navigation.blockSignals(False)
+    def open_panel(self, name, owner=None):
+        page = self.panels[name]
+        if owner:
+            dialog = QDialog(owner)
+            dialog.setWindowTitle(
+                {"models": "Speech Models", "imports": "Imports", "tools": "Tools & Recovery"}[name]
+            )
+            dialog.resize(820, 580)
+            layout = QVBoxLayout(dialog)
+            layout.addWidget(page)
+            page.show()
+            dialog.exec()
+            page.setParent(self)
+            page.hide()
+            return
+        dialog = self.panel_windows.get(name)
+        if dialog is None:
+            dialog = QDialog(self, Qt.WindowType.Window)
+            dialog.setWindowTitle(
+                {"models": "Speech Models", "imports": "Imports", "tools": "Tools & Recovery"}[name]
+            )
+            dialog.resize(820, 580)
+            layout = QVBoxLayout(dialog)
+            layout.addWidget(page)
+            self.panel_windows[name] = dialog
+        elif dialog.layout().indexOf(page) < 0:
+            dialog.layout().addWidget(page)
+        page.show()
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
 
     def setup_live(self):
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(22)
-        hero = QFrame()
-        hero.setObjectName("captureHero")
-        hero_layout = QVBoxLayout(hero)
-        hero_layout.setContentsMargins(34, 30, 34, 30)
-        hero_layout.setSpacing(14)
-        hero_layout.addWidget(ui_label("ROOM TO THINK", "eyebrow"))
-        hero_layout.addWidget(ui_label("Say what’s on your mind.", "heading"))
-        self.live_status = ui_label(
-            "Record a quick thought, dictate a draft, or bring your next meeting along."
-        )
-        self.live_status.setWordWrap(True)
-        hero_layout.addWidget(self.live_status)
-        hero_layout.addWidget(
-            ui_label("On-device speech recognition  ·  Ready when you are", "muted")
-        )
-        layout.addWidget(hero)
-        card = QFrame()
-        card.setObjectName("liveCard")
-        content = QVBoxLayout(card)
-        content.setContentsMargins(28, 24, 28, 24)
-        row = QHBoxLayout()
-        row.addWidget(ui_label("YOUR TRANSCRIPT", "eyebrow"))
-        row.addStretch()
-        button(
-            "Copy text", lambda: QApplication.clipboard().setText(self.live_text.toPlainText()), row
-        ).setProperty("role", "quiet")
-        content.addLayout(row)
-        self.live_text = QTextEdit()
-        self.live_text.setObjectName("liveText")
-        self.live_text.setPlaceholderText("Your words will appear here.")
-        self.live_text.setReadOnly(True)
-        self.live_text.document().setDocumentMargin(10)
-        content.addWidget(self.live_text)
-        self.preview_text = ui_label("")
-        self.preview_text.setWordWrap(True)
-        content.addWidget(self.preview_text)
-        layout.addWidget(card, 1)
-        layout.addWidget(
-            ui_label(
-                "TIP   Bind a desktop shortcut to capture ideas without leaving your flow.", "muted"
-            )
-        )
-        self.tabs.addTab(page, "Live")
+        self.live_window = RecordingWindow(self)
+        self.live_window.stop_requested.connect(self.toggle_recording)
+        self.live_window.pause_requested.connect(self.pause_recording)
+        self.live_window.discard_requested.connect(self.discard_recording)
+        self.live_text = self.live_window.text
+        self.live_status = self.live_window.status
+        self.preview_text = self.live_window.preview
+        self.overlay = RecordingOverlay(self)
+        self.overlay.stop_requested.connect(self.toggle_recording)
+        self.overlay.open_requested.connect(self.live_window.show)
+        self.recording_timer = QTimer(self)
+        self.recording_timer.setInterval(200)
+        self.recording_timer.timeout.connect(self.update_recording_clock)
 
     def setup_history(self):
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(18)
-        row = QHBoxLayout()
+        layout.setSpacing(0)
+        toolbar = QFrame()
+        toolbar.setObjectName("toolbar")
+        row = QHBoxLayout(toolbar)
+        row.setContentsMargins(14, 12, 18, 12)
+        row.setSpacing(12)
+        self.sidebar_toggle = button("", self.toggle_sidebar, row)
+        self.sidebar_toggle.setIcon(icon("sidebar"))
+        self.sidebar_toggle.setAccessibleName("Show or hide transcript sidebar")
+        self.sidebar_toggle.setToolTip("Show or hide transcript sidebar")
+        self.sidebar_toggle.setProperty("role", "quiet")
         self.search = QLineEdit()
-        self.search.setPlaceholderText("Search your words…")
+        self.search.setObjectName("historySearch")
+        self.search.setPlaceholderText("Search transcriptions")
+        self.search.addAction(icon("search"), QLineEdit.ActionPosition.LeadingPosition)
+        self.search.setClearButtonEnabled(True)
+        self.search.setMaximumWidth(420)
+        self.search_timer = QTimer(self)
+        self.search_timer.setSingleShot(True)
+        self.search_timer.setInterval(250)
+        self.search_timer.timeout.connect(self.refresh_history)
+        self.search.textChanged.connect(lambda: self.search_timer.start())
         self.search.returnPressed.connect(self.refresh_history)
-        self.search.setMaximumWidth(340)
-        row.addWidget(self.search)
-        button("Search", self.refresh_history, row).setProperty("role", "quiet")
+        row.addWidget(self.search, 1)
         row.addStretch()
-        button("Load more", self.more_history, row).setProperty("role", "quiet")
-        layout.addLayout(row)
-        splitter = QSplitter()
-        splitter.setHandleWidth(20)
-        self.history = QListWidget()
-        self.history.setObjectName("recordings")
-        self.history.setWordWrap(True)
-        self.history.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.history.setTextElideMode(Qt.TextElideMode.ElideRight)
-        self.history.setMinimumWidth(245)
-        self.history.currentItemChanged.connect(self.select_history)
-        splitter.addWidget(self.history)
-        detail = QFrame()
-        detail.setObjectName("paper")
-        content = QVBoxLayout(detail)
-        content.setContentsMargins(28, 26, 28, 24)
-        content.setSpacing(15)
-        row = QHBoxLayout()
-        row.addWidget(ui_label("TRANSCRIPT", "eyebrow"))
-        row.addStretch()
-        self.original = QCheckBox("Original text")
-        self.original.toggled.connect(self.load_selected)
-        row.addWidget(self.original)
-        content.addLayout(row)
-        self.title = QLineEdit()
-        self.title.setObjectName("recordingTitle")
-        self.title.setPlaceholderText("A thought worth keeping")
-        content.addWidget(self.title)
-        self.recording_meta = ui_label("Select a recording to settle in.")
-        content.addWidget(self.recording_meta)
-        self.transcript = QTextEdit()
-        self.transcript.setObjectName("transcript")
-        self.transcript.setPlaceholderText("Your recordings have a home here.")
-        self.transcript.document().setDocumentMargin(6)
-        content.addWidget(self.transcript, 1)
-        self.segments = QListWidget()
-        self.segments.itemActivated.connect(self.seek_segment)
-        self.segments.setMaximumHeight(110)
-        self.segments.hide()
-        content.addWidget(self.segments)
-        row = QHBoxLayout()
-        timeline = button(
-            "Sentence timeline", lambda: self.segments.setVisible(self.segments.isHidden()), row
-        )
-        timeline.setProperty("role", "quiet")
-        row.addStretch()
-        self.open_media = button("Open video", self.load_video, row)
-        self.open_media.setProperty("role", "quiet")
-        content.addLayout(row)
-        row = QHBoxLayout()
-        button("Save changes", self.save_edit, row).setProperty("role", "primary")
-        button("Copy", lambda: QApplication.clipboard().setText(self.transcript.toPlainText()), row)
-        button("Export…", self.export, row)
-        row.addStretch()
-        more = button("More", lambda: None, row)
+        button("Import Video…", self.import_file, row)
+        button("Import Link…", self.import_link, row)
+        more = button("…", lambda: None, row)
+        more.setAccessibleName("Additional imports and recording controls")
         more.setProperty("role", "quiet")
         menu = QMenu(more)
+        menu.addAction("Import Teams / Slack transcript…", self.import_transcript)
+        menu.addAction("Manage imports…", lambda: self.open_panel("imports"))
+        menu.addSeparator()
+        menu.addAction("Record voice note", self.toggle_recording)
+        menu.addAction("Start meeting", lambda: self.toggle_recording(True))
+        menu.addSeparator()
+        menu.addAction("Settings…", self.settings)
+        more.setMenu(menu)
+        layout.addWidget(toolbar)
+        self.splitter = splitter = QSplitter()
+        splitter.setHandleWidth(1)
+        self.history_pane = QWidget()
+        self.history_pane.setObjectName("historyPane")
+        side = QVBoxLayout(self.history_pane)
+        side.setContentsMargins(0, 0, 0, 0)
+        side.setSpacing(0)
+        filters = QFrame()
+        filters.setObjectName("filterBar")
+        bar = QHBoxLayout(filters)
+        bar.setContentsMargins(10, 9, 10, 9)
+        self.filters = SegmentedControl(["All", "Notes", "Meetings", "Videos"])
+        self.filters.changed.connect(self.refresh_history)
+        bar.addWidget(self.filters, 1)
+        self.selection_button = button("", self.toggle_selection, bar)
+        self.selection_button.setIcon(icon("check"))
+        self.selection_button.setAccessibleName("Select multiple transcriptions")
+        self.selection_button.setToolTip("Select multiple transcriptions")
+        self.selection_button.setProperty("role", "quiet")
+        self.selection_button.setCheckable(True)
+        side.addWidget(filters)
+        self.history = QListWidget()
+        self.history.setObjectName("recordings")
+        self.history.setItemDelegate(HistoryDelegate(self.history))
+        self.history.setMouseTracking(True)
+        self.history.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.history.setMinimumWidth(275)
+        self.history.currentItemChanged.connect(self.select_history)
+        side.addWidget(self.history, 1)
+        self.history_empty = ui_label(
+            "No transcriptions yet.\nRecord a note or import a conversation."
+        )
+        self.history_empty.setWordWrap(True)
+        self.history_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.history_empty.setContentsMargins(20, 20, 20, 20)
+        side.addWidget(self.history_empty)
+        self.history_empty.hide()
+
+        footer = QHBoxLayout()
+        footer.setContentsMargins(10, 5, 10, 7)
+        self.more_button = button("Load more", self.more_history, footer)
+        self.more_button.setProperty("role", "quiet")
+        footer.addStretch()
+        self.delete_selected = button("Delete selected…", self.delete_selection, footer)
+        self.delete_selected.hide()
+        side.addLayout(footer)
+        splitter.addWidget(self.history_pane)
+        self.detail_stack = QStackedWidget()
+        self.detail_stack.addWidget(
+            empty_state(
+                "Select a transcription", "Choose an item from the sidebar to view its full text."
+            )
+        )
+        detail = QWidget()
+        content = QVBoxLayout(detail)
+        content.setContentsMargins(0, 0, 0, 0)
+        content.setSpacing(0)
+        header = QFrame()
+        header.setObjectName("detailHeader")
+        head = QVBoxLayout(header)
+        head.setContentsMargins(24, 22, 24, 20)
+        head.setSpacing(12)
+        row = QHBoxLayout()
+        self.title = QLineEdit()
+        self.title.setObjectName("recordingTitle")
+        self.title.setReadOnly(True)
+        row.addWidget(self.title, 1)
+        edit = button("", self.edit_transcript, row)
+        edit.setIcon(icon("edit"))
+        edit.setProperty("role", "quiet")
+        edit.setAccessibleName("Edit title and processed text")
+        edit.setToolTip("Edit title and processed text")
+        head.addLayout(row)
+        self.recording_meta = ui_label("")
+        self.recording_meta.setWordWrap(True)
+        head.addWidget(self.recording_meta)
+        row = QHBoxLayout()
+        copy = button("Copy", self.copy_transcript, row)
+        copy.setIcon(icon("copy"))
+        export = button("Export…", self.export, row)
+        export.setMinimumWidth(130)
+        more = button("…", lambda: None, row)
+        more.setAccessibleName("Transcript actions")
+        more.setMinimumWidth(70)
+        menu = QMenu(more)
+        self.original = QCheckBox("Original recognized text", self)
+        self.original.hide()
+        original_action = menu.addAction("Original recognized text")
+        original_action.setCheckable(True)
+        original_action.toggled.connect(self.original.setChecked)
+        self.original.toggled.connect(self.load_selected)
         for title, callback in [
+            ("Edit title and processed text", self.edit_transcript),
             ("Meeting actions…", self.meeting_actions),
             ("Correct speaker name…", self.correct_speaker),
             ("Undo last edit", lambda: self.history_action(self.core.undo_transcription_edit)),
@@ -665,11 +371,72 @@ class Window(QMainWindow):
                 "Retry LLM processing",
                 lambda: self.history_action(self.core.retry_history_processing),
             ),
-            ("Delete recording…", self.delete_history),
         ]:
             menu.addAction(title, callback)
         more.setMenu(menu)
-        content.addLayout(row)
+        self.open_media = button("Open video", self.load_video, row)
+        self.open_media.hide()
+        row.addStretch()
+        delete = button("Delete", self.delete_history, row)
+        delete.setIcon(icon("trash"))
+        head.addLayout(row)
+        self.edit_bar = QWidget()
+        edit_row = QHBoxLayout(self.edit_bar)
+        edit_row.setContentsMargins(0, 0, 0, 0)
+        edit_row.addWidget(ui_label("Editing processed text"))
+        edit_row.addStretch()
+        button("Cancel", self.load_selected, edit_row)
+        button("Save changes", self.save_edit, edit_row).setProperty("role", "primary")
+        head.addWidget(self.edit_bar)
+        self.edit_bar.hide()
+        content.addWidget(header)
+        viewbar = QFrame()
+        viewbar.setObjectName("toolbar")
+        view_layout = QHBoxLayout(viewbar)
+        view_layout.setContentsMargins(24, 14, 24, 14)
+        self.history_view = SegmentedControl(["Processed text", "Recognized timeline"])
+        self.history_view.setMaximumWidth(470)
+        self.history_view.changed.connect(self.change_transcript_view)
+        view_layout.addWidget(self.history_view, 1)
+        view_layout.addStretch()
+        content.addWidget(viewbar)
+        body = QWidget()
+        body.setObjectName("transcriptBody")
+        body_layout = QVBoxLayout(body)
+        body_layout.setContentsMargins(24, 12, 24, 18)
+        body_layout.setSpacing(22)
+        find_row = QHBoxLayout()
+        self.find = QLineEdit()
+        self.find.setPlaceholderText("Find in transcript")
+        self.find.setClearButtonEnabled(True)
+        self.find.textChanged.connect(self.find_in_transcript)
+        self.find.returnPressed.connect(lambda: self.next_match(1))
+        find_row.addWidget(self.find, 1)
+        self.match_count = ui_label("0 matches")
+        find_row.addWidget(self.match_count)
+        self.previous_match = button("⌃", lambda: self.next_match(-1), find_row)
+        self.next_match_button = button("⌄", lambda: self.next_match(1), find_row)
+        self.previous_match.setAccessibleName("Previous match")
+        self.next_match_button.setAccessibleName("Next match")
+        body_layout.addLayout(find_row)
+        self.transcript_stack = QStackedWidget()
+        self.transcript = QTextEdit()
+        self.transcript.setObjectName("transcript")
+        self.transcript.setReadOnly(True)
+        self.transcript.document().setDocumentMargin(0)
+        self.transcript.textChanged.connect(self.find_in_transcript)
+        self.transcript_stack.addWidget(self.transcript)
+        self.segments = QListWidget()
+        self.segments.setObjectName("timeline")
+        self.segments.setItemDelegate(TimelineDelegate(self.segments))
+        self.segments.setWordWrap(True)
+        self.segments.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.segments.itemActivated.connect(self.seek_segment)
+        self.transcript_stack.addWidget(self.segments)
+        body_layout.addWidget(self.transcript_stack, 1)
+        content.addWidget(body, 1)
+        self.find_matches = []
+        self.match_index = -1
         self.video = QVideoWidget()
         self.video.setMinimumHeight(180)
         self.video.hide()
@@ -709,9 +476,11 @@ class Window(QMainWindow):
         row.addWidget(volume)
         content.addWidget(self.media_controls)
         self.media_controls.hide()
-        splitter.addWidget(detail)
-        splitter.setSizes([260, 700])
-        layout.addWidget(splitter)
+        self.detail_stack.addWidget(detail)
+        splitter.addWidget(self.detail_stack)
+        splitter.setStretchFactor(1, 1)
+        splitter.setSizes([420, 820])
+        layout.addWidget(splitter, 1)
         self.tabs.addTab(page, "History")
 
     def setup_imports(self):
@@ -724,9 +493,9 @@ class Window(QMainWindow):
         hero_layout = QVBoxLayout(hero)
         hero_layout.setContentsMargins(30, 28, 30, 28)
         hero_layout.setSpacing(14)
-        hero_layout.addWidget(ui_label("FROM WATCHING TO UNDERSTANDING", "eyebrow"))
-        hero_layout.addWidget(ui_label("Every recording has a story.", "heading"))
-        note = ui_label("Bring in a conversation, a lecture, or a video. We’ll find the words.")
+        hero_layout.addWidget(ui_label("IMPORT MEDIA & TRANSCRIPTS", "eyebrow"))
+        hero_layout.addWidget(ui_label("Imports", "heading"))
+        note = ui_label("Import audio, video, links, Teams meetings, or Slack Huddle transcripts.")
         note.setWordWrap(True)
         hero_layout.addWidget(note)
         row = QHBoxLayout()
@@ -737,7 +506,7 @@ class Window(QMainWindow):
         hero_layout.addLayout(row)
         layout.addWidget(hero)
         row = QHBoxLayout()
-        row.addWidget(ui_label("YOUR IMPORTS", "eyebrow"))
+        row.addWidget(ui_label("IMPORT QUEUE", "eyebrow"))
         row.addStretch()
         button("Pause", self.pause_import, row).setProperty("role", "quiet")
         button("Resume", self.resume_import, row).setProperty("role", "quiet")
@@ -759,8 +528,10 @@ class Window(QMainWindow):
         browser_row.addStretch()
         browser_row.addWidget(ui_label("Applies to your next import only."))
         layout.addLayout(browser_row)
-        layout.addWidget(ui_label("Pick up where you left off. Pausing keeps your progress safe."))
-        self.tabs.addTab(page, "Imports")
+        layout.addWidget(ui_label("Pausing retains completed chunks so you can resume later."))
+        self.panels["imports"] = page
+        page.setParent(self)
+        page.hide()
 
     def setup_models(self):
         page = QWidget()
@@ -775,7 +546,9 @@ class Window(QMainWindow):
         button("Load speech model", lambda: self.task(self.backend.load_model, "model_loaded"), row)
         button("Delete model", self.delete_model, row)
         layout.addLayout(row)
-        self.tabs.addTab(page, "Models")
+        self.panels["models"] = page
+        page.setParent(self)
+        page.hide()
 
     def setup_tools(self):
         page = QWidget()
@@ -807,7 +580,9 @@ class Window(QMainWindow):
         self.diagnostic.setReadOnly(True)
         self.diagnostic.setPlainText(json.dumps(diagnostics(), indent=2))
         layout.addWidget(self.diagnostic)
-        self.tabs.addTab(page, "Tools & recovery")
+        self.panels["tools"] = page
+        page.setParent(self)
+        page.hide()
 
     def show_window(self):
         self.showNormal()
@@ -838,18 +613,85 @@ class Window(QMainWindow):
             self.record_button.setEnabled(False)
             self.meeting_button.setEnabled(False)
             self.live_status.setText("Finishing recording…")
+            self.live_window.state.setText("Finishing…")
+            self.live_window.pause.setEnabled(False)
+            self.live_window.stop.setEnabled(False)
+            self.live_window.discard.setEnabled(False)
+            self.overlay.state.setText("Finishing…")
+            self.overlay.stop.setEnabled(False)
             return
         self.recording = Recording(
             self.backend, meeting, self.mode.currentText(), self.events.message.emit
         )
         self.record_button.setText("Stop recording")
-        self.meeting_button.setText("Stop meeting" if meeting else "Stop recording")
+        self.meeting_button.setText("Stop recording")
         self.settings_button.setEnabled(False)
         self.mode.setEnabled(False)
-        self.live_text.clear()
+        self.live_window.reset(meeting)
+        self.live_window.mode_name = self.mode.currentText().capitalize()
         self.live_status.setText("Loading speech model…")
-        self.tabs.setCurrentIndex(0)
+        self.overlay.state.setText("Preparing…")
+        self.overlay.model.setText("Loading speech model…")
+        self.overlay.stop.setEnabled(True)
+        self.overlay.meter.set_level(0)
+        device = self.backend.preferences.get("microphone") or "System default microphone"
+        self.overlay.device.setText(device if len(device) < 32 else device[:29] + "…")
+        self.overlay.device.setToolTip(device)
+        if meeting or not self.core.get_show_overlay():
+            self.live_window.show()
+            self.live_window.raise_()
+        if self.core.get_show_overlay():
+            screen = self.screen().availableGeometry()
+            self.overlay.move(screen.center().x() - self.overlay.width() // 2, screen.y() + 24)
+            self.overlay.show()
+        self.recording_timer.start()
         self.recording.start()
+
+    def pause_recording(self):
+        if (
+            not self.recording
+            or not self.recording.ready.is_set()
+            or self.recording.stop_event.is_set()
+        ):
+            return
+        paused = not self.recording.pause_event.is_set()
+        self.recording.set_paused(paused)
+        self.live_window.paused = paused
+        self.live_window.pause.setText("▶  Resume" if paused else "Ⅱ  Pause")
+        self.preview_text.clear()
+        self.overlay.meter.set_level(0)
+        self.update_recording_clock()
+
+    def discard_recording(self):
+        if not self.recording:
+            return
+        if (
+            QMessageBox.question(
+                self.live_window,
+                "Discard recording",
+                "Discard this recording and its recovery audio?",
+            )
+            == QMessageBox.StandardButton.Yes
+        ):
+            self.recording.discard()
+            self.live_window.state.setText("Discarding…")
+            self.live_window.pause.setEnabled(False)
+            self.live_window.stop.setEnabled(False)
+            self.live_window.discard.setEnabled(False)
+            self.overlay.hide()
+
+    def update_recording_clock(self):
+        if not self.recording or self.recording.stop_event.is_set():
+            return
+        ready = self.recording.ready.is_set()
+        self.live_window.update_clock(
+            self.recording.elapsed_seconds(), self.core.get_chunk_duration(), ready
+        )
+        if ready:
+            self.overlay.state.setText(
+                "Paused" if self.recording.pause_event.is_set() else "Recording"
+            )
+            self.overlay.model.setText("Transcription model ready")
 
     def on_event(self, kind, value):
         if kind == "error":
@@ -861,11 +703,25 @@ class Window(QMainWindow):
                 self.tray.showMessage("Parakatt", value, QSystemTrayIcon.MessageIcon.Warning)
         elif kind == "live":
             self.live_text.setPlainText(value)
+            self.live_window.update_view()
             self.preview_text.clear()
+        elif kind == "audio_level":
+            if self.recording and not self.recording.pause_event.is_set():
+                self.overlay.meter.set_level(value)
+        elif kind == "live_segments":
+            for segment in value.segments:
+                text = (segment.speaker + ": " if segment.speaker else "") + segment.text
+                add_segment(
+                    self.live_window.timeline, segment.start_secs + value.chunk_offset_secs, text
+                )
+            self.live_window.update_view()
         elif kind == "preview":
             self.preview_text.setText("Microphone preview: " + value)
+            self.preview_text.show()
         elif kind == "recorded":
             self.live_text.setPlainText(value.text)
+            self.live_window.update_view()
+            self.selected = self.recording.id if self.recording else None
             if self.backend.preferences.get("copy", True):
                 QApplication.clipboard().setText(value.text)
             if self.core.get_auto_paste() and os.environ.get("XDG_SESSION_TYPE") == "x11":
@@ -882,7 +738,15 @@ class Window(QMainWindow):
         elif kind == "recording_done":
             self.preview_text.clear()
             self.recording = None
-            self.record_button.setText("●  Record")
+            self.recording_timer.stop()
+            self.overlay.hide()
+            self.live_window.active = False
+            self.live_window.state.setText("Recording complete")
+            self.live_window.pause.setEnabled(False)
+            self.live_window.stop.setEnabled(False)
+            self.live_window.discard.setEnabled(False)
+            self.live_window.hide()
+            self.record_button.setText("Record voice note")
             self.meeting_button.setText("Start meeting")
             self.record_button.setEnabled(True)
             self.meeting_button.setEnabled(True)
@@ -904,6 +768,12 @@ class Window(QMainWindow):
             generation, offset, rows = value
             if generation == self.history_generation:
                 self.populate_history(rows, offset)
+        elif kind == "edit_saved":
+            self.edit_bar.hide()
+            self.title.setReadOnly(True)
+            self.transcript.setReadOnly(True)
+            self.refresh_history()
+            self.statusBar().showMessage("Changes saved")
         elif kind == "refresh":
             self.refresh_history()
             self.refresh_recovery()
@@ -916,7 +786,7 @@ class Window(QMainWindow):
             )
         elif kind == "transcript_imported":
             self.refresh_history()
-            self.tabs.setCurrentIndex(1)
+            self.tabs.setCurrentIndex(0)
             self.statusBar().showMessage(
                 "Transcript imported"
                 if value.created
@@ -951,32 +821,89 @@ class Window(QMainWindow):
         if self.quitting:
             self.finish_quit()
 
+    def toggle_sidebar(self):
+        self.history_pane.setVisible(self.history_pane.isHidden())
+
+    def toggle_selection(self):
+        selecting = self.selection_button.isChecked()
+        self.history.setSelectionMode(
+            QAbstractItemView.SelectionMode.ExtendedSelection
+            if selecting
+            else QAbstractItemView.SelectionMode.SingleSelection
+        )
+        self.delete_selected.setVisible(selecting)
+
+    def delete_selection(self):
+        ids = [item.data(Qt.ItemDataRole.UserRole) for item in self.history.selectedItems()]
+        if not ids:
+            return
+        if self.importer and self.importer.job.id in ids:
+            QMessageBox.information(
+                self, "Import active", "Pause the import before deleting its transcript."
+            )
+            return
+        if (
+            QMessageBox.question(
+                self,
+                "Delete transcriptions",
+                f"Delete {len(ids)} selected transcriptions? External media files will remain.",
+            )
+            == QMessageBox.StandardButton.Yes
+        ):
+            self.task(lambda: self.core.delete_transcriptions(ids), "refresh")
+
     def refresh_history(self):
+        self.search_timer.stop()
         self.history_offset = 0
         self.history_generation += 1
         generation = self.history_generation
         query = self.search.text()
-        self.task(lambda: (generation, 0, self.backend.history(query)), "history")
+        category = self.filters.buttons[self.filters.currentIndex()].text()
+        self.task(
+            lambda: (generation, 0, self.backend.history(query, category=category)), "history"
+        )
 
     def more_history(self):
+        self.more_button.setEnabled(False)
         self.history_offset += 100
         query, offset = self.search.text(), self.history_offset
+        category = self.filters.buttons[self.filters.currentIndex()].text()
         generation = self.history_generation
-        self.task(lambda: (generation, offset, self.backend.history(query, offset)), "history")
+        self.task(
+            lambda: (generation, offset, self.backend.history(query, offset, category)), "history"
+        )
 
     def populate_history(self, rows, offset=0):
         selected = self.selected
+        self.history.blockSignals(True)
         if offset == 0:
             self.history.clear()
+        selected_item = None
         for row in rows:
-            item = QListWidgetItem(
-                f"{row.title or row.text[:44] or 'Untitled'}\n\n{datetime.fromisoformat(row.created_at.replace('Z', '+00:00')):%b %d}  ·  {row.duration_secs:.0f}s  ·  {row.mode.capitalize()}"
-            )
+            item = QListWidgetItem(row.title or row.text[:60] or "Untitled")
             item.setData(Qt.ItemDataRole.UserRole, row.id)
-            item.setSizeHint(QSize(230, 108))
+            item.setData(ROW_DATA, row)
+            item.setToolTip(row.title or "Untitled")
             self.history.addItem(item)
             if row.id == selected:
-                self.history.setCurrentItem(item)
+                selected_item = item
+        if selected_item:
+            self.history.setCurrentItem(selected_item)
+        self.history.blockSignals(False)
+        if offset == 0:
+            if selected_item:
+                self.selected = selected
+                if self.edit_bar.isHidden():
+                    self.load_selected()
+            else:
+                self.select_history(None, None)
+        self.more_button.setEnabled(len(rows) == 100)
+        self.history_empty.setVisible(self.history.count() == 0)
+        self.history_empty.setText(
+            "No matching transcriptions.\nTry another search or category."
+            if self.search.text() or self.filters.currentIndex()
+            else "No transcriptions yet.\nRecord a note or import a conversation."
+        )
 
     def select_history(self, item, _previous):
         self.player.stop()
@@ -987,41 +914,135 @@ class Window(QMainWindow):
         self.load_selected()
 
     def load_selected(self):
+        self.history_view.buttons[0].setText(
+            "Original text" if self.original.isChecked() else "Processed text"
+        )
+        self.detail_stack.setCurrentIndex(1 if self.selected else 0)
+        self.edit_bar.hide()
+        self.title.setReadOnly(True)
+        self.transcript.setReadOnly(True)
         if not self.selected:
             self.title.clear()
             self.transcript.clear()
             self.segments.clear()
             return
         row = self.core.get_transcription(self.selected)
-        self.title.setText(row.title or "")
-        date = datetime.fromisoformat(row.created_at.replace("Z", "+00:00"))
+        self.title.setText(row.title or "Untitled")
+        date = datetime.fromisoformat(row.created_at.replace("Z", "+00:00")).astimezone()
         self.recording_meta.setText(
-            f"{date:%B %d, %Y}   ·   {row.duration_secs:.0f} seconds   ·   {row.mode.capitalize()}"
+            f"{source_label(row)}    ·    {date:%d %b %Y at %H:%M}    ·    {duration(row.duration_secs)}    ·    {row.mode.capitalize()}"
+        )
+        self.open_media.setVisible(
+            any(job.id == self.selected for job in self.core.list_import_jobs())
         )
         text = (
             self.core.get_transcription_processing(self.selected).recognized_text
             if self.original.isChecked()
             else row.text
         )
+        cues = []
+        # Audio recordings have no imported-utterance record.
+        with contextlib.suppress(Exception):
+            cues = self.core.get_imported_utterances(self.selected)
         if (
             not self.original.isChecked()
+            and cues
             and text == self.core.get_transcription_processing(self.selected).recognized_text
         ):
-            try:
-                cues = self.core.get_imported_utterances(self.selected)
-                text = "\n\n".join(
-                    (f"{cue.speaker}: " if cue.speaker else "") + cue.text for cue in cues
-                )
-            except Exception:
-                pass  # Audio recordings have no imported-utterance record.
+            text = "\n\n".join(
+                (f"{cue.speaker}: " if cue.speaker else "") + cue.text for cue in cues
+            )
         self.transcript.setPlainText(text)
-        self.transcript.setReadOnly(self.original.isChecked())
         self.segments.clear()
-        for segment in self.core.get_transcription_segments(self.selected):
-            label = f"{segment.start_secs:.1f}s  {segment.speaker + ': ' if segment.speaker else ''}{segment.text}"
-            item = QListWidgetItem(label)
-            item.setData(Qt.ItemDataRole.UserRole, segment.start_secs)
+        # Preserve corrected imported names without changing the stored source text.
+        segments = cues if cues else self.core.get_transcription_segments(self.selected)
+        for segment in segments:
+            text = (segment.speaker + ": " if segment.speaker else "") + segment.text
+            if segment.start_secs is not None:
+                add_segment(self.segments, segment.start_secs, text)
+        if not self.segments.count():
+            item = QListWidgetItem("No timed segments are available for this transcription.")
+            item.setFlags(Qt.ItemFlag.NoItemFlags)
             self.segments.addItem(item)
+        self.find_in_transcript()
+
+    def edit_transcript(self):
+        if self.selected and not self.original.isChecked():
+            self.history_view.setCurrentIndex(0)
+            self.title.setReadOnly(False)
+            self.transcript.setReadOnly(False)
+            self.edit_bar.show()
+            self.title.setFocus()
+        elif self.selected:
+            self.statusBar().showMessage(
+                "Switch off Original recognized text in the transcript menu to edit processed text."
+            )
+
+    def copy_transcript(self):
+        if self.history_view.currentIndex():
+            text = "\n".join(
+                self.segments.item(i).data(ROW_DATA) or "" for i in range(self.segments.count())
+            )
+        else:
+            text = self.transcript.toPlainText()
+        QApplication.clipboard().setText(text)
+
+    def change_transcript_view(self, index):
+        self.transcript_stack.setCurrentIndex(index)
+        self.find_in_transcript()
+
+    def focus_find(self):
+        target = self.find if self.selected else self.search
+        target.setFocus()
+        target.selectAll()
+
+    def find_in_transcript(self):
+        if not hasattr(self, "segments"):
+            return
+        query = self.find.text()
+        self.find_matches = []
+        selections = []
+        if query:
+            if self.history_view.currentIndex():
+                for index in range(self.segments.count()):
+                    text = self.segments.item(index).data(ROW_DATA) or ""
+                    if query.casefold() in text.casefold():
+                        self.find_matches.append(index)
+            else:
+                cursor = QTextCursor(self.transcript.document())
+                while True:
+                    cursor = self.transcript.document().find(
+                        query, cursor, QTextDocument.FindFlag(0)
+                    )
+                    if cursor.isNull():
+                        break
+                    self.find_matches.append(QTextCursor(cursor))
+                    selection = QTextEdit.ExtraSelection()
+                    selection.cursor = QTextCursor(cursor)
+                    selection.format.setBackground(QColor("#70571d"))
+                    selection.format.setForeground(QColor("#ffffff"))
+                    selections.append(selection)
+        self.transcript.setExtraSelections(selections)
+        self.match_index = -1
+        self.match_count.setText(f"{len(self.find_matches)} matches")
+        self.previous_match.setEnabled(bool(self.find_matches))
+        self.next_match_button.setEnabled(bool(self.find_matches))
+
+    def next_match(self, direction):
+        if not self.find_matches:
+            return
+        if self.match_index < 0:
+            self.match_index = 0 if direction > 0 else len(self.find_matches) - 1
+        else:
+            self.match_index = (self.match_index + direction) % len(self.find_matches)
+        match = self.find_matches[self.match_index]
+        if self.history_view.currentIndex():
+            self.segments.setCurrentRow(match)
+            self.segments.scrollToItem(self.segments.item(match))
+        else:
+            self.transcript.setTextCursor(match)
+            self.transcript.ensureCursorVisible()
+        self.match_count.setText(f"{self.match_index + 1} of {len(self.find_matches)}")
 
     def history_action(self, function):
         if self.selected:
@@ -1036,7 +1057,7 @@ class Window(QMainWindow):
                 self.core.update_transcription_title(selected, title)
                 self.core.edit_transcription(selected, text)
 
-            self.task(save, "refresh")
+            self.task(save, "edit_saved")
 
     def delete_history(self):
         if self.importer and self.importer.job.id == self.selected:
@@ -1198,7 +1219,7 @@ class Window(QMainWindow):
         path = job.attachment.path
         if not Path(path).is_file():
             QMessageBox.information(
-                self, "Missing media", "Locate the source in the Imports tab first."
+                self, "Missing media", "Locate the source in Import → Manage imports first."
             )
             return
         self.video.show()

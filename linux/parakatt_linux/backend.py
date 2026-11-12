@@ -3,6 +3,7 @@
 import ctypes
 import hashlib
 import json
+import math
 import os
 import queue
 import shutil
@@ -11,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import uuid
 from array import array
 from dataclasses import dataclass
@@ -186,12 +188,35 @@ class Backend:
             if not self.engine.is_model_loaded():
                 self.engine.load_model(MODEL)
 
-    def history(self, search: str = "", offset: int = 0):
-        return self.engine.list_transcriptions(
-            self.api.TranscriptionQuery(
-                search_text=search or None, source_filter=None, limit=100, offset=offset
+    def history(self, search: str = "", offset: int = 0, category: str | None = None):
+        def page(start):
+            return self.engine.list_transcriptions(
+                self.api.TranscriptionQuery(
+                    search_text=search or None, source_filter=None, limit=100, offset=start
+                )
             )
-        )
+
+        if not category or category == "All":
+            return page(offset)
+        # Imported Teams/Slack transcripts belong to Meetings. Scan stored pages
+        # before slicing so filtered pagination cannot skip matching records.
+        matches, start = [], 0
+        while len(matches) < offset + 100:
+            rows = page(start)
+            for row in rows:
+                kind = (
+                    "Meetings"
+                    if row.source == "meeting" or row.audio_source in ("teams", "slack")
+                    else "Videos"
+                    if row.source == "import"
+                    else "Notes"
+                )
+                if kind == category:
+                    matches.append(row)
+            if len(rows) < 100:
+                break
+            start += 100
+        return matches[offset : offset + 100]
 
 
 class Recording:
@@ -201,6 +226,14 @@ class Recording:
         self.backend, self.meeting, self.mode, self.notify = backend, meeting, mode, notify
         self.id = str(uuid.uuid4())
         self.stop_event = threading.Event()
+        self.pause_event = threading.Event()
+        self.discard_event = threading.Event()
+        self.ready = threading.Event()
+        self.clock_lock = threading.Lock()
+        self.started_at = None
+        self.stopped_at = None
+        self.paused_at = None
+        self.paused_seconds = 0.0
         self.chunks = queue.Queue(maxsize=8)
         self.processes = []
         self.readers = []
@@ -212,8 +245,36 @@ class Recording:
         self.backend.capture_active.set()
         self.thread.start()
 
+    def set_paused(self, paused):
+        with self.clock_lock:
+            if not self.ready.is_set() or self.stop_event.is_set():
+                return
+            now = time.monotonic()
+            if paused and not self.pause_event.is_set():
+                self.paused_at = now
+                self.pause_event.set()
+            elif not paused and self.pause_event.is_set():
+                self.paused_seconds += now - self.paused_at
+                self.paused_at = None
+                self.pause_event.clear()
+
+    def elapsed_seconds(self):
+        with self.clock_lock:
+            if self.started_at is None:
+                return 0.0
+            end = self.stopped_at or time.monotonic()
+            paused = (end - self.paused_at) if self.paused_at is not None else 0.0
+            return max(0, end - self.started_at - self.paused_seconds - paused)
+
+    def discard(self):
+        self.discard_event.set()
+        self.stop()
+
     def stop(self):
-        self.stop_event.set()
+        with self.clock_lock:
+            if self.stopped_at is None:
+                self.stopped_at = time.monotonic()
+            self.stop_event.set()
         for process in list(self.processes):
             if process.poll() is None:
                 process.send_signal(signal.SIGINT)
@@ -248,6 +309,10 @@ class Recording:
                     stderr=errors,
                 )
                 self.processes.append(process)
+                # Stop may arrive while Popen is starting, before the process
+                # is visible to stop(). Recheck before draining its pipe.
+                if self.stop_event.is_set():
+                    self.stop()
                 duration = min(30, max(5, self.backend.engine.get_chunk_duration()))
                 buffer = bytearray()
                 checkpoint = bytearray()
@@ -256,6 +321,14 @@ class Recording:
                     data = process.stdout.read(4096)
                     if not data:
                         break
+                    if self.pause_event.is_set() or self.discard_event.is_set():
+                        continue  # Drain the audio service without retaining paused audio.
+                    if kind == self.backend.api.ChunkSource.MIC:
+                        samples = decode_samples(data)
+                        rms = math.sqrt(
+                            sum(sample * sample for sample in samples) / max(1, len(samples))
+                        )
+                        self.notify("audio_level", min(1.0, rms * 5) if math.isfinite(rms) else 0.0)
                     buffer.extend(data)
                     if self.preview and kind == self.backend.api.ChunkSource.MIC:
                         self.preview.feed(data, chunk_index, bytes(buffer))
@@ -271,6 +344,8 @@ class Recording:
                         del buffer[:size]
                         chunk_index += 1
                 remainder = process.stdout.read()
+                if self.pause_event.is_set() or self.discard_event.is_set():
+                    remainder = b""
                 buffer.extend(remainder)
                 checkpoint.extend(remainder)
                 for offset in range(0, len(checkpoint), RATE * 4):
@@ -334,6 +409,9 @@ class Recording:
                         self.backend.api.ChunkSource.SYSTEM,
                     )
                 )
+            with self.clock_lock:
+                self.started_at = time.monotonic()
+            self.ready.set()
             for device, kind in streams:
                 thread = threading.Thread(target=self._capture, args=(device, kind), daemon=True)
                 self.readers.append(thread)
@@ -347,11 +425,17 @@ class Recording:
                     kind, index, samples = self.chunks.get(timeout=0.1)
                 except queue.Empty:
                     continue
+                if self.discard_event.is_set():
+                    continue
                 with self.backend.inference:
-                    core.process_source_chunk(
+                    result = core.process_source_chunk(
                         self.id, kind, index, samples, RATE, 0.0, self.mode, None
                     )
                 self.notify("live", core.get_session_text(self.id))
+                self.notify("live_segments", result)
+            if self.discard_event.is_set():
+                self.notify("status", "Recording discarded")
+                return
             if self.error:
                 raise RuntimeError(self.error)
             core.end_capture(self.id)
@@ -369,6 +453,8 @@ class Recording:
                 actions.extend(
                     [lambda: core.end_capture(self.id), lambda: core.cancel_session(self.id)]
                 )
+            if started and self.discard_event.is_set():
+                actions.append(lambda: core.discard_recording_draft(self.id))
             try:
                 for action in actions:
                     try:
