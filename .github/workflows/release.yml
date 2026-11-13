@@ -95,7 +95,7 @@ jobs:
           cp dependency-advisories.json dist/dependency-advisories.json
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v3.0.3
+        uses: softprops/action-gh-release@v3.0.4
         with:
           body_path: RELEASE_NOTES.md
           fail_on_unmatched_files: true
