@@ -7,7 +7,7 @@ name = "parakatt-desktop"
 version = "0.1.0"
 description = "Linux desktop frontend for the Parakatt Rust engine"
 requires-python = ">=3.12"
-dependencies = ["PySide6==6.10.2", "keyring==25.7.0", "yt-dlp[default]==2026.10.26", "msal==1.39.0", "cryptography>=50.0.0"]
+dependencies = ["PySide6==6.12.0", "keyring==25.7.0", "yt-dlp[default]==2026.10.26", "msal==1.39.0", "cryptography>=50.0.0"]
 
 [project.scripts]
 parakatt-desktop = "parakatt_linux.app:main"
