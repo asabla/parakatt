@@ -51,7 +51,7 @@ jobs:
           PY
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@1.99.1
+        uses: dtolnay/rust-toolchain@1.120.0
         with:
           components: clippy, rustfmt
 
@@ -119,7 +119,7 @@ jobs:
           python-version: "3.13"
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@1.99.1
+        uses: dtolnay/rust-toolchain@1.120.0
         with:
           targets: aarch64-apple-darwin
 
