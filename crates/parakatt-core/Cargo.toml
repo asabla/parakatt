@@ -12,7 +12,7 @@ name = "parakatt_core"
 [dependencies]
 # FFI
 # cargo-swift 0.11.1 requires the same UniFFI version for binding generation.
-uniffi = { version = "=0.31.1", features = ["cli"] }
+uniffi = { version = "=0.32.2", features = ["cli"] }
 
 # Async runtime
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util"] }
@@ -78,7 +78,7 @@ name = "test_llm_direct"
 path = "examples/test_llm_direct.rs"
 
 [build-dependencies]
-uniffi = { version = "=0.31.1", features = ["build"] }
+uniffi = { version = "=0.32.2", features = ["build"] }
 
 [features]
 # Offline input-contract harnesses; not enabled in shipped builds.
