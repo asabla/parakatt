@@ -32,7 +32,7 @@ linux-native:
 	python3 scripts/build-linux.py
 
 linux-desktop: linux-native
-	python3 -m venv target/linux-venv
+	python3 -m venv --clear target/linux-venv
 	target/linux-venv/bin/python -m pip install --require-hashes -r linux/requirements.lock
 	target/linux-venv/bin/python -m pip install --no-deps ./linux
 	@echo "Run target/linux-venv/bin/parakatt-desktop"

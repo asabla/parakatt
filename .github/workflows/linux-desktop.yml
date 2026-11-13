@@ -27,7 +27,7 @@ jobs:
       - name: Build and install the desktop frontend
         run: |
           make linux-desktop
-          python3 -m venv target/quality-venv
+          python3 -m venv --clear target/quality-venv
           target/quality-venv/bin/python -m pip install -r requirements-quality.txt
       - name: Check Linux sources and desktop behavior
         env:
