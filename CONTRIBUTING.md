@@ -45,6 +45,9 @@ Changes to the Rust public API require regenerating Swift bindings (`make swift-
 
 ## Pull Request Guidelines
 
+- Use [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) for PR titles and commit subjects, for example `feat(linux): add meeting controls`.
+- Keep the PR body self-contained and readable in terminal clients: explain the problem, resulting behavior, and validation.
+- Put screenshots and other change-related images in separate PR comments, not in the PR body.
 - Keep PRs focused on a single change
 - Include a description of what changed and why
 - Don't push directly to `main`
