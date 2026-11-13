@@ -9,27 +9,15 @@ import shutil
 import subprocess
 import sys
 
+from native_build_inputs import source_fingerprint
+
 ROOT = Path(__file__).resolve().parents[1]
 TARGET = "aarch64-apple-darwin"
 
 
 def fingerprint():
     digest = hashlib.sha256()
-    paths = [
-        ROOT / "Cargo.toml",
-        ROOT / "Cargo.lock",
-        ROOT / "rust-toolchain.toml",
-        ROOT / "Makefile",
-        Path(__file__),
-    ]
-    paths += sorted((ROOT / "crates").rglob("*.rs"))
-    paths += sorted((ROOT / "vendor").rglob("*.rs"))
-    paths += sorted((ROOT / "vendor").rglob("Cargo.toml"))
-    paths += sorted((ROOT / "crates").rglob("*.json"))
-    paths += sorted((ROOT / "crates").rglob("Cargo.toml"))
-    for path in paths:
-        digest.update(str(path.relative_to(ROOT)).encode())
-        digest.update(path.read_bytes())
+    digest.update(source_fingerprint(ROOT).encode())
     for command in (["rustc", "-Vv"], ["cargo", "swift", "--version"]):
         digest.update(subprocess.check_output(command))
     for key in (

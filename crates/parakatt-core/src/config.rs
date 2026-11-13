@@ -25,10 +25,17 @@ pub struct Config {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GeneralConfig {
+    /// Internal migration version, not a user-facing processing preference.
+    #[serde(default)]
+    pub text_processing_version: u32,
     #[serde(default)]
     pub recovery_audio: bool,
+    /// Legacy value retained for configuration/API compatibility. Context is automatic.
     #[serde(default)]
     pub llm_context_enabled: bool,
+    /// Legacy flag migrated to the dedicated Punctuation mode on load.
+    #[serde(default)]
+    pub dictation_punctuation_enabled: bool,
     #[serde(default = "default_mode")]
     pub active_mode: String,
     #[serde(default = "default_true")]
@@ -90,8 +97,10 @@ fn default_llm_max_words() -> u32 {
 impl Default for GeneralConfig {
     fn default() -> Self {
         Self {
+            text_processing_version: 1,
             recovery_audio: false,
             llm_context_enabled: false,
+            dictation_punctuation_enabled: false,
             active_mode: default_mode(),
             auto_paste: true,
             show_overlay: true,
@@ -131,7 +140,7 @@ impl Default for SttConfig {
 pub struct LlmConfig {
     #[serde(default)]
     pub generation: crate::llm::GenerationSettings,
-    /// Which LLM provider to use: "ollama", "lmstudio", "openai", "anthropic"
+    /// Which LLM provider to use: "ollama", "lmstudio", "openai", "chatgpt", "anthropic"
     pub active_provider: Option<String>,
     #[serde(default)]
     pub ollama: OllamaConfig,
@@ -139,6 +148,8 @@ pub struct LlmConfig {
     pub lmstudio: LmStudioConfig,
     #[serde(default)]
     pub openai: OpenAiConfig,
+    #[serde(default)]
+    pub chatgpt: ChatGptConfig,
     #[serde(default)]
     pub anthropic: AnthropicConfig,
 }
@@ -181,6 +192,12 @@ pub struct OpenAiConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub credential_account: Option<String>,
     pub api_key: Option<String>,
+    pub model: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct ChatGptConfig {
+    pub account_id: Option<String>,
     pub model: Option<String>,
 }
 
@@ -231,7 +248,8 @@ impl Config {
         if path.exists() {
             let content = std::fs::read_to_string(&path)
                 .map_err(|e| CoreError::ConfigError(format!("Failed to read config: {e}")))?;
-            toml::from_str(&content)
+            toml::from_str::<Self>(&content)
+                .map(Self::migrate_processing)
                 .map_err(|e| CoreError::ConfigError(format!("Failed to parse config: {e}")))
         } else {
             Ok(Self::default())
@@ -303,8 +321,69 @@ impl Config {
         }
         let content = std::fs::read_to_string(&path)
             .map_err(|e| CoreError::ConfigError(format!("Failed to read profile: {e}")))?;
-        toml::from_str(&content)
+        toml::from_str::<Self>(&content)
+            .map(Self::migrate_processing)
             .map_err(|e| CoreError::ConfigError(format!("Failed to parse profile: {e}")))
+    }
+
+    /// Collapse the old Dictation + punctuation switch into a real mode.
+    /// This is an in-memory migration until the next successful configuration save.
+    fn migrate_processing(mut self) -> Self {
+        // A user could previously create a custom mode with this name. Keep
+        // its prompt and references instead of turning it into punctuation-only.
+        if let Some(index) = self.modes.iter().position(|m| {
+            self.general.text_processing_version == 0
+                && m.name.eq_ignore_ascii_case("punctuation")
+                && m.system_prompt.as_deref() != Some(crate::punctuation::PROMPT)
+        }) {
+            let mut name = "punctuation (custom)".to_string();
+            let mut suffix = 2;
+            while self
+                .modes
+                .iter()
+                .any(|m| m.name.eq_ignore_ascii_case(&name))
+            {
+                name = format!("punctuation (custom {suffix})");
+                suffix += 1;
+            }
+            if let Some(mode) = self.modes.get_mut(index) {
+                mode.name = name.clone();
+            }
+            if self.general.active_mode.eq_ignore_ascii_case("punctuation") {
+                self.general.active_mode = name.clone();
+            }
+            for mode in self.general.app_mode_defaults.values_mut() {
+                if mode.eq_ignore_ascii_case("punctuation") {
+                    *mode = name.clone();
+                }
+            }
+        }
+        if !self.modes.is_empty()
+            && !self
+                .modes
+                .iter()
+                .any(|m| m.name.eq_ignore_ascii_case("punctuation"))
+        {
+            if let Some(mode) = crate::modes::default_modes()
+                .into_iter()
+                .find(|m| m.name == "punctuation")
+            {
+                self.modes.push(mode);
+            }
+        }
+        if self.general.dictation_punctuation_enabled {
+            if self.general.active_mode.eq_ignore_ascii_case("dictation") {
+                self.general.active_mode = "punctuation".into();
+            }
+            for mode in self.general.app_mode_defaults.values_mut() {
+                if mode.eq_ignore_ascii_case("dictation") {
+                    *mode = "punctuation".into();
+                }
+            }
+            self.general.dictation_punctuation_enabled = false;
+        }
+        self.general.text_processing_version = self.general.text_processing_version.max(1);
+        self
     }
 
     /// List available profile names.
@@ -395,6 +474,108 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), CoreError> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn processing_migration_preserves_existing_choices_without_enabling_a_provider() {
+        for active in ["dictation", "clean", "email", "code", "custom"] {
+            let mut legacy = super::Config::default();
+            legacy.general.text_processing_version = 0;
+            legacy.modes.retain(|m| m.name != "punctuation");
+            legacy.general.active_mode = active.into();
+            legacy.general.dictation_punctuation_enabled = true;
+            legacy
+                .general
+                .app_mode_defaults
+                .insert("app.raw".into(), "dictation".into());
+            legacy
+                .general
+                .app_mode_defaults
+                .insert("app.clean".into(), "clean".into());
+            let directory = tempfile::tempdir().unwrap();
+            legacy.save(directory.path()).unwrap();
+            let original = std::fs::read(directory.path().join("config.toml")).unwrap();
+            let migrated = super::Config::load(directory.path()).unwrap();
+            assert_eq!(
+                migrated.general.active_mode,
+                if active == "dictation" {
+                    "punctuation"
+                } else {
+                    active
+                }
+            );
+            assert_eq!(migrated.general.app_mode_defaults["app.raw"], "punctuation");
+            assert_eq!(migrated.general.app_mode_defaults["app.clean"], "clean");
+            assert!(!migrated.general.dictation_punctuation_enabled);
+            assert!(migrated.llm.active_provider.is_none());
+            assert_eq!(
+                migrated
+                    .modes
+                    .iter()
+                    .filter(|m| m.name == "punctuation")
+                    .count(),
+                1
+            );
+            assert_eq!(
+                original,
+                std::fs::read(directory.path().join("config.toml")).unwrap()
+            );
+            migrated.save(directory.path()).unwrap();
+            assert_eq!(
+                super::Config::load(directory.path())
+                    .unwrap()
+                    .general
+                    .active_mode,
+                migrated.general.active_mode
+            );
+        }
+        let mut off = super::Config::default();
+        off.modes.retain(|m| m.name != "punctuation");
+        let off = off.migrate_processing();
+        assert_eq!(off.general.active_mode, "dictation");
+        assert!(!off.general.dictation_punctuation_enabled);
+    }
+    #[test]
+    fn punctuation_name_collision_preserves_custom_prompt_and_references() {
+        let mut config = super::Config::default();
+        config.general.text_processing_version = 0;
+        let custom = config
+            .modes
+            .iter_mut()
+            .find(|m| m.name == "punctuation")
+            .unwrap();
+        custom.system_prompt = Some("My existing custom instructions".into());
+        config.general.active_mode = "punctuation".into();
+        config
+            .general
+            .app_mode_defaults
+            .insert("editor".into(), "punctuation".into());
+        let migrated = config.migrate_processing();
+        assert_eq!(migrated.general.active_mode, "punctuation (custom)");
+        assert_eq!(
+            migrated.general.app_mode_defaults["editor"],
+            "punctuation (custom)"
+        );
+        assert_eq!(
+            migrated
+                .modes
+                .iter()
+                .find(|m| m.name == "punctuation (custom)")
+                .unwrap()
+                .system_prompt
+                .as_deref(),
+            Some("My existing custom instructions")
+        );
+        assert!(migrated.modes.iter().any(|m| m.name == "punctuation"
+            && m.system_prompt.as_deref() == Some(crate::punctuation::PROMPT)));
+        let mut modern = migrated;
+        modern.general.active_mode = "punctuation".into();
+        modern
+            .modes
+            .iter_mut()
+            .find(|m| m.name == "punctuation")
+            .unwrap()
+            .system_prompt = Some("Previous built-in prompt revision".into());
+        assert_eq!(modern.migrate_processing().general.active_mode, "punctuation", "A future prompt revision must not turn the guarded built-in into an unguarded custom mode");
+    }
     #[test]
     fn atomic_configuration_failures_leave_no_temporary_files() {
         let dir = tempfile::tempdir().unwrap();

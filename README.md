@@ -13,9 +13,9 @@ An experimental [Linux desktop frontend](docs/linux.md) shares the same Rust eng
 - Meeting transcription with dual audio capture (microphone + system audio)
 - Sentence-level timestamps with timeline navigation in transcription history
 - Per-chunk LLM processing for responsive long-form transcription
-- Optional LLM post-processing (Ollama, LM Studio, OpenAI, Anthropic)
+- Optional LLM post-processing (Ollama, LM Studio, ChatGPT plan, OpenAI API, Anthropic)
 - Dictionary rules for domain-specific word corrections
-- Multiple transcription modes (dictation, clean, email, code)
+- Text cleanup choices: Off, Punctuation, Grammar + punctuation, and specialized Email/Code/custom modes
 - Transcription history with full-text search, markdown export with timestamps
 - Auto-paste transcribed text into the active application
 
@@ -61,7 +61,7 @@ Make prefers tools in `target/tools/bin` and uses `target/xcode` for Xcode build
 
 ## Experimental file CLI
 
-The source tree includes an output-only file CLI for macOS and Linux. It uses the pinned Parakeet v3 model and CPU backend. It does not read app settings or credentials, save history, apply dictionary rules, or run LLM processing.
+The source tree includes an output-only file CLI for macOS and Linux. It uses the pinned Parakeet v3 model and CPU backend. Ordinary transcription does not read app settings or credentials, save history, apply dictionary rules, or run LLM processing. ChatGPT text processing is available through an explicit option.
 
 Build it with the pinned Rust toolchain:
 
@@ -85,7 +85,25 @@ Text output contains the recognized text followed by a newline. JSON output incl
 {"source":{"kind":"file","path":"speech.wav"},"model":"parakeet-tdt-0.6b-v3","backend":"cpu","text":"Example speech.","duration_secs":2.0,"segments":[{"text":"Example speech.","start_secs":0.0,"end_secs":1.8}]}
 ```
 
-Output goes to stdout; errors and diagnostic messages go to stderr. Exit codes are `0` for success, `1` for input, model, or runtime errors, and `2` for invalid arguments. JSON requires a UTF-8 input path. The CLI has its own experimental version and is built from source; the macOS app release remains separate. CI checks macOS and Ubuntu 24.04 builds and runs English/Swedish CPU recognition on Linux.
+Output goes to stdout; errors and diagnostic messages go to stderr. Exit codes are `0` for success, `1` for input, model, or runtime errors, `2` for invalid arguments, and `3` when recognition succeeds but requested LLM processing fails. Exit code `3` still writes the recognized transcript to stdout. JSON requires a UTF-8 input path. The CLI has its own experimental version and is built from source; the macOS app release remains separate. CI checks macOS and Ubuntu 24.04 builds and runs English/Swedish CPU recognition on Linux.
+
+### ChatGPT plan in the CLI
+
+Sign in once on each computer. On macOS, the app and CLI share saved ChatGPT accounts in Keychain. Linux stores credentials under `$XDG_CONFIG_HOME/parakatt/accounts` (default `~/.config/parakatt/accounts`) with owner-only access. Account commands do not load a speech model or open history.
+
+```bash
+parakatt auth login
+parakatt auth list
+parakatt auth use <account-id>
+parakatt auth status
+parakatt llm models --provider chatgpt
+parakatt transcribe speech.wav --llm chatgpt --llm-model <model-slug> --mode clean
+parakatt auth logout
+```
+
+Use `auth login --account <account-id>` to sign in again to a saved registration. `clean`, `email`, and `code` use the built-in processing prompts; `clean` is the default. Both `--llm chatgpt` and `--llm-model` are required to send text to OpenAI. Audio stays on the device.
+
+With text output, completed processing replaces the recognized text. With JSON, `text` and `segments` retain the recognized transcript and timeline; a separate `processing` object contains the result or a safe error code. Failed processing returns exit code `3` and preserves recognized text. A new explicit CLI invocation retries the selected account after a usage pause. Parakatt never changes to an API key or another provider automatically.
 
 ## Permissions
 
@@ -99,17 +117,19 @@ You'll be prompted to grant these when needed. They can be managed in **System S
 
 ## Configuration
 
-Configuration is stored at `~/Library/Application Support/Parakatt/config/config.toml`. The default settings use dictation mode with auto-paste enabled.
+Configuration is stored at `~/Library/Application Support/Parakatt/config/config.toml`. Text cleanup defaults to Off, with auto-paste enabled.
 
 Select speech models and execution settings in **Settings > Models**. Downloads use pinned revisions and verify every required file. Parakeet v3 produces the final transcript. Nemotron 3.5 is an optional multilingual preview; select English, Swedish, or Automatic language detection. New preview downloads do not change an existing selection.
 
 Automatic execution uses WebGPU only for combinations in `crates/parakatt-core/backend-validation.json`. Other systems use CPU in Automatic mode. To try GPU acceleration on another Apple Silicon Mac, select **WebGPU** under **Settings > Models > Speech settings > Execution**, then click **Apply speech settings**. This selection does not require a validation-list entry. If GPU initialization or inference fails, Parakatt uses CPU. The encoder uses WebGPU; the decoder and Nemotron streaming preview use CPU. See [maintenance validation](reports/maintenance/README.md) for measured results and limits.
 
-Configure optional LLM processing in **Settings > LLM**. Ollama and LM Studio run locally. OpenAI and Anthropic require a model and a provider-specific Keychain credential. They remain disabled until configured. Recognized text appears first; completed processing replaces each accepted chunk. Failures and queue limits preserve recognized text. History keeps the recognized timeline separate from processed text.
+Configure optional AI processing in **Settings > LLM**. Choose a provider from the dropdown, configure its connection, select a model, and click **Apply**. Ollama and LM Studio connect to your inference server; OpenAI API and Anthropic use separate Keychain credentials. For **ChatGPT plan**, click **Continue with ChatGPT**, complete OpenAI sign-in, then select and apply an available model. Eligible requests use the connected ChatGPT plan or available credits; **Manage usage** opens ChatGPT usage settings. Selecting **None** stops AI requests without deleting saved provider settings or credentials. Switching providers requires Apply before processing resumes. Unsupported generation settings are hidden under Advanced. Recognized text appears first; failures and queue limits preserve it. History keeps the recognized timeline separate from processed text.
+
+**Text cleanup** has one shared selection in LLM settings, General settings, and the menu bar: **Off** keeps transcription and dictionary corrections local; **Punctuation** adjusts punctuation, capitalization, and spacing without rewriting words; **Grammar + punctuation** also corrects grammar and spelling. Email, Code, and custom modes remain specialized alternatives, not additional processing passes. Remote providers receive transcript text and use their normal usage allowance. Each recording keeps its selected mode at its start. Punctuation uses a conservative validator that rejects changed, added, removed, or reordered words, changed numbers, and edits to protected symbols/identifiers; rejected results keep the pre-LLM text, including dictionary corrections. Original recognized text and timestamps remain in history. Existing Dictation-plus-punctuation preferences and per-app defaults migrate to Punctuation; plain Dictation becomes Off and Clean becomes Grammar + punctuation. Ordinary CLI transcription is unchanged.
 
 Push-to-talk recordings keep the mode and application context selected at their start, including per-app mode defaults. The global mode selection is saved for the next launch. Recognized words are preserved before dictionary rules and optional LLM processing; English filler expressions are not removed automatically from multilingual speech. Live chunks remove overlap using word timing before grouping sentences.
 
-Use **Test selected model** in LLM settings to check the connection, authentication, selected model, and a complete synthetic streaming response. The test does not send a recording. **Use preceding speech as context** is optional and off by default. When enabled, it supplies up to 120 words from the two preceding recognized chunks of the same source and session. The original text remains available.
+Use **Test connection** to apply the selected configuration and check connection, authentication, model, and a complete synthetic streaming response. It does not send a recording; provider usage may apply. When AI processing runs, recent speech is supplied as context automatically: up to 120 words from the two preceding recognized chunks of the same speaker/source and session. There is no separate context switch, and original text remains available.
 
 For reproducible benchmarks, fixture attribution, and release checks, see [the validation commands](reports/maintenance/README.md).
 
@@ -153,7 +173,7 @@ This is standard for open-source macOS apps distributed outside the App Store.
 - Use the "Test Connection" button in Settings > LLM to verify connectivity
 - For Ollama: ensure the server is running (`ollama serve`) and the model is pulled (`ollama pull llama3.2`)
 - For OpenAI: verify your API key is correct and has available credits
-- Dictation mode skips LLM processing by design — switch to Clean, Email, or Code mode
+- Text cleanup set to Off skips AI processing — choose Punctuation, Grammar + punctuation, Email, or Code, and apply a provider/model configuration
 
 **Meeting transcription: no system audio captured**
 - System Audio Recording permission is required: System Settings > Privacy & Security > Screen & System Audio Recording
@@ -176,7 +196,7 @@ This is standard for open-source macOS apps distributed outside the App Store.
 
 ## Video imports
 
-Use **Import Video…** or **Import Link…** in the menu or History. The import window also accepts dropped MP4, MOV, MKV, and WebM files. Select an audio track when the video has more than one. Imports use Dictation by default; Clean uses the configured LLM provider.
+Use **Import Video…** or **Import Link…** in the menu or History. The import window also accepts dropped MP4, MOV, MKV, and WebM files. Select an audio track when the video has more than one. Imports default to text cleanup Off; Punctuation and Grammar + punctuation use the configured provider.
 
 Direct HTTP/HTTPS links must return a video file. Finite YouTube videos are supported, including Shorts. Other website pages, playlists, live streams, and DRM are not supported. YouTube downloads select the best available video and audio. Website changes can require a Parakatt update.
 

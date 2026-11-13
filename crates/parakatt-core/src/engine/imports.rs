@@ -7,7 +7,7 @@ impl Engine {
     fn import_configuration(&self, mode: &str) -> Result<String, CoreError> {
         let config = crate::util::lock_named(&self.config, "config", CoreError::ConfigError)?;
         let selected = config.modes.iter().find(|m| m.name == mode);
-        let bytes = serde_json::to_vec(&(
+        let mut bytes = serde_json::to_vec(&(
             &config.stt,
             &config.dictionary,
             selected,
@@ -15,6 +15,10 @@ impl Engine {
             config.general.llm_context_enabled,
         ))
         .map_err(io)?;
+        // Preserve existing fingerprints when the new opt-in feature is off.
+        if mode.eq_ignore_ascii_case("dictation") && config.general.dictation_punctuation_enabled {
+            bytes.extend_from_slice(b":dictation_punctuation_enabled");
+        }
         Ok(crate::util::hex_lower(&Sha256::digest(bytes)))
     }
 }
@@ -31,6 +35,7 @@ impl Engine {
             return Err(io("Unsupported import source"));
         }
         let job = ImportJob {
+            dictation_punctuation_enabled: self.get_dictation_punctuation_enabled(),
             id: uuid::Uuid::new_v4().to_string(),
             kind,
             input,
@@ -259,6 +264,7 @@ impl Engine {
             let s = crate::util::lock_named(&self.storage, "storage", CoreError::IoError)?;
             (s.import_job(&id)?, s.import_sections(&id)?)
         };
+        let punctuation_enabled = job.dictation_punctuation_enabled;
         if job.configuration != self.import_configuration(&job.mode)? {
             return Err(io(
                 "Processing settings changed. Restore them before resuming.",
@@ -269,7 +275,12 @@ impl Engine {
             if current.state != "transcribing" {
                 return Ok(());
             }
-            let work = self.llm_request(&section.text, &job.mode, &AppContext::default());
+            let work = self.llm_request(
+                &section.text,
+                &job.mode,
+                &AppContext::default(),
+                punctuation_enabled,
+            );
             let result = match work {
                 Ok(Some((provider, mut request))) => {
                     if request.allow_preceding_context {
@@ -298,7 +309,13 @@ impl Engine {
                                 .join(" "),
                         );
                     }
-                    provider.process_cancellable(&request, &cancellation, &|_| {})
+                    provider
+                        .process_cancellable(&request, &cancellation, &|_| {})
+                        .and_then(|text| {
+                            crate::punctuation::OutputPolicy::for_mode(&job.mode)
+                                .validate(&request.text, &text)?;
+                            Ok(text)
+                        })
                 }
                 Ok(None) => Ok(section.text.clone()),
                 Err(e) => Err(e),
@@ -436,6 +453,87 @@ mod tests {
             second.get_transcription(job.id).unwrap().text,
             "repeat next\n\nnext"
         );
+    }
+
+    #[test]
+    fn dictation_import_and_history_retry_validate_punctuation_and_keep_timestamps() {
+        struct Cleanup(&'static str);
+        impl LlmProvider for Cleanup {
+            fn process(&self, request: &LlmRequest) -> Result<String, CoreError> {
+                assert_eq!(request.system_prompt, crate::punctuation::PROMPT);
+                Ok(self.0.into())
+            }
+            fn name(&self) -> &str {
+                "fixture"
+            }
+            fn is_available(&self) -> bool {
+                true
+            }
+        }
+        for (output, expected, status) in [
+            ("Repeat, next.", "Repeat, next.", "processed"),
+            ("Next.", "repeat next", "failed"),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let engine = engine(dir.path());
+            engine.set_dictation_punctuation_enabled(true).unwrap();
+            *engine.llm.lock().unwrap() = Some(Arc::new(Cleanup(output)));
+            let job = job(&engine);
+            engine
+                .process_import_chunk(job.id.clone(), vec![0.1; 480000], 0.0)
+                .unwrap();
+            let before = engine
+                .storage
+                .lock()
+                .unwrap()
+                .get_segments(&job.id)
+                .unwrap();
+            engine.process_import_text(job.id.clone()).unwrap();
+            {
+                let storage = engine.storage.lock().unwrap();
+                let sections = storage.import_sections(&job.id).unwrap();
+                assert_eq!(sections[0].text, expected);
+                assert_eq!(sections[0].status, status);
+                assert_eq!(sections[0].recognized_text, "repeat next");
+                let after = storage.get_segments(&job.id).unwrap();
+                assert_eq!(
+                    before
+                        .iter()
+                        .map(|s| (s.start_secs, s.end_secs))
+                        .collect::<Vec<_>>(),
+                    after
+                        .iter()
+                        .map(|s| (s.start_secs, s.end_secs))
+                        .collect::<Vec<_>>()
+                );
+            }
+            if status == "failed" {
+                assert!(engine.retry_history_processing(job.id.clone()).is_err());
+                assert_eq!(
+                    engine.get_transcription(job.id.clone()).unwrap().text,
+                    "repeat next"
+                );
+                *engine.llm.lock().unwrap() = Some(Arc::new(Cleanup("Repeat, next.")));
+                engine.retry_history_processing(job.id.clone()).unwrap();
+                assert_eq!(
+                    engine.get_transcription(job.id.clone()).unwrap().text,
+                    "Repeat, next."
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn punctuation_opt_in_changes_only_dictation_import_fingerprint() {
+        let dir = tempfile::tempdir().unwrap();
+        let engine = engine(dir.path());
+        let original = engine.import_configuration("dictation").unwrap();
+        let clean = engine.import_configuration("clean").unwrap();
+        engine.set_dictation_punctuation_enabled(true).unwrap();
+        assert_ne!(original, engine.import_configuration("dictation").unwrap());
+        assert_eq!(clean, engine.import_configuration("clean").unwrap());
+        engine.set_dictation_punctuation_enabled(false).unwrap();
+        assert_eq!(original, engine.import_configuration("dictation").unwrap());
     }
 
     #[test]

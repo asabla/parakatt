@@ -65,6 +65,9 @@ class CoreBridge: LivePreviewCore, @unchecked Sendable {
     func setSpeechSettings(_ settings: SpeechSettings) throws { try engine.setSpeechSettings(settings: settings) }
     func speechRuntimeStatus() -> SpeechRuntimeStatus { engine.speechRuntimeStatus() }
 
+    func getChatGptAccount() -> String? { engine.getChatgptAccount() }
+    func setChatGptAccount(_ id: String?) throws { try engine.setChatgptAccount(accountId: id) }
+
     func getProviderSettings(_ provider: String) -> LlmSettings { engine.getProviderSettings(provider: provider) }
     func ollamaThinkingControls(baseUrl: String, model: String) throws -> [String] { try engine.ollamaThinkingControls(baseUrl: baseUrl, model: model) }
     func getLlmSettings() -> LlmSettings { engine.getLlmSettings() }
@@ -171,8 +174,6 @@ class CoreBridge: LivePreviewCore, @unchecked Sendable {
     }
 
     /// Test the current LLM connection.
-    func getLlmContextEnabled() -> Bool { engine.getLlmContextEnabled() }
-    func setLlmContextEnabled(_ enabled: Bool) throws { try engine.setLlmContextEnabled(enabled: enabled) }
     func testLlmPipeline() throws -> ProviderDiagnostic { try engine.testLlmPipeline() }
 
 

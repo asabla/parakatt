@@ -10,12 +10,12 @@ final class EvolutionTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         let bridge = try CoreBridge(modelsDir: directory.appendingPathComponent("models").path, configDir: directory.path)
         let state = AppState(bridge: bridge)
-        state.activeMode = "clean"
+        state.activeMode = "punctuation"
         try state.prepareRecordingContext(AppContextInfo(appBundleId: "test.other", selectedText: "Original selection"))
-        XCTAssertEqual(state.recordingContext.mode, "clean")
-        XCTAssertEqual(bridge.getActiveMode(), "clean")
+        XCTAssertEqual(state.recordingContext.mode, "punctuation")
+        XCTAssertEqual(bridge.getActiveMode(), "punctuation")
         state.activeMode = "email"
-        XCTAssertEqual(state.recordingContext.mode, "clean")
+        XCTAssertEqual(state.recordingContext.mode, "punctuation")
         XCTAssertEqual(state.recordingContext.application?.selectedText, "Original selection")
         try bridge.setAppModeDefault(bundleId: "test.editor", mode: "code")
         try state.prepareRecordingContext(AppContextInfo(appBundleId: "test.editor"))

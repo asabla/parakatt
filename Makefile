@@ -20,7 +20,7 @@ all: rust swift-package xcode build
 
 # Build the Rust core library
 rust:
-	cargo build --locked --release --target aarch64-apple-darwin -p parakatt-core --features "$(PARAKATT_SPEECH_FEATURES)"
+	sh scripts/build-native-core.sh
 
 # Build the output-only file transcription CLI for the current platform.
 cli:
@@ -65,7 +65,8 @@ fuzz-check:
 
 # Check that contract tests reject deliberate changes to critical decisions.
 mutation-check:
-	cargo mutants --timeout 60 --build-timeout 300 --output target/mutation-contracts
+	mkdir -p target
+	cargo mutants --timeout 60 --build-timeout 300 --output target/mutation-contracts $(MUTATION_FLAGS)
 
 # Compare critical Rust modules with the base commit on the same toolchain.
 coverage-check:

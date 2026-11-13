@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 import ParakattCore
 import XCTest
 @testable import ParakattApp
@@ -10,6 +11,9 @@ private final class PreviewBridge: CoreBridge, @unchecked Sendable {
     let release = DispatchSemaphore(value: 0)
     @Locked var block = false
     @Locked var failFirst = false
+    @Locked var finishing = false
+    @Locked var failFinish = false
+    let releaseFinish = DispatchSemaphore(value: 0)
 
     var counts: (Int, Int) {
         lock.lock(); defer { lock.unlock() }
@@ -17,6 +21,22 @@ private final class PreviewBridge: CoreBridge, @unchecked Sendable {
     }
     override func isModelLoaded() -> Bool { true }
     override func streamingPreviewEnabled() -> Bool { true }
+    override func startSession(sessionId: String, source: String = "meeting", mode: String = "dictation") throws {}
+    override func processChunk(sessionId: String, audioSamples: [Float], sampleRate: UInt32,
+                               chunkIndex: UInt32, chunkOverlapSecs: Double = 0,
+                               mode: String, context: AppContextInfo?) throws -> ChunkResult {
+        ChunkResult(text: "Recognized words", chunkIndex: chunkIndex, segments: [], chunkOffsetSecs: 0, llmError: nil)
+    }
+    override func getSessionText(sessionId: String) throws -> String { "Recognized words" }
+    override func finishSession(sessionId: String, mode: String, context: AppContextInfo?,
+                                source: String? = nil) throws -> TranscriptionResult {
+        finishing = true
+        guard releaseFinish.wait(timeout: .now() + 5) == .success else {
+            throw NSError(domain: "FinishTimeout", code: 1)
+        }
+        if failFinish { throw NSError(domain: "FinishFailed", code: 1) }
+        return TranscriptionResult(text: "Final words.", durationSecs: 1, providerName: "fixture", segments: [], llmError: nil)
+    }
     override func bufferedPreviewStart(sessionId: String) throws {}
     override func bufferedPreviewFinish(sessionId: String) throws -> String {
         lock.lock(); finishes += 1; lock.unlock()
@@ -68,6 +88,63 @@ final class BufferedPreviewSchedulingTests: XCTestCase {
         try await waitUntil { !state.latencyFixturePreviewInFlight }
         XCTAssertEqual(bridge.counts.0, 2)
         XCTAssertEqual(state.livePreviewTentative, "preview words")
+    }
+
+    @MainActor
+    func testShortRecordingKeepsRecognizedTextDuringSlowCleanupThenShowsFinalText() async throws {
+        let (state, bridge, _, cleanup) = try fixture()
+        defer { bridge.releaseFinish.signal(); state.shutdown(); cleanup() }
+        try state.prepareRecordingLatencyFixture(samples: Array(repeating: 0.3, count: 16000), preview: false, incremental: false)
+        state.liveTranscription = "Preview words"
+        state.livePreviewCommitted = "Stale preview"
+        state.stopRecording()
+        XCTAssertEqual(state.liveTranscription, "Preview words")
+        try await waitUntil { bridge.finishing && state.liveTranscription == "Recognized words" }
+        XCTAssertTrue(state.isProcessing)
+        bridge.releaseFinish.signal()
+        try await waitUntil { !state.isProcessing }
+        XCTAssertEqual(state.liveTranscription, "Final words.")
+        XCTAssertEqual(state.lastTranscription, "Final words.")
+    }
+
+    @MainActor
+    func testIncrementalFinishRetainsTextOnSuccessAndFailure() async throws {
+        for fail in [false, true] {
+            let (state, bridge, _, cleanup) = try fixture()
+            defer { bridge.releaseFinish.signal(); state.shutdown(); cleanup() }
+            bridge.failFinish = fail
+            try state.prepareRecordingLatencyFixture(samples: Array(repeating: 0.3, count: 16000), preview: false, incremental: true)
+            state.liveTranscription = "Preview words"
+            state.stopRecording()
+            try await waitUntil { bridge.finishing }
+            XCTAssertTrue(state.isProcessing)
+            let retainedText = state.liveTranscription
+            XCTAssertFalse(retainedText?.isEmpty ?? true)
+            bridge.releaseFinish.signal()
+            try await waitUntil { !state.isProcessing }
+            XCTAssertEqual(state.liveTranscription, fail ? retainedText : "Final words.")
+            XCTAssertEqual(state.errorMessage != nil, fail)
+        }
+    }
+
+    @MainActor
+    func testStopKeepsOverlayActiveDuringDrainAndPreservesPreviewOnFailure() async throws {
+        let (state, _, _, cleanup) = try fixture()
+        defer { state.shutdown(); cleanup() }
+        try state.prepareRecordingLatencyFixture(samples: [], preview: false, incremental: false)
+        state.liveTranscription = "Keep these preview words"
+        var visibility: [Bool] = []
+        let observation = state.recording.$isRecording.combineLatest(state.recording.$isProcessing)
+            .sink { visibility.append($0 || $1) }
+        defer { observation.cancel() }
+        state.stopRecording()
+        XCTAssertTrue(state.isProcessing)
+        XCTAssertTrue(state.latencyFixtureDraining)
+        XCTAssertFalse(visibility.contains(false), "Stop must not publish a hidden phase before finishing")
+        XCTAssertEqual(state.liveTranscription, "Keep these preview words")
+        try await waitUntil { !state.isProcessing }
+        XCTAssertNotNil(state.errorMessage)
+        XCTAssertEqual(state.liveTranscription, "Keep these preview words")
     }
 
     @MainActor

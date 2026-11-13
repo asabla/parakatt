@@ -53,6 +53,7 @@ class MenuBarManager: NSObject {
     private var statusMenuItem: NSMenuItem!
     private var lastTranscriptionMenuItem: NSMenuItem!
     private var modeMenuItems: [String: NSMenuItem] = [:]
+    private var processingModeMenu: NSMenu?
     private var deviceMenu: NSMenu?
     private var selectedDeviceUID: String?  // nil = system default
     private var audioSourceMenu: NSMenu?
@@ -107,15 +108,11 @@ class MenuBarManager: NSObject {
 
         // Mode submenu
         let modeMenu = NSMenu()
-        for mode in ["Dictation", "Clean", "Email", "Code"] {
-            let item = NSMenuItem(title: mode, action: #selector(selectMode(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = mode.lowercased()
-            modeMenuItems[mode.lowercased()] = item
-            modeMenu.addItem(item)
-        }
-        modeMenuItems["dictation"]?.state = .on
-        let modeMenuItem = NSMenuItem(title: "Mode", action: nil, keyEquivalent: "")
+        processingModeMenu = modeMenu
+        modeMenu.autoenablesItems = false
+        modeMenu.delegate = self
+        rebuildModeMenu()
+        let modeMenuItem = NSMenuItem(title: "Text cleanup", action: nil, keyEquivalent: "")
         modeMenuItem.submenu = modeMenu
         menu.addItem(modeMenuItem)
 
@@ -296,6 +293,23 @@ class MenuBarManager: NSObject {
     }
 
     // MARK: - Icon
+
+    private func rebuildModeMenu() {
+        guard let menu = processingModeMenu else { return }
+        menu.removeAllItems()
+        modeMenuItems = [:]
+        let saved = appState.listModes().map(\.name)
+        let names = saved.isEmpty ? ["dictation", "punctuation", "clean", "email", "code"] : saved
+        for mode in names {
+            let item = NSMenuItem(title: TextProcessingPresentation.selectionTitle(mode), action: #selector(selectMode(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = mode
+            item.state = appState.activeMode == mode ? .on : .off
+            item.isEnabled = mode == "dictation" || !appState.appliedLlmProvider.isEmpty
+            modeMenuItems[mode] = item
+            menu.addItem(item)
+        }
+    }
 
     private func setIcon(_ state: IconState) {
         guard let button = statusItem.button else { return }
@@ -584,7 +598,9 @@ class MenuBarManager: NSObject {
 
 extension MenuBarManager: NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
-        if menu === deviceMenu {
+        if menu === processingModeMenu {
+            rebuildModeMenu()
+        } else if menu === deviceMenu {
             rebuildDeviceMenu()
         } else if menu === audioSourceMenu {
             rebuildAudioSourceMenu()
