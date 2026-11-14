@@ -152,6 +152,14 @@ class AuthenticationBoundaryTests(unittest.TestCase):
         self.auth().sign_out("two")
         self.client.remove_account.assert_called_once_with(account)
 
+    def test_device_prompt_always_includes_the_code_when_provider_message_is_missing(self):
+        self.client.initiate_device_flow.return_value = {"user_code": "TEST-CODE"}
+        self.client.acquire_token_by_device_flow.return_value = {"access_token": "private-token"}
+        prompts = []
+        self.auth().token(announce=prompts.append)
+        self.assertIn("TEST-CODE", prompts[0].message)
+        self.assertIn("https://microsoft.com/devicelogin", prompts[0].message)
+
 
 class SourceDiscoveryTests(unittest.TestCase):
     def test_graph_pagination_stays_in_the_selected_collection(self):
