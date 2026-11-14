@@ -10,58 +10,21 @@ from pathlib import Path
 from .backend import Backend, Paths
 from .meeting_notes import render_minutes
 from .providers import (
-    MAX_BYTES,
     ProviderError,
     slack_speaker_names,
     slack_transcript,
     teams_transcript,
 )
+from .transcript_service import read_transcript
 
 
 def teams_token(client_id, tenant, announce=print):
-    """Delegated device sign-in. Refresh/access tokens stay in the OS keyring."""
-    import msal
-    from keyring.backends.SecretService import Keyring
+    """Use the same delegated sign-in and keyring cache as the desktop."""
+    from .authentication import TeamsAuthentication
 
-    if not client_id or not tenant or not all(c.isalnum() or c in ".-" for c in tenant):
-        raise ProviderError("Set an Entra public-client app ID and a valid tenant ID/domain")
-    store = Keyring()
-    account = f"teams:{tenant}:{client_id}"
-    cache = msal.SerializableTokenCache()
-    saved = store.get_password("parakatt-integrations", account)
-    if saved:
-        cache.deserialize(saved)
-    application = msal.PublicClientApplication(
-        client_id, authority=f"https://login.microsoftonline.com/{tenant}", token_cache=cache
+    return TeamsAuthentication(client_id, tenant).token(
+        announce=lambda prompt: announce(prompt.message)
     )
-    scopes = ["https://graph.microsoft.com/OnlineMeetingTranscript.Read.All"]
-    accounts = application.get_accounts()
-    if len(accounts) > 1:
-        raise ProviderError(
-            "More than one account is cached; clear this integration's keyring entry and sign in to the intended account"
-        )
-    result = application.acquire_token_silent(scopes, account=accounts[0]) if accounts else None
-    if not result or "access_token" not in result:
-        flow = application.initiate_device_flow(scopes=scopes)
-        if "user_code" not in flow:
-            raise ProviderError(
-                "Cannot start sign-in. Verify the app registration supports public-client device authorization"
-            )
-        announce(flow["message"])
-        result = application.acquire_token_by_device_flow(flow)
-    if "access_token" not in result:
-        raise ProviderError("Sign-in was rejected, canceled, or requires administrator consent")
-    if cache.has_state_changed:
-        store.set_password("parakatt-integrations", account, cache.serialize())
-    return result["access_token"]
-
-
-def read_transcript(path):
-    with path.open("rb") as stream:
-        content = stream.read(MAX_BYTES + 1)
-    if len(content) > MAX_BYTES:
-        raise ValueError("Transcript exceeds 8 MiB")
-    return content.decode("utf-8-sig")
 
 
 def main(argv=None):
