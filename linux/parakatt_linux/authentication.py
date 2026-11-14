@@ -139,7 +139,7 @@ class TeamsAuthentication:
                     "Cannot start sign-in; check public-client device authorization in the app registration"
                 )
             raw_url = flow.get("verification_uri", "https://microsoft.com/devicelogin")
-            message = flow.get("message", "Open the Microsoft sign-in page and enter the code.")
+            message = flow.get("message")
             if (
                 not isinstance(raw_url, str)
                 or urlsplit(raw_url).scheme != "https"
@@ -152,7 +152,9 @@ class TeamsAuthentication:
                     DevicePrompt(
                         code,
                         raw_url,
-                        message if isinstance(message, str) else "Enter the code to sign in.",
+                        message
+                        if isinstance(message, str) and message
+                        else f"Open {raw_url} and enter {code} to sign in.",
                     )
                 )
             finished = threading.Event()
