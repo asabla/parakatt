@@ -50,7 +50,9 @@ This creates a per-user launcher pointing at the project's virtual environment; 
 | Meetings | Separate transcription window, pause/resume and discard, selected microphone plus output monitor, optional **Me** / **Speaker 1** source labels |
 | History | Split list/detail window, All/Notes/Meetings/Videos filters, full-text search, pagination, in-transcript find, editable processed text, recognized timeline, undo and retries |
 | Export | Text, Markdown, SRT, and WebVTT; subtitle timing comes from recognized segments |
-| Settings | Dashboard, General, Models, LLM, Dictionary and Statistics tabs; devices, processing modes, clipboard/overlay behavior, recovery and retention; profiles in Tools |
+| Settings | Dashboard, General, Models, LLM, Dictionary and Statistics tabs; validated dictionary/mode editors; grouped model and provider settings; devices, clipboard/overlay behavior and retention |
+| Transcript imports | File preview, Teams account/transcript selection, Slack workspace/source selection; save only after explicit Import |
+| Tools | Backups & profiles, Recovery with empty/selection states, and Diagnostics with optional technical details |
 | Credentials | Provider-specific keys in Secret Service / GNOME Keyring; no plaintext fallback. Verified migration of legacy keys |
 | Media | Local audio/video, multiple audio tracks, direct/YouTube links through yt-dlp, durable chunk checkpoints, pause/resume, source fingerprint checks |
 | Playback | Qt multimedia plays the original source, with seeking, volume, speed, and sentence-to-time navigation |

@@ -75,7 +75,10 @@ from .desktop_widgets import (
     icon,
     source_label,
 )
+from .panels import models_panel, populate_models, tools_panel
 from .settings import Settings
+from .transcript_dialog import TranscriptImportDialog
+from .transcript_service import CommittedTranscript
 
 
 class Events(QObject):
@@ -105,6 +108,7 @@ class Window(QMainWindow):
         self.pool.setMaxThreadCount(2)
         self.recording = None
         self.importer = None
+        self.transcript_dialog = None
         self.selected = None
         self.history_offset = 0
         self.history_generation = 0
@@ -534,55 +538,31 @@ class Window(QMainWindow):
         page.hide()
 
     def setup_models(self):
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        self.models = QListWidget()
-        layout.addWidget(self.models)
-        self.download_status = QLabel()
-        layout.addWidget(self.download_status)
-        row = QHBoxLayout()
-        button("Download / repair", self.download_model, row)
-        button("Cancel download", self.core.cancel_download, row)
-        button("Load speech model", lambda: self.task(self.backend.load_model, "model_loaded"), row)
-        button("Delete model", self.delete_model, row)
-        layout.addLayout(row)
+        page = models_panel(self)
         self.panels["models"] = page
         page.setParent(self)
         page.hide()
 
     def setup_tools(self):
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        row = QHBoxLayout()
-        button("Export database…", lambda: self.database(False), row)
-        button("Restore database…", lambda: self.database(True), row)
-        button("Test LLM", lambda: self.task(self.core.test_llm_pipeline, "diagnostic"), row)
-        button(
-            "Run retention cleanup",
-            lambda: self.task(self.core.run_retention_cleanup, "refresh"),
-            row,
-        )
-        layout.addLayout(row)
-        row = QHBoxLayout()
-        button("Save settings profile…", self.save_profile, row)
-        button("Load settings profile…", self.load_profile, row)
-        button("Delete settings profile…", self.delete_profile, row)
-        layout.addLayout(row)
-        layout.addWidget(QLabel("Interrupted recordings"))
-        self.drafts = QListWidget()
-        layout.addWidget(self.drafts)
-        row = QHBoxLayout()
-        button("Recover committed text", lambda: self.recover(False), row)
-        button("Recover saved audio", lambda: self.recover(True), row)
-        button("Discard draft", self.discard_draft, row)
-        layout.addLayout(row)
-        self.diagnostic = QTextEdit()
-        self.diagnostic.setReadOnly(True)
-        self.diagnostic.setPlainText(json.dumps(diagnostics(), indent=2))
-        layout.addWidget(self.diagnostic)
+        page = tools_panel(self)
         self.panels["tools"] = page
         page.setParent(self)
         page.hide()
+
+    def model_selection_changed(self, item, _previous):
+        model = item.data(Qt.ItemDataRole.UserRole + 1) if item else None
+        self.download_button.setEnabled(model is not None)
+        self.delete_model_button.setEnabled(model is not None and model.downloaded)
+        self.load_button.setEnabled(
+            model is not None and model.downloaded and model.provider_type == "parakeet"
+        )
+        self.model_description.setText(
+            "Main speech recognition model. Audio is processed locally on the CPU."
+            if model is not None and model.provider_type == "parakeet"
+            else "Streaming preview model. Select it in Settings → Models after downloading."
+            if model is not None
+            else "Select a model to see its purpose and available actions."
+        )
 
     def show_window(self):
         self.showNormal()
@@ -778,6 +758,7 @@ class Window(QMainWindow):
             self.refresh_history()
             self.refresh_recovery()
         elif kind == "diagnostic":
+            self.diagnostic_details.setChecked(True)
             self.diagnostic.setPlainText(
                 "\n".join(
                     f"{name}: {getattr(value, name)}"
@@ -805,9 +786,23 @@ class Window(QMainWindow):
 
     def poll(self):
         progress = self.core.get_download_progress()
-        self.download_status.setText(
-            f"{progress.current_file}  {progress.bytes_downloaded / 1000000:.1f} / {progress.bytes_total / 1000000:.1f} MB  {progress.state}"
-        )
+        downloading = progress.state.is_DOWNLOADING()
+        self.cancel_download_button.setEnabled(downloading)
+        self.download_button.setEnabled(not downloading and self.models.currentItem() is not None)
+        if downloading:
+            status = (
+                f"{progress.current_file} · {progress.bytes_downloaded / 1000000:.1f} / "
+                f"{progress.bytes_total / 1000000:.1f} MB"
+            )
+        elif progress.state.is_COMPLETED():
+            status = "Download complete."
+        elif progress.state.is_FAILED():
+            status = f"Download failed: {progress.state.message}"
+        elif progress.state.is_CANCELLED():
+            status = "Download canceled. Choose Download / repair to try again."
+        else:
+            status = "No download in progress."
+        self.download_status.setText(status)
         if (
             progress.state.is_COMPLETED()
             and getattr(self, "last_download", None) != progress.model_id
@@ -1252,34 +1247,29 @@ class Window(QMainWindow):
         return self.core.get_import_job(item.data(Qt.ItemDataRole.UserRole)) if item else None
 
     def import_transcript(self):
-        path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Import Teams or Slack Huddle transcript",
-            "",
-            "Teams WebVTT (*.vtt);;Slack Huddle JSON (*.json)",
-        )
-        if not path:
+        if self.transcript_dialog is not None and self.transcript_dialog.isVisible():
+            self.transcript_dialog.raise_()
             return
+        self.transcript_dialog = TranscriptImportDialog(self.backend, self)
+        self.transcript_dialog.imported.connect(self.transcript_committed)
+        self.transcript_dialog.show()
 
-        def ingest():
-            from .import_cli import read_transcript
-
-            source = Path(path)
-            provider = (
-                self.backend.api.TranscriptProvider.SLACK
-                if source.suffix.lower() == ".json"
-                else self.backend.api.TranscriptProvider.TEAMS
-            )
-            return self.core.import_transcript(
-                self.backend.api.TranscriptImportRequest(
-                    provider=provider,
-                    source_id=None,
-                    title=source.stem,
-                    content=read_transcript(source),
-                )
-            )
-
-        self.task(ingest, "transcript_imported")
+    def transcript_committed(self, value):
+        if not isinstance(value, CommittedTranscript):
+            return
+        self.selected = value.result.id
+        self.filters.setCurrentIndex(0)
+        self.search.clear()
+        self.refresh_history()
+        self.show_window()
+        message = (
+            "Transcript imported"
+            if value.result.created
+            else "Transcript already exists; existing edits and speaker corrections retained"
+        )
+        if value.warnings:
+            message += ". " + "; ".join(value.warnings)
+        self.statusBar().showMessage(message)
 
     def import_file(self):
         if self.importer:
@@ -1391,13 +1381,7 @@ class Window(QMainWindow):
         self.task(self.core.list_models, "models")
 
     def populate_models(self, models):
-        self.models.clear()
-        for model in models:
-            item = QListWidgetItem(
-                f"{model.display_name} — {'installed' if model.downloaded else 'not installed'} — {model.size_bytes / 1e9:.2f} GB"
-            )
-            item.setData(Qt.ItemDataRole.UserRole, model.id)
-            self.models.addItem(item)
+        populate_models(self, models)
 
     def download_model(self):
         item = self.models.currentItem()
@@ -1480,7 +1464,15 @@ class Window(QMainWindow):
 
     def refresh_recovery(self):
         self.drafts.clear()
-        for draft in self.core.list_recording_drafts():
+        drafts = self.core.list_recording_drafts()
+        self.draft_status.setText(
+            "Select a draft to recover its committed text or retained audio."
+            if drafts
+            else "No interrupted recordings to recover."
+        )
+        self.recovery_stack.setCurrentIndex(1 if drafts else 0)
+        self.draft_status.setVisible(bool(drafts))
+        for draft in drafts:
             item = QListWidgetItem(
                 f"{draft.created_at} · {draft.source} · {draft.chunk_count} chunks · {draft.recognized_text[:80]}"
             )
@@ -1518,6 +1510,8 @@ class Window(QMainWindow):
 
     def quit(self):
         self.quitting = True
+        if self.transcript_dialog is not None:
+            self.transcript_dialog.reject()
         self.centralWidget().setEnabled(False)
         if self.recording:
             self.recording.stop()

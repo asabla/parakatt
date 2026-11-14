@@ -1,6 +1,7 @@
 """Platform services; the shared Rust engine remains the source of truth."""
 
-import ctypes
+from __future__ import annotations
+
 import hashlib
 import json
 import math
@@ -15,10 +16,24 @@ import threading
 import time
 import uuid
 from array import array
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
 
-from .preferences import load_preferences, save_preferences
+from .credentials import secret_service
+from .native import NativeAPI
+from .preferences import Preferences, load_preferences, save_preferences
+from .providers import object_fields
+from .worker_events import ImportState, Notify, RecordingState
+
+if TYPE_CHECKING:
+    from ._native.parakatt_core import (
+        ChunkSource,
+        ImportJob,
+        StoredTranscription,
+        TimestampedSegment,
+    )
 
 MODEL = "parakeet-tdt-0.6b-v3"
 RATE = 16000
@@ -31,7 +46,7 @@ class Paths:
     models: Path
 
     @classmethod
-    def discover(cls, models: Path | str | None = None, data: Path | str | None = None) -> "Paths":
+    def discover(cls, models: Path | str | None = None, data: Path | str | None = None) -> Paths:
         home = Path.home()
         root = (
             Path(data)
@@ -46,19 +61,20 @@ class Paths:
         return cls(root, config, Path(models) if models else root / "models")
 
 
-def native_module():
-    directory = Path(__file__).parent / "_native"
-    # Resolve bundled ONNX before loading the UniFFI library, without changing
-    # the user's dynamic-loader settings or disabling library verification.
-    runtime = directory / "libonnxruntime.so.1"
-    if runtime.exists():
-        ctypes.CDLL(str(runtime), mode=ctypes.RTLD_GLOBAL)
-    try:
-        from ._native import parakatt_core
+def kill_if_running(process: subprocess.Popen[bytes]) -> None:
+    if process.poll() is None:
+        process.kill()
 
-        return parakatt_core
-    except ImportError as error:
-        raise RuntimeError("Build native bindings first: make linux-native") from error
+
+def join_reader(reader: threading.Thread) -> Callable[[], None]:
+    def join() -> None:
+        reader.join(timeout=6)
+
+    return join
+
+
+def native_module() -> NativeAPI:
+    return NativeAPI()
 
 
 def run_tool(arguments: list[str]) -> bytes:
@@ -90,10 +106,19 @@ def decode_samples(data: bytes) -> list[float]:
     return samples.tolist()
 
 
-def audio_sources():
+def audio_sources() -> list[tuple[str, str]]:
     """Use PulseAudio's compatibility API on both PipeWire and PulseAudio."""
-    output = run_tool(["pactl", "--format=json", "list", "sources"])
-    return [(s["name"], s.get("description", s["name"])) for s in json.loads(output)]
+    payload: object = json.loads(run_tool(["pactl", "--format=json", "list", "sources"]))
+    if not isinstance(payload, list):
+        raise RuntimeError("Audio service returned an invalid source list")
+    sources: list[tuple[str, str]] = []
+    for item in cast(list[object], payload):
+        fields = object_fields(item)
+        name, description = fields.get("name"), fields.get("description")
+        if not isinstance(name, str):
+            raise RuntimeError("Audio source is missing its name")
+        sources.append((name, description if isinstance(description, str) else name))
+    return sources
 
 
 def default_monitor() -> str:
@@ -112,16 +137,27 @@ def fingerprint(path: Path | str) -> str:
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
-def probe(path):
-    info = json.loads(
+def probe(path: Path | str) -> tuple[float, list[dict[object, object]]]:
+    payload: object = json.loads(
         run_tool(
             ["ffprobe", "-v", "error", "-show_format", "-show_streams", "-of", "json", str(path)]
         )
     )
-    tracks = [s for s in info["streams"] if s.get("codec_type") == "audio"]
+    info = object_fields(payload)
+    streams = info.get("streams")
+    if not isinstance(streams, list):
+        raise RuntimeError("Media probe returned no streams")
+    tracks = [
+        object_fields(stream)
+        for stream in cast(list[object], streams)
+        if object_fields(stream).get("codec_type") == "audio"
+    ]
     if not tracks:
         raise RuntimeError("The source has no audio track")
-    duration = float(info["format"].get("duration", 0))
+    raw_duration = object_fields(info.get("format")).get("duration", 0)
+    if isinstance(raw_duration, bool) or not isinstance(raw_duration, (str, int, float)):
+        raise RuntimeError("Media duration is invalid")
+    duration = float(raw_duration)
     if not 0 < duration < 60 * 60 * 24 * 7:
         raise RuntimeError("The source must have a finite duration of less than seven days")
     return duration, tracks
@@ -146,6 +182,7 @@ class Backend:
         self.capture_active = threading.Event()
         self.inference = threading.RLock()
         self.preferences_file = paths.config / "linux.json"
+        self.preferences: Preferences
         self.preferences, self.startup_warnings = load_preferences(self.preferences_file)
         try:
             self.restore_credentials()
@@ -158,9 +195,7 @@ class Backend:
         self.preferences = save_preferences(self.preferences_file, preferences)
 
     def restore_credentials(self) -> None:
-        from keyring.backends.SecretService import Keyring
-
-        store = Keyring()
+        store = secret_service()
         for credential in self.engine.legacy_credentials():
             store.set_password("parakatt", credential.account, credential.api_key)
             if store.get_password("parakatt", credential.account) != credential.api_key:
@@ -173,9 +208,7 @@ class Backend:
 
     def configure_llm(self, provider: str, url: str, model: str, key: str | None) -> None:
         if provider in ("openai", "anthropic"):
-            from keyring.backends.SecretService import Keyring
-
-            store = Keyring()
+            store = secret_service()
             # Require a functional desktop keyring rather than falling back to a file.
             account = self.engine.credential_account(provider)
             if key:
@@ -188,8 +221,10 @@ class Backend:
             if not self.engine.is_model_loaded():
                 self.engine.load_model(MODEL)
 
-    def history(self, search: str = "", offset: int = 0, category: str | None = None):
-        def page(start):
+    def history(
+        self, search: str = "", offset: int = 0, category: str | None = None
+    ) -> list[StoredTranscription]:
+        def page(start: int) -> list[StoredTranscription]:
             return self.engine.list_transcriptions(
                 self.api.TranscriptionQuery(
                     search_text=search or None, source_filter=None, limit=100, offset=start
@@ -200,7 +235,8 @@ class Backend:
             return page(offset)
         # Imported Teams/Slack transcripts belong to Meetings. Scan stored pages
         # before slicing so filtered pagination cannot skip matching records.
-        matches, start = [], 0
+        matches: list[StoredTranscription] = []
+        start = 0
         while len(matches) < offset + 100:
             rows = page(start)
             for row in rows:
@@ -222,7 +258,7 @@ class Backend:
 class Recording:
     """Bounded capture queue and one inference worker, with explicit gap reporting."""
 
-    def __init__(self, backend, meeting, mode, notify):
+    def __init__(self, backend: Backend, meeting: bool, mode: str, notify: Notify) -> None:
         self.backend, self.meeting, self.mode, self.notify = backend, meeting, mode, notify
         self.id = str(uuid.uuid4())
         self.stop_event = threading.Event()
@@ -230,22 +266,60 @@ class Recording:
         self.discard_event = threading.Event()
         self.ready = threading.Event()
         self.clock_lock = threading.Lock()
-        self.started_at = None
-        self.stopped_at = None
-        self.paused_at = None
+        self.state_lock = threading.Lock()
+        self.state = RecordingState.NEW
+        self.started_at: float | None = None
+        self.stopped_at: float | None = None
+        self.paused_at: float | None = None
         self.paused_seconds = 0.0
-        self.chunks = queue.Queue(maxsize=8)
-        self.processes = []
-        self.readers = []
-        self.error = None
-        self.preview = None
+        self.chunks: queue.Queue[tuple[ChunkSource, int, list[float]]] = queue.Queue(maxsize=8)
+        self.processes: list[subprocess.Popen[bytes]] = []
+        self.readers: list[threading.Thread] = []
+        self.error: str | None = None
+        self.preview: Preview | None = None
         self.thread = threading.Thread(target=self._run, daemon=True)
 
-    def start(self):
+    def _transition(self, state: RecordingState) -> None:
+        allowed = {
+            RecordingState.NEW: {
+                RecordingState.PREPARING,
+                RecordingState.FINISHING,
+                RecordingState.FAILED,
+            },
+            RecordingState.PREPARING: {
+                RecordingState.RECORDING,
+                RecordingState.FINISHING,
+                RecordingState.FAILED,
+            },
+            RecordingState.RECORDING: {
+                RecordingState.PAUSED,
+                RecordingState.FINISHING,
+                RecordingState.FAILED,
+            },
+            RecordingState.PAUSED: {
+                RecordingState.RECORDING,
+                RecordingState.FINISHING,
+                RecordingState.FAILED,
+            },
+            RecordingState.FINISHING: {
+                RecordingState.COMPLETED,
+                RecordingState.DISCARDED,
+                RecordingState.FAILED,
+            },
+        }
+        with self.state_lock:
+            if state not in allowed.get(self.state, set()):
+                return
+            self.state = state
+        self.notify("recording_state", state)
+
+    def start(self) -> None:
+        self._transition(RecordingState.PREPARING)
         self.backend.capture_active.set()
         self.thread.start()
 
-    def set_paused(self, paused):
+    def set_paused(self, paused: bool) -> None:
+        target = None
         with self.clock_lock:
             if not self.ready.is_set() or self.stop_event.is_set():
                 return
@@ -253,12 +327,17 @@ class Recording:
             if paused and not self.pause_event.is_set():
                 self.paused_at = now
                 self.pause_event.set()
+                target = RecordingState.PAUSED
             elif not paused and self.pause_event.is_set():
-                self.paused_seconds += now - self.paused_at
+                if self.paused_at is not None:
+                    self.paused_seconds += now - self.paused_at
                 self.paused_at = None
                 self.pause_event.clear()
+                target = RecordingState.RECORDING
+        if target is not None:
+            self._transition(target)
 
-    def elapsed_seconds(self):
+    def elapsed_seconds(self) -> float:
         with self.clock_lock:
             if self.started_at is None:
                 return 0.0
@@ -266,23 +345,24 @@ class Recording:
             paused = (end - self.paused_at) if self.paused_at is not None else 0.0
             return max(0, end - self.started_at - self.paused_seconds - paused)
 
-    def discard(self):
+    def discard(self) -> None:
         self.discard_event.set()
         self.stop()
 
-    def stop(self):
+    def stop(self) -> None:
         with self.clock_lock:
             if self.stopped_at is None:
                 self.stopped_at = time.monotonic()
             self.stop_event.set()
+        self._transition(RecordingState.FINISHING)
         for process in list(self.processes):
             if process.poll() is None:
                 process.send_signal(signal.SIGINT)
-                timer = threading.Timer(3, lambda p=process: p.kill() if p.poll() is None else None)
+                timer = threading.Timer(3, kill_if_running, args=(process,))
                 timer.daemon = True
                 timer.start()
 
-    def _capture(self, source, kind):
+    def _capture(self, source: str, kind: ChunkSource) -> None:
         process = None
         try:
             with tempfile.TemporaryFile() as errors:
@@ -309,6 +389,8 @@ class Recording:
                     stderr=errors,
                 )
                 self.processes.append(process)
+                if process.stdout is None:
+                    raise RuntimeError("Audio capture has no output pipe")
                 # Stop may arrive while Popen is starting, before the process
                 # is visible to stop(). Recheck before draining its pipe.
                 if self.stop_event.is_set():
@@ -371,9 +453,10 @@ class Recording:
                 if process.poll() is None:
                     process.kill()
                     process.wait()
-                process.stdout.close()
+                if process.stdout is not None:
+                    process.stdout.close()
 
-    def _enqueue(self, kind, index, data):
+    def _enqueue(self, kind: ChunkSource, index: int, data: bytes) -> None:
         try:
             self.chunks.put_nowait((kind, index, decode_samples(data)))
         except queue.Full:
@@ -382,10 +465,12 @@ class Recording:
                 "Recognition cannot keep up; recording stopped. Committed text is retained in recovery."
             ) from None
 
-    def _run(self):
+    def _run(self) -> None:
         core = self.backend.engine
         started = False
         try:
+            if self.stop_event.is_set():
+                return
             self.backend.load_model()
             if self.stop_event.is_set():
                 return
@@ -412,6 +497,7 @@ class Recording:
             with self.clock_lock:
                 self.started_at = time.monotonic()
             self.ready.set()
+            self._transition(RecordingState.RECORDING)
             for device, kind in streams:
                 thread = threading.Thread(target=self._capture, args=(device, kind), daemon=True)
                 self.readers.append(thread)
@@ -438,17 +524,19 @@ class Recording:
                 return
             if self.error:
                 raise RuntimeError(self.error)
+            self._transition(RecordingState.FINISHING)
             core.end_capture(self.id)
             result = core.finish_session(self.id, self.mode, None, source)
             self.notify("recorded", result)
         except Exception as error:
+            self._transition(RecordingState.FAILED)
             self.notify("error", str(error))
         finally:
-            failures = []
-            actions = [self.stop]
+            failures: list[str] = []
+            actions: list[Callable[[], None]] = [self.stop]
             if self.preview:
                 actions.append(self.preview.stop)
-            actions.extend(lambda reader=reader: reader.join(timeout=6) for reader in self.readers)
+            actions.extend(join_reader(reader) for reader in self.readers)
             if started:
                 actions.extend(
                     [lambda: core.end_capture(self.id), lambda: core.cancel_session(self.id)]
@@ -463,6 +551,11 @@ class Recording:
                         failures.append(str(error))
             finally:
                 self.backend.capture_active.clear()
+                self._transition(
+                    RecordingState.DISCARDED
+                    if self.discard_event.is_set()
+                    else RecordingState.COMPLETED
+                )
                 self.notify("recording_done", None)
             for failure in failures:
                 self.notify("error", f"Recording cleanup: {failure}")
@@ -471,10 +564,10 @@ class Recording:
 class Preview:
     """Best-effort previews never commit history or block the capture queue."""
 
-    def __init__(self, backend, session, notify):
+    def __init__(self, backend: Backend, session: str, notify: Notify) -> None:
         self.backend, self.session, self.notify = backend, session, notify
         self.id = session + "-preview"
-        self.pending = queue.Queue(maxsize=8)
+        self.pending: queue.Queue[tuple[int | None, bytes]] = queue.Queue(maxsize=8)
         self.stopped = threading.Event()
         self.thread = threading.Thread(target=self._run, daemon=True)
         self.streaming = False
@@ -482,7 +575,7 @@ class Preview:
         self.last_buffer_size = 0
         self.index = -1
 
-    def start(self):
+    def start(self) -> None:
         core = self.backend.engine
         selected = core.get_speech_settings().preview_model
         if selected:
@@ -499,7 +592,7 @@ class Preview:
             core.buffered_preview_start(self.id)
         self.thread.start()
 
-    def feed(self, data, index, snapshot):
+    def feed(self, data: bytes, index: int, snapshot: bytes) -> None:
         if self.streaming:
             self.buffer.extend(data)
             size = self.backend.engine.streaming_native_chunk_samples() * 4
@@ -515,7 +608,7 @@ class Preview:
                 self.last_buffer_size = len(snapshot)
                 self._put((index, snapshot))
 
-    def _put(self, item):
+    def _put(self, item: tuple[int | None, bytes]) -> None:
         try:
             self.pending.put_nowait(item)
         except queue.Full:
@@ -528,7 +621,7 @@ class Preview:
                     break
             self.pending.put_nowait((None, b""))
 
-    def _run(self):
+    def _run(self) -> None:
         core, previous = self.backend.engine, -1
         try:
             while not self.stopped.is_set():
@@ -558,7 +651,7 @@ class Preview:
             if not self.stopped.is_set():
                 self.notify("status", f"Preview stopped; final transcription continues: {error}")
 
-    def stop(self):
+    def stop(self) -> None:
         self.stopped.set()
         core = self.backend.engine
         if self.streaming:
@@ -569,21 +662,35 @@ class Preview:
 
 
 class Importer:
-    def __init__(self, backend, job, notify, browser=None):
+    def __init__(
+        self, backend: Backend, job: ImportJob, notify: Notify, browser: str | None = None
+    ) -> None:
         self.backend, self.job, self.notify = backend, job, notify
         self.pause_event = threading.Event()
         self.finished = threading.Event()
         self.thread = threading.Thread(target=self._run, daemon=True)
-        self.process = None
+        self.process: subprocess.Popen[bytes] | None = None
         self.browser = browser
+        self.state = ImportState.QUEUED
+        self.state_lock = threading.Lock()
 
-    def start(self):
+    def _transition(self, state: ImportState) -> None:
+        with self.state_lock:
+            if self.state in (ImportState.COMPLETED, ImportState.FAILED):
+                return
+            if self.state == state:
+                return
+            self.state = state
+        self.notify("import_state", state)
+
+    def start(self) -> None:
         self.thread.start()
 
-    def pause(self):
-        if self.finished.is_set():
+    def pause(self) -> None:
+        if self.finished.is_set() or self.state in (ImportState.COMPLETED, ImportState.FAILED):
             return
         self.pause_event.set()
+        self._transition(ImportState.PAUSING)
         try:
             self.backend.engine.set_import_state(
                 self.job.id, "paused", "Pausing; committed text retained"
@@ -592,7 +699,7 @@ class Importer:
             if self.process and self.process.poll() is None:
                 self.process.terminate()
 
-    def _download(self):
+    def _download(self) -> Path:
         directory = self.backend.paths.data / "media" / self.job.id
         directory.mkdir(parents=True, exist_ok=True)
         # yt-dlp also handles direct media URLs; no shell or user yt-dlp config.
@@ -624,13 +731,16 @@ class Importer:
             raise RuntimeError("Downloader did not produce a local media file")
         return path
 
-    def _run(self):
+    def _run(self) -> None:
         core = self.backend.engine
         try:
+            if self.pause_event.is_set():
+                return
             self.backend.load_model()
             path = Path(self.job.attachment.path or self.job.input)
             if not self.job.attachment.path and self.job.kind != "file":
-                core.set_import_state(self.job.id, "downloading", "Downloading media")
+                self._transition(ImportState.DOWNLOADING)
+                core.set_import_state(self.job.id, ImportState.DOWNLOADING, "Downloading media")
                 path = self._download()
             if self.pause_event.is_set():
                 return
@@ -648,7 +758,8 @@ class Importer:
                 duration_secs=duration,
             )
             self.job = core.attach_import_media(self.job.id, attachment)
-            self.job = core.set_import_state(self.job.id, "transcribing", "")
+            self._transition(ImportState.TRANSCRIBING)
+            self.job = core.set_import_state(self.job.id, ImportState.TRANSCRIBING, "")
             while self.job.processed_until + 0.001 < duration:
                 if self.pause_event.is_set():
                     return
@@ -696,19 +807,24 @@ class Importer:
             if fingerprint(path) != digest:
                 core.invalidate_import_source(self.job.id)
                 raise RuntimeError("The source changed during transcription")
-            core.set_import_state(self.job.id, "completed", "")
+            core.set_import_state(self.job.id, ImportState.COMPLETED, "")
+            self._transition(ImportState.COMPLETED)
             self.notify("status", "Import completed")
         except Exception as error:
             if not self.pause_event.is_set():
+                self._transition(ImportState.FAILED)
                 try:
-                    core.set_import_state(self.job.id, "failed", str(error))
+                    core.set_import_state(self.job.id, ImportState.FAILED, str(error))
                 except Exception as persistence_error:
                     self.notify("error", f"Cannot save import failure: {persistence_error}")
                 self.notify("error", str(error))
         finally:
             try:
                 if self.pause_event.is_set():
-                    core.set_import_state(self.job.id, "paused", "Paused; committed text retained")
+                    self._transition(ImportState.PAUSED)
+                    core.set_import_state(
+                        self.job.id, ImportState.PAUSED, "Paused; committed text retained"
+                    )
             except Exception as error:
                 self.notify("error", f"Cannot save paused import: {error}")
             finally:
@@ -716,8 +832,8 @@ class Importer:
                 self.notify("import_done", None)
 
 
-def subtitle_text(segments, webvtt=False):
-    def stamp(seconds):
+def subtitle_text(segments: Sequence[TimestampedSegment], webvtt: bool = False) -> str:
+    def stamp(seconds: float) -> str:
         milliseconds = max(0, round(seconds * 1000))
         hours, milliseconds = divmod(milliseconds, 3600000)
         minutes, milliseconds = divmod(milliseconds, 60000)
@@ -734,7 +850,7 @@ def subtitle_text(segments, webvtt=False):
     return "\n".join(blocks)
 
 
-def diagnostics():
+def diagnostics() -> dict[str, object]:
     return {
         "session": os.environ.get("XDG_SESSION_TYPE", "unknown"),
         "desktop": os.environ.get("XDG_CURRENT_DESKTOP", "unknown"),

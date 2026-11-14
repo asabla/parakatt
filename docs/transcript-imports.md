@@ -4,12 +4,12 @@ This implementation adds shared Rust ingestion and persistence for Teams meeting
 
 ## What is available
 
-- **macOS:** `Import Transcript…` in the existing menu opens a Teams `.vtt` or structured Slack Huddle `.json` file. It imports through the same Rust engine and opens history. This hook needs a macOS CI build/runtime check; it was not executable in the Linux workspace.
-- **Linux:** `Import transcript…` in Imports. History's More menu exposes speaker corrections and confirmed meeting actions. Markdown export includes source-attributed utterances, confirmed actions, supporting quotes, and saved edited notes.
+- **macOS:** `Import Transcript…` in the existing menu opens a Teams `.vtt` or structured Slack Huddle `.json` file. It imports through the same Rust engine and opens history. The macOS frontend is compiled and tested by CI; it cannot be exercised interactively in this Linux workspace.
+- **Linux:** `Import transcript…` in Imports opens File, Teams and Slack sources with an explicit preview and Import step. History's More menu exposes speaker corrections and confirmed meeting actions. Markdown export includes source-attributed utterances, confirmed actions, supporting quotes, and saved edited notes.
 - **Connector CLI:** `parakatt-import` supports file import, read-only Teams/Slack retrieval, reversible speaker corrections, explicit action items, and Markdown export. The connector commands are currently part of the Linux preview; macOS connected-account UI is not implemented.
 - **Shared engine:** bounded parsing, transactional insertion, original-content retention, duplicate detection, speaker aliases, and source-linked action storage. Backups retain this metadata.
 
-UI styling work remains paused until macOS references are available. These changes add functional entry points to the existing interfaces rather than introducing another visual design.
+The Linux interface follows the supplied macOS references. See [Linux interface review](linux-ux.md) for synthetic captures and reproduction commands.
 
 ## Installation and local use
 
@@ -37,7 +37,7 @@ Unknown rich-block/line variants fail explicitly. The adapter has not been verif
 
 ## Teams sign-in and permissions
 
-A Microsoft Entra app registration is required; no registration or administrator grant has been created automatically. Ask the administrator to register a public-client desktop application, enable the device authorization/public-client flow, and approve the delegated Microsoft Graph permission **OnlineMeetingTranscript.Read.All**. The connector requests only that Graph scope; MSAL manages the standard sign-in/cache scopes. Tenant policy can prohibit device authorization, transcript access, or speaker attribution independently.
+A Microsoft Entra app registration is required; no registration or administrator grant has been created automatically. Ask the administrator to register a public-client desktop application, enable the device authorization/public-client flow, and approve the delegated Microsoft Graph permission **OnlineMeetingTranscript.Read.All**. The transcript scope is required. In the desktop connection settings, optional meeting-link lookup additionally requests **OnlineMeetings.Read** to resolve a Teams join URL. Direct Graph meeting IDs do not require that optional scope. MSAL manages the standard sign-in/cache scopes. Tenant policy can prohibit device authorization, transcript access, or speaker attribution independently.
 
 This is a delegated work-account flow, not application-wide background access with a client secret. It does not request mail, chat history, calendar writes, meeting creation, or message sending. Microsoft determines which meetings the signed-in account may access. Tenant approval requirements and the scope's breadth should be reviewed before installation.
 
@@ -50,7 +50,9 @@ target/linux-venv/bin/parakatt-import teams \
 
 Follow the sign-in instructions shown in the terminal. The token cache is stored in Secret Service / GNOME Keyring, with no plaintext fallback. No client secret is accepted. Use the account that is authorized for the source; a cache containing multiple accounts is rejected rather than selecting one silently. The account/tenant-specific keyring entry can be removed to switch accounts.
 
-The current connector imports **one explicitly selected transcript**. It does not discover meetings through calendars or scrape Teams join URLs. Graph meeting IDs and transcript IDs must be supplied; `--user-id` can select the source organizer/user route where needed. A meeting join code/URL is not interchangeable with a Graph meeting ID. Automatic meeting discovery is a later feature requiring a separate permission/design decision.
+The desktop lists cached accounts and requires an explicit selection. Add a connection, sign in, enter a Graph meeting ID (or a Teams join URL with link lookup enabled), then choose **Find transcripts**. Select an available transcript and preview it before importing. The meeting-owner field defaults to `me`; use the authorized organizer/user route when needed. Sign out removes the selected account from that connection’s cache. No calendar discovery or attendee-based voice identification is performed.
+
+The CLI still requires explicit Graph meeting and transcript IDs; `--user-id` selects the source organizer/user route. Its cached multi-account case requires an explicit cache/account change rather than silently choosing one.
 
 Access-token injection through `PARAKATT_TEAMS_ACCESS_TOKEN` is available for a controlled integration runner. Never put tokens in command-line arguments, repository files, screenshots, or chat. Tenant transcript and speaker-attribution restrictions return actionable errors; the app does not manufacture missing names or work around the policy.
 
@@ -68,7 +70,9 @@ This retrieves `files.info`, reads an accessible Huddle transcription, or follow
 
 By default stable user IDs remain speaker labels. Optional `--resolve-names` requests name resolution through `users.info` and therefore needs **users:read** in addition to files access. Only user IDs and display names are retained from lookup responses; email/profile payloads are not stored. Manual speaker correction works without that optional scope. `PARAKATT_SLACK_ACCESS_TOKEN` supports controlled runners; ordinary desktop use should use the keyring.
 
-Slack installation/token provisioning is currently manual, not a browser OAuth wizard. Live access and end-to-end speaker mapping still need testing with your authorized workspace.
+In the desktop, add a Slack connection using the approved app token. Parakatt checks its workspace identity with `auth.test`, stores the token in the OS keyring, and lists accessible files advertising a Huddle transcription. You can filter by channel ID or enter a known Huddle file ID. Choose a source to preview its actual transcript. AI notes alone are not offered as verbatim transcripts. Source listing is bounded to 2,000 files per request; a known file ID can retrieve older sources.
+
+Slack installation/token provisioning is manual, not a browser OAuth wizard. Live access and end-to-end speaker mapping still need testing with your authorized workspace.
 
 ## Speaker corrections and office follow-up
 
@@ -96,7 +100,10 @@ This is a manual, verifiable follow-up workflow. Automatic action/decision extra
 - The worker signal no longer shadows `QObject.event`. Native bindings are imported directly so type tools can inspect their definitions.
 - Model enumeration/verification runs off the Linux GUI thread. Settings consume the resulting model catalog.
 - Ruff now checks import ordering, comprehensions, simplifications, async patterns, stale suppressions, and selected unsafe operations in addition to existing correctness checks.
-- Strict Pyright is enforced on preferences, provider transport, and minutes rendering. The rest of the older prototype still needs a staged typing pass; this is not a claim that the whole UI is strict-clean. No broad type-check suppressions were added to obtain a passing baseline.
+- Strict Pyright covers ten modules: preferences, provider transport, minutes rendering, the native adapter, worker events, capture/backend workers, credential storage, authentication, connection metadata and transcript services. Generated bindings retain their type information. Narrow protocols isolate untyped MSAL/keyring APIs; UI controllers still need a staged typing pass.
+- Recording and media import lifecycles use explicit enums. Event overloads check payload types, and callbacks run outside lifecycle locks.
+- Transcript preview calls the same shared Rust parser used by commit without loading a model or writing history. Import saves the reviewed content snapshot, preserving existing edits and speaker corrections on duplicate imports. Canceling source retrieval invalidates stale results.
+- Connection metadata is validated and atomically replaced with private permissions; tokens remain exclusively in the OS keyring. Provider discovery has bounded pagination, cancellation and same-origin checks.
 - Runtime dependencies have a complete hashed lockfile, and CI audits that set for published vulnerabilities. The selected MSAL release supports patched cryptography. The wheel build backend is pinned. Quality tools use a separate CI venv so they do not silently change application dependencies.
 - Dependency update proposals and optional commit hooks are configured. Runtime dependencies still need their lock regenerated and audit rerun when versions change; updates are not auto-merged.
 - The existing input fuzz harness now exercises both transcript parsers and checks accepted timestamp contracts.
@@ -114,4 +121,4 @@ make linux-test
 
 Regenerate runtime pins with `uv pip compile --python-version 3.12 --generate-hashes linux/pyproject.toml -o linux/requirements.lock`, then install with `--require-hashes`, audit, and test. Existing Rust/macOS quality gates remain enabled; this change does not claim that every proposed formatter/lint or every module has been migrated to a stricter baseline.
 
-Provider request tests use injected responses. Authentication tests mock the MSAL/keyring boundary; no real account was signed in. Swift import hooks and real tenant/workspace retrieval must be validated on the intended machines/accounts before release.
+Provider request tests use injected responses. Authentication tests mock the MSAL/keyring boundary; no real account was signed in. Real tenant/workspace retrieval and administrator consent still need validation with authorized accounts before release. No organization app registration, permission grant or live workspace connection has been created here.
