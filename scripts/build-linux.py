@@ -31,7 +31,7 @@ def runtime_environment():
         )
     cache = ROOT / "target/linux-runtime"
     cache.mkdir(parents=True, exist_ok=True)
-    archive = cache / "onnxruntime.tgz"
+    archive = cache / f"onnxruntime-{manifest['version']}.tgz"
     if not archive.exists():
         partial = archive.with_suffix(".part")
         with (
@@ -116,6 +116,10 @@ def main():
         candidates = sorted(Path(runtime).glob("libonnxruntime.so*"))
         if not candidates:
             candidates = sorted((Path(runtime) / "lib").glob("libonnxruntime.so*"))
+        if not candidates:
+            raise RuntimeError("The selected runtime contains no ONNX shared library")
+        for stale in destination.glob("libonnxruntime.so*"):
+            stale.unlink()
         for candidate in candidates:
             copy_artifact(candidate, candidate.name)
         for name, installed in (

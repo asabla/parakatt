@@ -36,8 +36,9 @@ jobs:
           echo "version=$(cat VERSION)" >> "$GITHUB_OUTPUT"
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@1.99.1
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
+          toolchain: "1.99.1"
           targets: aarch64-apple-darwin
           components: clippy, rustfmt
 
@@ -50,7 +51,6 @@ jobs:
         run: |
           brew install create-dmg
           ./scripts/install-xcodegen.sh
-          cargo install cargo-swift --version 0.11.1 --locked
 
       - name: Build Rust core
         run: make rust
@@ -95,7 +95,7 @@ jobs:
           cp dependency-advisories.json dist/dependency-advisories.json
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v3.0.3
+        uses: softprops/action-gh-release@v3.0.4
         with:
           body_path: RELEASE_NOTES.md
           fail_on_unmatched_files: true
