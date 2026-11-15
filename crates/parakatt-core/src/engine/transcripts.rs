@@ -5,6 +5,14 @@ use crate::transcript_import::{
 
 #[uniffi::export]
 impl Engine {
+    /// Validate and inspect a transcript without writing history or loading a model.
+    pub fn preview_transcript(
+        &self,
+        request: TranscriptImportRequest,
+    ) -> Result<Vec<TranscriptUtterance>, CoreError> {
+        crate::transcript_import::parse_transcript(&request)
+    }
+
     pub fn add_meeting_action(
         &self,
         id: String,

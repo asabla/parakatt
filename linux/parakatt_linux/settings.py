@@ -6,6 +6,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -14,11 +15,13 @@ from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QMessageBox,
     QScrollArea,
     QSpinBox,
+    QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -28,7 +31,8 @@ from PySide6.QtWidgets import (
 
 from .appearance import label as ui_label
 from .backend import audio_sources
-from .desktop_widgets import Switch, ask, button, icon
+from .desktop_widgets import Switch, ask, button, empty_state, icon
+from .editors import ModeEditor, RuleEditor
 
 
 def group_box():
@@ -274,10 +278,19 @@ class Settings(QDialog):
         for mode in self.original_modes.values():
             self.add_mode(mode)
         self.modes.setMinimumHeight(180)
-        self.modes.horizontalHeader().setStretchLastSection(True)
+        self.modes.verticalHeader().hide()
+        self.modes.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.modes.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.modes.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.modes.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        self.modes.setColumnWidth(0, 125)
+        self.modes.setColumnWidth(1, 120)
+        self.modes.setColumnWidth(3, 85)
+        self.modes.cellDoubleClicked.connect(lambda row, column: self.edit_mode(row))
         content.addWidget(self.modes)
         row = QHBoxLayout()
-        button("+ New mode", lambda: self.add_mode(), row)
+        button("+ New mode", lambda: self.edit_mode(), row)
+        button("Edit…", lambda: self.edit_mode(self.modes.currentRow()), row)
         button("Remove custom mode", self.remove_mode, row)
         row.addStretch()
         content.addLayout(row)
@@ -286,18 +299,36 @@ class Settings(QDialog):
         speech = QWidget()
         content = QVBoxLayout(speech)
         content.setContentsMargins(22, 24, 22, 24)
-        content.addWidget(ui_label("SPEECH MODELS", "eyebrow"))
+        content.setSpacing(18)
+        content.addWidget(ui_label("Speech models", "heading"))
+        content.addWidget(ui_label("Local recognition and optional streaming previews."))
         card, items = group_box()
-        items.addWidget(ui_label("parakeet-tdt-0.6b-v3", "section"))
-        items.addWidget(ui_label("On-device recognition · CPU inference on Linux"))
-        button("Manage downloads…", lambda: parent.open_panel("models", self), items)
+        row = QHBoxLayout()
+        row.addWidget(ui_label("parakeet-tdt-0.6b-v3", "section"), 1)
+        button("Manage downloads…", lambda: parent.open_panel("models", self), row)
+        items.addLayout(row)
+        self.model_availability = ui_label("")
+        items.addWidget(self.model_availability)
         content.addWidget(card)
+        card, items = group_box()
+        items.addWidget(ui_label("CPU performance", "section"))
         form = QFormLayout()
         selected = self.core.get_speech_settings()
         self.threads = QSpinBox()
         self.threads.setRange(0, 64)
         self.threads.setValue(selected.cpu_threads)
         self.threads.setSpecialValueText("Automatic")
+        form.addRow("CPU threads", self.threads)
+        items.addLayout(form)
+        helper = ui_label(
+            "Automatic lets the speech engine choose its thread count. Linux recognition runs on the CPU."
+        )
+        helper.setWordWrap(True)
+        items.addWidget(helper)
+        content.addWidget(card)
+        card, items = group_box()
+        items.addWidget(ui_label("Streaming preview", "section"))
+        form = QFormLayout()
         self.language = QComboBox()
         self.language.addItems(["Automatic", "English", "Swedish"])
         self.language.setCurrentIndex(
@@ -309,21 +340,38 @@ class Settings(QDialog):
         )
         self.preview = QComboBox()
         self.preview.addItem("Disabled", None)
-        for model in parent.model_catalog:
-            if model.provider_type == "nemotron-streaming":
-                self.preview.addItem(model.display_name, model.id)
-        if selected.preview_model and self.preview.findData(selected.preview_model) < 0:
+        if selected.preview_model:
             self.preview.addItem(selected.preview_model, selected.preview_model)
-        self.preview.setCurrentIndex(max(0, self.preview.findData(selected.preview_model)))
-        form.addRow("CPU threads", self.threads)
-        form.addRow("Preview language", self.language)
+            self.preview.setCurrentIndex(1)
+        self.update_model_catalog("models", parent.model_catalog)
+        parent.events.message.connect(self.update_model_catalog)
+        self.catalog_attached = True
+        self.catalog_events = parent.events
+        self.finished.connect(self.detach_catalog)
         form.addRow("Preview model", self.preview)
-        content.addLayout(form)
+        form.addRow("Preview language", self.language)
+        items.addLayout(form)
+        helper = ui_label(
+            "A preview model provides tentative text while recording. Final transcription still uses the main speech model."
+        )
+        helper.setWordWrap(True)
+        items.addWidget(helper)
+        content.addWidget(card)
         content.addStretch()
         tabs.addTab(speech, "Models")
 
         llm = QWidget()
-        form = QFormLayout(llm)
+        content = QVBoxLayout(llm)
+        content.setContentsMargins(22, 24, 22, 24)
+        content.setSpacing(18)
+        content.addWidget(ui_label("Text processing", "heading"))
+        notice = ui_label(
+            "Configure the provider used by processing modes. Saving settings does not send transcript text."
+        )
+        notice.setWordWrap(True)
+        content.addWidget(notice)
+        card, items = group_box()
+        form = QFormLayout()
         settings = self.core.get_llm_settings()
         self.provider = QComboBox()
         self.provider.addItems(["none", "ollama", "lmstudio", "openai", "anthropic"])
@@ -338,41 +386,100 @@ class Settings(QDialog):
         form.addRow("Provider", self.provider)
         form.addRow("Server URL", self.url)
         form.addRow("Model", self.model)
-        form.addRow("API key (desktop keyring)", self.key)
+        form.addRow("API key", self.key)
+        items.addLayout(form)
+        self.provider_hint = ui_label("")
+        self.provider_hint.setWordWrap(True)
+        items.addWidget(self.provider_hint)
+        content.addWidget(card)
+        card, items = group_box()
+        items.addWidget(ui_label("Context & output", "section"))
         self.context = QCheckBox("Use preceding recognized speech as context")
         self.context.setChecked(self.core.get_llm_context_enabled())
-        form.addRow(self.context)
+        items.addWidget(self.context)
         generation = self.core.get_generation_settings()
         self.tokens = QSpinBox()
         self.tokens.setRange(1, 1000000)
         self.tokens.setValue(generation.output_limit)
+        form = QFormLayout()
         form.addRow("Output token limit", self.tokens)
+        items.addLayout(form)
+        helper = ui_label(
+            "Remote providers receive the recognized text and any enabled context. Failed processing keeps the original text."
+        )
+        helper.setWordWrap(True)
+        items.addWidget(helper)
+        content.addWidget(card)
         self.provider.currentTextChanged.connect(self.provider_changed)
+        self.update_provider_hint(self.provider.currentText())
         notice = ui_label(
-            "Keys are stored in Secret Service / GNOME Keyring, never in settings files."
+            "API keys stay in Secret Service / GNOME Keyring, never in settings files."
         )
         notice.setWordWrap(True)
-        form.addRow(notice)
+        content.addWidget(notice)
+        content.addStretch()
         tabs.addTab(llm, "LLM")
 
         dictionary = QWidget()
         form = QVBoxLayout(dictionary)
-        notice = ui_label("Correct names and phrases. Patterns support regular expressions.")
+        form.setContentsMargins(18, 22, 18, 18)
+        form.setSpacing(12)
+        form.addWidget(ui_label("Dictionary", "heading"))
+        notice = ui_label(
+            "Correct names and phrases consistently. Double-click a rule to edit its pattern, replacement and scope."
+        )
         notice.setWordWrap(True)
         form.addWidget(notice)
+        row = QHBoxLayout()
+        self.rule_search = QLineEdit()
+        self.rule_search.setPlaceholderText("Find a rule")
+        self.rule_search.setClearButtonEnabled(True)
+        self.rule_search.textChanged.connect(self.filter_rules)
+        row.addWidget(self.rule_search, 1)
+        button("+ Add rule", lambda: self.edit_rule(), row).setProperty("role", "primary")
+        form.addLayout(row)
         self.rules = QTableWidget(0, 5)
         self.rules.setHorizontalHeaderLabels(
-            ["Pattern", "Replacement", "When", "Application / mode", "Enabled"]
+            ["Pattern", "Replacement", "Apply", "Context", "Enabled"]
         )
+        self.rules.verticalHeader().hide()
+        self.rules.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.rules.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.rules.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.rules.setAlternatingRowColors(True)
+        self.rules.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.rules.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.rules.setColumnWidth(2, 115)
+        self.rules.setColumnWidth(3, 125)
+        self.rules.setColumnWidth(4, 70)
+        self.rules.cellDoubleClicked.connect(lambda row, column: self.edit_rule(row))
         for rule in self.core.get_dictionary_rules():
             self.add_rule(rule)
-        self.rules.horizontalHeader().setStretchLastSection(True)
-        form.addWidget(self.rules)
+        self.rule_stack = QStackedWidget()
+        self.rule_stack.addWidget(
+            empty_state(
+                "Your dictionary is empty", "Add a correction for a name or phrase you use often."
+            )
+        )
+        self.rule_stack.addWidget(self.rules)
+        form.addWidget(self.rule_stack, 1)
+        self.rule_empty = ui_label(
+            "No rules yet. Add a correction for a name or phrase you use often."
+        )
+        self.rule_empty.setWordWrap(True)
+        form.addWidget(self.rule_empty)
         row = QHBoxLayout()
-        button("Add rule", lambda: self.add_rule(), row)
-        button("Remove rule", lambda: self.rules.removeRow(self.rules.currentRow()), row)
+        self.rule_count = ui_label("")
+        row.addWidget(self.rule_count)
         row.addStretch()
+        self.edit_rule_button = button(
+            "Edit…", lambda: self.edit_rule(self.rules.currentRow()), row
+        )
+        self.remove_rule_button = button("Remove", self.remove_rule, row)
+        self.rules.itemSelectionChanged.connect(self.rule_selection_changed)
         form.addLayout(row)
+        self.filter_rules()
+        self.rule_selection_changed()
         tabs.addTab(dictionary, "Dictionary")
 
         statistics = QWidget()
@@ -420,34 +527,166 @@ class Settings(QDialog):
             form.setContentsMargins(16, 18, 16, 14)
             form.setVerticalSpacing(14)
 
+    def update_model_catalog(self, kind, models):
+        if kind != "models":
+            return
+        selected = self.preview.currentData()
+        self.preview.clear()
+        self.preview.addItem("Disabled", None)
+        for model in models:
+            if model.provider_type == "nemotron-streaming":
+                self.preview.addItem(model.display_name, model.id)
+        if selected and self.preview.findData(selected) < 0:
+            self.preview.addItem(selected, selected)
+        self.preview.setCurrentIndex(max(0, self.preview.findData(selected)))
+        main = next((model for model in models if model.id == "parakeet-tdt-0.6b-v3"), None)
+        self.model_availability.setText(
+            "Downloaded · on-device CPU recognition"
+            if main is not None and main.downloaded
+            else "Download required before recording"
+            if main is not None
+            else "Checking model availability…"
+        )
+
+    def detach_catalog(self, _result):
+        if self.catalog_attached:
+            self.catalog_events.message.disconnect(self.update_model_catalog)
+            self.catalog_attached = False
+
+    def update_provider_hint(self, provider):
+        self.key.setEnabled(provider in ("openai", "anthropic"))
+        self.provider_hint.setText(
+            "No AI provider selected."
+            if provider == "none"
+            else "Text is sent to the configured server. Use a local server for local processing."
+            if provider in ("ollama", "lmstudio")
+            else "Recognized text is sent to this cloud provider when a processing mode uses it."
+        )
+
     def provider_changed(self, provider):
         settings = self.core.get_provider_settings(provider)
         self.url.setText(settings.base_url)
         self.model.setText(settings.model)
         self.key.clear()
+        self.update_provider_hint(provider)
 
     def add_rule(self, rule=None):
         row = self.rules.rowCount()
         self.rules.insertRow(row)
-        values = (
-            [rule.pattern, rule.replacement, rule.context_value or ""] if rule else ["", "", ""]
-        )
-        for column, value in zip([0, 1, 3], values, strict=True):
+        for column, value in zip(
+            [0, 1, 3],
+            [rule.pattern, rule.replacement, rule.context_value or ""] if rule else ["", "", ""],
+            strict=True,
+        ):
             self.rules.setItem(row, column, QTableWidgetItem(value))
-        context = QComboBox()
-        for label, value in [
-            ("Always", "always"),
-            ("In application", "in_app"),
-            ("In mode", "when_mode"),
-        ]:
-            context.addItem(label, value)
-        context.setCurrentIndex(max(0, context.findData(rule.context_type if rule else "always")))
-        self.rules.setCellWidget(row, 2, context)
+        context = rule.context_type if rule else "always"
+        item = QTableWidgetItem(
+            {"always": "Always", "in_app": "Application", "when_mode": "Processing mode"}[context]
+        )
+        item.setData(Qt.ItemDataRole.UserRole, context)
+        self.rules.setItem(row, 2, item)
         enabled = QTableWidgetItem()
         enabled.setCheckState(
             Qt.CheckState.Checked if rule is None or rule.enabled else Qt.CheckState.Unchecked
         )
         self.rules.setItem(row, 4, enabled)
+        if hasattr(self, "rule_count"):
+            self.filter_rules()
+
+    def edit_rule(self, row=None):
+        existing = row is not None and row >= 0
+        editor = RuleEditor(
+            self,
+            *(
+                [
+                    self.rules.item(row, 0).text(),
+                    self.rules.item(row, 1).text(),
+                    self.rules.item(row, 2).data(Qt.ItemDataRole.UserRole),
+                    self.rules.item(row, 3).text(),
+                    self.rules.item(row, 4).checkState() == Qt.CheckState.Checked,
+                ]
+                if existing
+                else []
+            ),
+        )
+        if editor.exec() != QDialog.DialogCode.Accepted:
+            return
+        rule = self.backend.api.ReplacementRule(
+            pattern=editor.pattern.text(),
+            replacement=editor.replacement.text(),
+            context_type=editor.context.currentData(),
+            context_value=editor.value.text().strip()
+            if editor.context.currentData() != "always"
+            else None,
+            enabled=editor.enabled.isChecked(),
+        )
+        if existing:
+            self.rules.removeRow(row)
+        self.add_rule(rule)
+        self.rules.setCurrentCell(self.rules.rowCount() - 1, 0)
+
+    def filter_rules(self, _text=""):
+        query = self.rule_search.text().casefold()
+        visible = 0
+        for row in range(self.rules.rowCount()):
+            match = any(
+                query in self.rules.item(row, column).text().casefold() for column in range(4)
+            )
+            self.rules.setRowHidden(row, not match)
+            visible += match
+        self.rule_count.setText(
+            f"{visible} of {self.rules.rowCount()} rules"
+            if query
+            else f"{self.rules.rowCount()} rules"
+        )
+        self.rule_stack.setCurrentIndex(1 if self.rules.rowCount() else 0)
+        self.rule_empty.setText("No rules match this search.")
+        self.rule_empty.setVisible(self.rules.rowCount() > 0 and visible == 0)
+
+    def rule_selection_changed(self):
+        selected = self.rules.currentRow() >= 0
+        self.edit_rule_button.setEnabled(selected)
+        self.remove_rule_button.setEnabled(selected)
+
+    def remove_rule(self):
+        self.rules.removeRow(self.rules.currentRow())
+        self.filter_rules()
+        self.rule_selection_changed()
+
+    def edit_mode(self, row=None):
+        existing = row is not None and row >= 0
+        editor = ModeEditor(
+            self,
+            *(
+                [
+                    self.modes.item(row, 0).text(),
+                    self.modes.item(row, 1).text(),
+                    self.modes.item(row, 2).text(),
+                    self.modes.item(row, 3).checkState() == Qt.CheckState.Checked,
+                ]
+                if existing
+                else []
+            ),
+        )
+        if editor.exec() != QDialog.DialogCode.Accepted:
+            return
+        if existing:
+            self.modes.item(row, 0).setText(editor.name.text().strip())
+            self.modes.item(row, 1).setText(editor.provider.currentData())
+            self.modes.item(row, 2).setText(editor.prompt.toPlainText())
+            self.modes.item(row, 3).setCheckState(
+                Qt.CheckState.Checked if editor.dictionary.isChecked() else Qt.CheckState.Unchecked
+            )
+        else:
+            self.add_mode(
+                self.backend.api.ModeConfig(
+                    name=editor.name.text().strip(),
+                    stt_provider=None,
+                    llm_provider=editor.provider.currentData() or None,
+                    system_prompt=editor.prompt.toPlainText() or None,
+                    dictionary_enabled=editor.dictionary.isChecked(),
+                )
+            )
 
     def add_mode(self, mode=None):
         row = self.modes.rowCount()
@@ -482,7 +721,7 @@ class Settings(QDialog):
             self.backend.api.ReplacementRule(
                 pattern=self.rules.item(row, 0).text(),
                 replacement=self.rules.item(row, 1).text(),
-                context_type=self.rules.cellWidget(row, 2).currentData(),
+                context_type=self.rules.item(row, 2).data(Qt.ItemDataRole.UserRole),
                 context_value=self.rules.item(row, 3).text() or None,
                 enabled=self.rules.item(row, 4).checkState() == Qt.CheckState.Checked,
             )

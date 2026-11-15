@@ -1,6 +1,6 @@
 # Quality and office-work review
 
-Implementation has started; see [current capabilities and integration setup](transcript-imports.md). Scope is confirmed as Teams meetings and Slack Huddles, with limited, explained administrator-approved work-account access. The audit below records the pre-implementation baseline.
+The review below is historical. The Linux follow-up now adds strict typing across the native adapter, capture/workers and connector services, preview-before-save imports with account/source selection, and focused utility/settings editors. Live tenant/workspace access remains unverified. See [current capabilities and integration setup](transcript-imports.md). Scope is confirmed as Teams meetings and Slack Huddles, with limited, explained administrator-approved work-account access. The audit below records the pre-implementation baseline.
 
 Reviewed 2026-11-10 against the current workspace, including the uncommitted Linux prototype. This is an audit and proposed implementation sequence, not a claim that the changes below are implemented. The macOS references have since been supplied; the Linux alignment is documented in [the UX review](linux-ux.md). No account was connected and no meeting data was accessed.
 
