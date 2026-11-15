@@ -21,5 +21,5 @@ repos:
         name: Strict Python boundary types
         entry: target/quality-venv/bin/pyright --project linux/pyrightconfig.json
         language: system
-        files: ^linux/parakatt_linux/(preferences|providers|meeting_notes)\.py$
+        files: ^linux/parakatt_linux/(preferences|providers|meeting_notes|native|worker_events|backend|credentials|authentication|connections|transcript_service)\.py$
         pass_filenames: false

@@ -46,3 +46,22 @@ QT_QPA_PLATFORM=offscreen PYTHONPATH=linux \
 The preview uses a temporary database and synthetic office conversations. Recording states are staged without opening audio devices; the meter remains at zero. These are actual Qt widget captures, without window-manager decorations. They demonstrate layout, not hardware recording or GNOME integration.
 
 Behavioral tests cover filtering/pagination, find and timeline navigation, edit persistence, settings tabs and saved unavailable devices, separate windows, chronological live segments, paused-audio exclusion, timer pause accounting, discard cleanup, and original-source video decoding/seeking. Real recognition uses an injected audio fixture. Actual GNOME Wayland focus, clipboard, global shortcuts, audio devices, output monitors and window placement still require a logged-in desktop check.
+
+
+## Follow-up workflows
+
+The utility views retain the same neutral dark surfaces, blue selection and compact system controls. Dictionary rules have a searchable list and a focused, shared-validator-backed editor. Processing modes use a multiline prompt editor. Models and LLM settings group related controls; the download window distinguishes the main recognizer from preview models and only enables relevant actions. Tools separates backups/profiles, recovery and diagnostics.
+
+Transcript imports now show a read-only preview with original source labels, timing and a complete selected passage before anything is saved. Teams has connection, account and transcript selection; Slack has workspace, accessible Huddle-source and known-file-ID selection. Permission descriptions appear during setup. These views do not infer speakers or connect an account automatically.
+
+[Workflow captures](images/linux-workflows/) include transcript preview, Teams/Slack source selection, connection setup, Dictionary and its editor, mode editor, Models/LLM settings, downloads, and all three Tools tabs. Account/source examples are synthetic and explicitly labeled; they demonstrate layout rather than live integration access.
+
+Reproduce after building the native bindings:
+
+```sh
+QT_QPA_PLATFORM=offscreen PYTHONPATH=linux \
+  target/linux-venv/bin/python -m parakatt_linux.preview_workflows \
+  --output target/linux-workflow-preview
+```
+
+The renderer uses a temporary database and sample office text. It does not authenticate, download models or open capture devices.

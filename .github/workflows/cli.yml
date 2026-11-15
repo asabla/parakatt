@@ -22,8 +22,9 @@ jobs:
       - uses: actions/checkout@v7.0.1
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@1.120.0
+        uses: dtolnay/rust-toolchain@9bd08f027b2fe39fa33325f9c2d201979b1cc076 # 1.120.0
         with:
+          toolchain: "1.99.1"
           components: clippy, rustfmt
 
       - name: Cache Rust
