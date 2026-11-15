@@ -23,7 +23,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"
 # against the pinned release during the STT overhaul. A silent minor/patch bump
 # could shift them and regress accuracy without any compile-time signal.
 parakeet-rs = { version = "=0.3.8", features = ["cpu"] }
-ort = { version = "=2.0.0-rc.13", default-features = false }
+ort = { version = "=2.0.0-rc.15", default-features = false }
 
 # HTTP client (for remote APIs, Ollama, LM Studio)
 reqwest = { version = "0.13.5", features = ["json", "blocking", "stream", "query"] }

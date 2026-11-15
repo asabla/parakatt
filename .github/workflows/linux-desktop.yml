@@ -44,8 +44,8 @@ jobs:
           target/linux-venv/bin/parakatt-desktop --diagnostics
       - name: Verify real Linux desktop recognition and persistence
         run: |
-          ORT_LIB_PATH="$PWD/target/linux-runtime/onnxruntime-linux-x64-1.28.0/lib" ORT_PREFER_DYNAMIC_LINK=1 \
-          LD_LIBRARY_PATH="$PWD/target/linux-runtime/onnxruntime-linux-x64-1.28.0/lib" \
+          ORT_LIB_PATH="$PWD/target/linux-runtime/onnxruntime-linux-x64-1.31.0/lib" ORT_PREFER_DYNAMIC_LINK=1 \
+          LD_LIBRARY_PATH="$PWD/target/linux-runtime/onnxruntime-linux-x64-1.31.0/lib" \
             cargo run --locked --release -p parakatt-core --example install_model -- target/linux-models parakeet-tdt-0.6b-v3
           python3 scripts/prepare-fixtures.py --languages en_us --count 1 --output target/linux-fixtures
           PARAKATT_TEST_MODELS="$PWD/target/linux-models" \

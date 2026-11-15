@@ -9,6 +9,8 @@ import shutil
 import subprocess
 import sys
 
+from native_runtime import verify_webgpu
+
 ROOT = Path(__file__).resolve().parents[1]
 TARGET = "aarch64-apple-darwin"
 
@@ -21,6 +23,8 @@ def fingerprint():
         ROOT / "rust-toolchain.toml",
         ROOT / "Makefile",
         Path(__file__),
+        ROOT / "scripts/native_runtime.py",
+        ROOT / "crates/parakatt-core/native-runtime-manifest.json",
     ]
     paths += sorted((ROOT / "crates").rglob("*.rs"))
     paths += sorted((ROOT / "vendor").rglob("*.rs"))
@@ -118,8 +122,7 @@ def main():
         manifest = json.loads(
             (ROOT / "crates/parakatt-core/native-runtime-manifest.json").read_text()
         )
-        if hashlib.sha256(native.read_bytes()).hexdigest() != manifest["native_sha256"]:
-            raise RuntimeError("Native WebGPU runtime hash differs from its release manifest")
+        verify_webgpu(ROOT, native, manifest)
         for framework in generated.glob("*.xcframework/**/Versions/A"):
             runtime = framework / "Frameworks"
             runtime.mkdir(exist_ok=True)
