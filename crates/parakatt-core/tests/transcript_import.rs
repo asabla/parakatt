@@ -181,3 +181,42 @@ fn confirmed_actions_validate_evidence_and_dates_and_survive_backup() {
         VTT
     );
 }
+
+#[test]
+fn engine_preview_validates_without_committing_history_or_loading_a_model() {
+    use parakatt_core::{engine::Engine, storage::TranscriptionQuery, EngineConfig};
+    let dir = tempfile::tempdir().unwrap();
+    let engine = Engine::new(EngineConfig {
+        models_dir: dir.path().join("models").to_string_lossy().into_owned(),
+        config_dir: dir.path().join("config").to_string_lossy().into_owned(),
+        active_stt_model: None,
+        active_llm_provider: None,
+        active_mode: "dictation".into(),
+    })
+    .unwrap();
+    let preview = engine
+        .preview_transcript(request(TranscriptProvider::Teams, VTT))
+        .unwrap();
+    assert_eq!(preview[0].speaker.as_deref(), Some("Alice & Bob"));
+    assert_eq!(preview[1].start_secs, Some(1.5));
+    assert!(!engine.is_model_loaded());
+    let query = || TranscriptionQuery {
+        search_text: None,
+        source_filter: None,
+        limit: 100,
+        offset: 0,
+    };
+    assert!(engine.list_transcriptions(query()).unwrap().is_empty());
+    assert!(engine
+        .preview_transcript(request(TranscriptProvider::Teams, "invalid"))
+        .is_err());
+    assert!(engine.list_transcriptions(query()).unwrap().is_empty());
+    let committed = engine
+        .import_transcript(request(TranscriptProvider::Teams, VTT))
+        .unwrap();
+    assert!(committed.created);
+    assert_eq!(
+        engine.get_imported_utterances(committed.id).unwrap().len(),
+        preview.len()
+    );
+}

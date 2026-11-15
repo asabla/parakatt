@@ -26,6 +26,13 @@ class DesktopTests(unittest.TestCase):
                 return_value=(str(source), "Teams WebVTT (*.vtt)"),
             ):
                 window.import_transcript()
+                window.transcript_dialog.open_file()
+            for _ in range(3):
+                window.pool.waitForDone()
+                self.app.processEvents()
+            self.assertEqual(backend.history(), [])
+            self.assertIsNotNone(window.transcript_dialog.prepared)
+            window.transcript_dialog.commit()
             for _ in range(3):
                 window.pool.waitForDone()
                 self.app.processEvents()
