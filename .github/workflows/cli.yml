@@ -25,9 +25,11 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           export DEVELOPER_DIR=/Applications/Xcode_16.4.app/Contents/Developer
-          echo "DEVELOPER_DIR=$DEVELOPER_DIR" >> "$GITHUB_ENV"
-          echo "MACOSX_DEPLOYMENT_TARGET=14.0" >> "$GITHUB_ENV"
-          echo "SDKROOT=$(xcrun --sdk macosx --show-sdk-path)" >> "$GITHUB_ENV"
+          {
+            echo "DEVELOPER_DIR=$DEVELOPER_DIR"
+            echo "MACOSX_DEPLOYMENT_TARGET=14.0"
+            echo "SDKROOT=$(xcrun --sdk macosx --show-sdk-path)"
+          } >> "$GITHUB_ENV"
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
