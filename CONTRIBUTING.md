@@ -3,7 +3,7 @@
 ## Getting Started
 
 1. Fork and clone the repository
-2. Install prerequisites: Rust toolchain, Xcode 16+, `xcodegen` (brew), `cargo-swift` (cargo install)
+2. Install prerequisites: Rust toolchain, Xcode 16+, `xcodegen` (brew)
 3. Run `make all` for a full build
 
 See `CLAUDE.md` for detailed build commands and architecture overview.
