@@ -65,7 +65,7 @@ The source tree includes an output-only file CLI for macOS and Linux. It uses th
 Build it with the pinned Rust toolchain:
 
 ```bash
-cargo build --locked --release -p parakatt-cli
+make cli
 ```
 
 Install the model explicitly before transcription. On macOS, the CLI can use the model installed through the app's Settings. Its default model root is `~/Library/Application Support/Parakatt/models`. On Linux, it is `$XDG_DATA_HOME/parakatt/models`, or `~/.local/share/parakatt/models` when that variable is unset. To install into another directory:
