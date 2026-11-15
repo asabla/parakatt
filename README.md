@@ -40,13 +40,12 @@ brew install --cask parakatt
 
 ### Build from Source
 
-Use the Rust version in `rust-toolchain.toml`. You also need [XcodeGen](https://github.com/yonaskolb/XcodeGen), [cargo-swift](https://github.com/nicklimmern/cargo-swift), and Xcode 16+. The release package targets Apple Silicon and macOS 14.
+Use the Rust version in `rust-toolchain.toml`. You also need [XcodeGen](https://github.com/yonaskolb/XcodeGen) and Xcode 16+. The release package targets Apple Silicon and macOS 14.
 
 ```bash
 # Install build tools
 ./scripts/install-xcodegen.sh  # XcodeGen 2.46.0
 export PATH="/tmp/parakatt-xcodegen/.build/release:$PATH"
-cargo install cargo-swift --version 0.11.1 --locked --root target/tools
 
 # Build everything
 make all

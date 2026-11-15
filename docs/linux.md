@@ -29,7 +29,7 @@ target/linux-venv/bin/parakatt-desktop
 
 `make linux-desktop` recreates its project-local virtual environment before installing the locked dependencies. This also replaces incomplete environments restored by build caches.
 
-On x86_64 the build script downloads Microsoft's ONNX Runtime 1.28.0 release, checks the SHA-256 pinned in `config/linux-runtime.json`, and bundles its shared library and notices. `ORT_LIB_PATH` can select an existing matching runtime instead. Other architectures require an explicit compatible runtime and are not validated here. Python bindings are generated from an unstripped build; the installed library uses the release build. Wheels are architecture-specific and must be built on a compatible Linux baseline.
+On x86_64 the build script downloads Microsoft's ONNX Runtime 1.31.0 release, checks the SHA-256 pinned in `config/linux-runtime.json`, and bundles its shared library and notices. `ORT_LIB_PATH` can select an existing matching runtime instead. Other architectures require an explicit compatible runtime and are not validated here. Python bindings are generated from an unstripped build; the installed library uses the release build. Wheels are architecture-specific and must be built on a compatible Linux baseline.
 
 Model installation is explicit: open **Settings → Models → Manage downloads…**, select Parakeet v3, and choose **Download / repair**. An existing installation can be used with `--models-dir /path/to/models`. Use `--data-dir /path/to/isolated-data` for isolated testing. Offline dictation does not require any API credentials.
 
@@ -50,7 +50,9 @@ This creates a per-user launcher pointing at the project's virtual environment; 
 | Meetings | Separate transcription window, pause/resume and discard, selected microphone plus output monitor, optional **Me** / **Speaker 1** source labels |
 | History | Split list/detail window, All/Notes/Meetings/Videos filters, full-text search, pagination, in-transcript find, editable processed text, recognized timeline, undo and retries |
 | Export | Text, Markdown, SRT, and WebVTT; subtitle timing comes from recognized segments |
-| Settings | Dashboard, General, Models, LLM, Dictionary and Statistics tabs; devices, processing modes, clipboard/overlay behavior, recovery and retention; profiles in Tools |
+| Settings | Dashboard, General, Models, LLM, Dictionary and Statistics tabs; validated dictionary/mode editors; grouped model and provider settings; devices, clipboard/overlay behavior and retention |
+| Transcript imports | File preview, Teams account/transcript selection, Slack workspace/source selection; save only after explicit Import |
+| Tools | Backups & profiles, Recovery with empty/selection states, and Diagnostics with optional technical details |
 | Credentials | Provider-specific keys in Secret Service / GNOME Keyring; no plaintext fallback. Verified migration of legacy keys |
 | Media | Local audio/video, multiple audio tracks, direct/YouTube links through yt-dlp, durable chunk checkpoints, pause/resume, source fingerprint checks |
 | Playback | Qt multimedia plays the original source, with seeking, volume, speed, and sentence-to-time navigation |
@@ -95,3 +97,5 @@ target/linux-venv/bin/parakatt-desktop --diagnostics
 The tests cover checkpoint overlap and pause/resume, changed-source rejection, bounded capture behavior, paths, subtitles, native settings persistence, actual recognition/history edits when a model is supplied, and recording lifecycle/recovery using an injected audio source. The Qt tests exercise category filters and pagination (including Teams/Slack classification), find/timeline navigation, explicit edit/save, settings persistence, clipboard use, separate panels, pause/discard, and original-video playback. CI builds the native bindings and runs these checks on Ubuntu, including real recognition from pinned speech fixtures.
 
 Offscreen tests do not prove microphone access, output-monitor capture, browser-cookie access, GNOME shortcut handling, Wayland clipboard ownership, or visible video/audio playback. Verify those in a real logged-in GNOME session before treating the port as a daily-use replacement. No claim is made that Fedora, actual audio devices, or GNOME integration have been validated by the cloud tests.
+
+Playback defaults to Qt’s PulseAudio backend, matching the compatibility service used for capture on PipeWire desktops. This also avoids Qt 6.12’s native PipeWire backend crashing when the client library is present without its configuration. Set `QT_AUDIO_BACKEND` explicitly to override that choice. The desktop installation runs `pip check` to verify that the hashed runtime lock matches package requirements.

@@ -35,6 +35,7 @@ linux-desktop: linux-native
 	python3 -m venv --clear target/linux-venv
 	target/linux-venv/bin/python -m pip install --require-hashes -r linux/requirements.lock
 	target/linux-venv/bin/python -m pip install --no-deps ./linux
+	target/linux-venv/bin/python -m pip check
 	@echo "Run target/linux-venv/bin/parakatt-desktop"
 
 linux-test:
