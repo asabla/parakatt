@@ -99,6 +99,10 @@ class Task(QRunnable):
 
 class Window(QMainWindow):
     def __init__(self, backend):
+        # Use the same PulseAudio compatibility service as capture. Qt 6.12's
+        # PipeWire backend can crash when only the client library is installed.
+        # Preserve an explicitly selected backend for desktop testing.
+        os.environ.setdefault("QT_AUDIO_BACKEND", "pulseaudio")
         super().__init__()
         apply_appearance()
         self.backend, self.core = backend, backend.engine
