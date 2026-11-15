@@ -80,6 +80,7 @@ QPushButton[role="danger"] { background: #b63128; color: white; border-color: #c
 QPushButton::menu-indicator { subcontrol-position: right center; right: 5px; }
 QPushButton[segmented="true"] { background: transparent; border: none; padding: 3px 10px; color: #cccccc; }
 QPushButton[segmented="true"]:checked { background: #686868; color: white; }
+QPushButton[role]:disabled, QPushButton[segmented="true"]:disabled { color: #777777; background: #3b3b3b; border-color: #444444; }
 QFrame#segmented { background: #393939; border: 1px solid #4c4c4c; border-radius: 6px; }
 QListWidget { background: #1e1e1e; border: 1px solid #444444; outline: none; padding: 4px; }
 QListWidget::item { padding: 10px; border-radius: 5px; }
@@ -92,7 +93,7 @@ QCheckBox { spacing: 9px; padding: 5px 0; }
 QCheckBox::indicator { width: 15px; height: 15px; border: 1px solid #777777; border-radius: 3px; background: #383838; }
 QCheckBox::indicator:checked { background: #0879ef; border-color: #0879ef; image: url(@ASSETS@/check.svg); }
 QCheckBox:disabled { color: #777777; }
-QTableWidget { background: #1e1e1e; border: 1px solid #444444; gridline-color: #393939; selection-background-color: #075cdb; }
+QTableWidget, QTableView { background: #1e1e1e; border: 1px solid #444444; gridline-color: #393939; selection-background-color: #075cdb; }
 QHeaderView::section { background: #383838; color: #bbbbbb; padding: 8px; border: none; }
 QSplitter::handle { background: #444444; width: 1px; }
 QScrollArea { background: transparent; border: none; }
