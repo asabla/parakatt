@@ -1,5 +1,8 @@
 use std::path::{Path, PathBuf};
-use std::{fmt, sync::Arc};
+use std::{
+    fmt,
+    sync::{Arc, OnceLock},
+};
 
 use crate::error::Result;
 use ort::session::builder::SessionBuilder;
@@ -135,7 +138,15 @@ impl ModelConfig {
     }
     /// Build a session for `path` under this configuration.
     pub fn build_session(&self, path: &Path) -> Result<Session> {
-        let builder = Session::builder()?;
+        // ORT rc.15 requires an explicit, process-wide environment. Keep it
+        // alive across model unload/reload and share it between concurrent sessions.
+        static ENVIRONMENT: OnceLock<std::result::Result<ort::environment::Environment, String>> =
+            OnceLock::new();
+        let environment = ENVIRONMENT
+            .get_or_init(|| ort::init().build().map_err(|error| error.to_string()))
+            .as_ref()
+            .map_err(|error| ort::Error::new(error.clone()))?;
+        let builder = Session::builder(environment)?;
         let mut builder = self.apply_to_session_builder(builder)?;
         Ok(builder.commit_from_file(path)?)
     }

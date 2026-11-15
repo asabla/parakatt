@@ -1,5 +1,16 @@
 {
-  "include": ["parakatt_linux/preferences.py", "parakatt_linux/providers.py", "parakatt_linux/meeting_notes.py"],
+  "include": [
+    "parakatt_linux/preferences.py",
+    "parakatt_linux/providers.py",
+    "parakatt_linux/meeting_notes.py",
+    "parakatt_linux/native.py",
+    "parakatt_linux/worker_events.py",
+    "parakatt_linux/backend.py",
+    "parakatt_linux/credentials.py",
+    "parakatt_linux/authentication.py",
+    "parakatt_linux/connections.py",
+    "parakatt_linux/transcript_service.py"
+  ],
   "typeCheckingMode": "strict",
   "pythonVersion": "3.12",
   "venvPath": "../target",
