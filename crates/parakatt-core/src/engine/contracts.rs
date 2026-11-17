@@ -57,6 +57,9 @@ fn every_setting_save_failure_preserves_runtime_configuration() {
         ("debug", |e| e.set_debug_mode(true)),
         ("retention", |e| e.set_retention_days(7)),
         ("context", |e| e.set_llm_context_enabled(true)),
+        ("dictation punctuation", |e| {
+            e.set_dictation_punctuation_enabled(true)
+        }),
         ("recovery", |e| e.set_recovery_audio(true)),
         ("active mode", |e| e.set_active_mode("clean".into())),
         ("add mode", |e| {
@@ -536,4 +539,279 @@ fn legacy_deleted_mode_references_fall_back_to_an_available_mode() {
         e.resolve_mode_for_app(Some("test.editor".into())).unwrap(),
         "clean"
     );
+}
+
+#[test]
+fn chatgpt_profile_stores_references_and_restores_without_opening_accounts() {
+    let directory = tempfile::tempdir().unwrap();
+    let core = engine(directory.path());
+    assert!(core.get_chatgpt_account().is_none());
+    core.set_chatgpt_account(Some("reference-only".into()))
+        .unwrap();
+    assert_eq!(
+        core.get_chatgpt_account().as_deref(),
+        Some("reference-only")
+    );
+    core.update_config(|config| {
+        config.llm.active_provider = Some("chatgpt".into());
+        config.llm.chatgpt.model = Some("account-model".into());
+        Ok(())
+    })
+    .unwrap();
+    let settings = core.get_provider_settings("chatgpt".into());
+    assert_eq!(settings.model, "account-model");
+    assert_eq!(settings.base_url, "https://api.openai.com/v1");
+    core.save_profile("plan".into()).unwrap();
+    core.set_chatgpt_account(None).unwrap();
+    core.load_profile("plan".into()).unwrap();
+    assert_eq!(
+        core.get_chatgpt_account().as_deref(),
+        Some("reference-only")
+    );
+    drop(core);
+    let restarted = engine(directory.path());
+    assert_eq!(restarted.get_llm_settings().provider, "chatgpt");
+    assert!(restarted.llm.lock().unwrap().is_none());
+}
+
+#[test]
+fn dictation_punctuation_defaults_off_and_round_trips_profiles() {
+    let legacy: Config = toml::from_str("").unwrap();
+    assert!(!legacy.general.dictation_punctuation_enabled);
+    let directory = tempfile::tempdir().unwrap();
+    let core = engine(directory.path());
+    assert!(!core.get_dictation_punctuation_enabled());
+    core.set_dictation_punctuation_enabled(true).unwrap();
+    core.save_profile("punctuation".into()).unwrap();
+    core.set_dictation_punctuation_enabled(false).unwrap();
+    core.load_profile("punctuation".into()).unwrap();
+    assert!(!core.get_dictation_punctuation_enabled());
+    assert_eq!(core.get_active_mode(), "punctuation");
+    drop(core);
+    assert_eq!(engine(directory.path()).get_active_mode(), "punctuation");
+}
+
+struct PunctuationFixture {
+    output: String,
+    requests: Arc<Mutex<Vec<LlmRequest>>>,
+}
+impl LlmProvider for PunctuationFixture {
+    fn process(&self, request: &LlmRequest) -> Result<String, CoreError> {
+        self.requests.lock().unwrap().push(request.clone());
+        Ok(self.output.clone())
+    }
+    fn name(&self) -> &str {
+        "punctuation-fixture"
+    }
+    fn is_available(&self) -> bool {
+        true
+    }
+}
+
+#[test]
+fn dictation_uses_its_session_snapshot_and_validates_before_replacing_text() {
+    for (enabled, output, expected, failed) in [
+        (false, "Must not be requested", "hello um world", false),
+        (true, "Hello, um, world!", "Hello, um, world!", false),
+        (true, "Hello world!", "hello um world", true),
+        (true, "", "hello um world", true),
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let core = engine(directory.path());
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        *core.llm.lock().unwrap() = Some(Arc::new(PunctuationFixture {
+            output: output.into(),
+            requests: requests.clone(),
+        }));
+        core.set_dictation_punctuation_enabled(enabled).unwrap();
+        core.start_recording(
+            "punctuate".into(),
+            "push_to_talk".into(),
+            "dictation".into(),
+        )
+        .unwrap();
+        // Changing the preference after start must not change this recording.
+        core.set_dictation_punctuation_enabled(!enabled).unwrap();
+        core.queue_polishing(
+            "punctuate",
+            0,
+            ChunkSource::Mixed,
+            "hello um world",
+            "dictation",
+            &AppContext::default(),
+        )
+        .unwrap();
+        let session = core.processing_session("punctuate").unwrap();
+        session.set_recognized_text(0, ChunkSource::Mixed, "original recognition");
+        let (text, summary, error) = session.finish().unwrap();
+        assert_eq!(text, expected);
+        assert_eq!(summary.recognized_text, "original recognition");
+        assert_eq!(error.is_some(), failed);
+        let seen = requests.lock().unwrap();
+        assert_eq!(seen.len(), usize::from(enabled));
+        if enabled {
+            assert_eq!(seen[0].system_prompt, crate::punctuation::PROMPT);
+            assert!(seen[0].context.is_none());
+        }
+        drop(seen);
+        core.cancel_session("punctuate".into());
+    }
+}
+
+#[test]
+fn punctuation_rejects_edits_to_dictionary_corrected_text_and_keeps_raw_history() {
+    let directory = tempfile::tempdir().unwrap();
+    let core = engine(directory.path());
+    core.set_dictionary_rules(vec![ReplacementRule {
+        pattern: "parrot".into(),
+        replacement: "Parakatt".into(),
+        context_type: "always".into(),
+        context_value: None,
+        enabled: true,
+    }])
+    .unwrap();
+    let context = AppContext::default();
+    let input = core
+        .dictionary_text("hello parrot", "dictation", &context)
+        .unwrap();
+    assert_eq!(input, "hello Parakatt");
+    *core.llm.lock().unwrap() = Some(Arc::new(PunctuationFixture {
+        output: "Hello, parrot.".into(),
+        requests: Arc::new(Mutex::new(Vec::new())),
+    }));
+    core.start_recording_with_punctuation(
+        "dictionary-punctuation".into(),
+        "push_to_talk".into(),
+        "dictation".into(),
+        true,
+    )
+    .unwrap();
+    core.queue_polishing(
+        "dictionary-punctuation",
+        0,
+        ChunkSource::Mixed,
+        &input,
+        "dictation",
+        &context,
+    )
+    .unwrap();
+    let session = core.processing_session("dictionary-punctuation").unwrap();
+    session.set_recognized_text(0, ChunkSource::Mixed, "hello parrot");
+    let (text, summary, error) = session.finish().unwrap();
+    assert_eq!(text, "hello Parakatt");
+    assert_eq!(summary.recognized_text, "hello parrot");
+    assert!(error.unwrap().contains("wording changed"));
+    core.cancel_session("dictionary-punctuation".into());
+}
+
+#[test]
+fn punctuation_does_not_enable_a_provider_or_restrict_clean_mode() {
+    let directory = tempfile::tempdir().unwrap();
+    let core = engine(directory.path());
+    assert!(core
+        .llm_request("words", "dictation", &AppContext::default(), true)
+        .unwrap()
+        .is_none());
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    *core.llm.lock().unwrap() = Some(Arc::new(PunctuationFixture {
+        output: "Completely rewritten.".into(),
+        requests,
+    }));
+    core.start_session("clean-policy".into()).unwrap();
+    core.queue_polishing(
+        "clean-policy",
+        0,
+        ChunkSource::Mixed,
+        "words",
+        "clean",
+        &AppContext::default(),
+    )
+    .unwrap();
+    let (text, _, error) = core
+        .processing_session("clean-policy")
+        .unwrap()
+        .finish()
+        .unwrap();
+    assert_eq!(text, "Completely rewritten.");
+    assert!(error.is_none());
+    core.cancel_session("clean-policy".into());
+}
+
+#[test]
+fn canonical_punctuation_mode_is_independent_of_off_and_automatically_scopes_context() {
+    struct Echo(Arc<Mutex<Vec<LlmRequest>>>);
+    impl LlmProvider for Echo {
+        fn process(&self, request: &LlmRequest) -> Result<String, CoreError> {
+            self.0.lock().unwrap().push(request.clone());
+            Ok(request.text.clone())
+        }
+        fn name(&self) -> &str {
+            "fixture"
+        }
+        fn is_available(&self) -> bool {
+            true
+        }
+    }
+    let directory = tempfile::tempdir().unwrap();
+    let core = engine(directory.path());
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    *core.llm.lock().unwrap() = Some(Arc::new(Echo(seen.clone())));
+    core.set_active_mode("punctuation".into()).unwrap();
+    assert!(!core.get_dictation_punctuation_enabled());
+    core.set_llm_context_enabled(false).unwrap(); // obsolete switch cannot disable automatic context
+    core.start_session("context".into()).unwrap();
+    for (index, source, text) in [
+        (0, ChunkSource::Mic, "earlier microphone words"),
+        (1, ChunkSource::System, "other speaker words"),
+        (2, ChunkSource::Mic, "current microphone words"),
+    ] {
+        core.queue_polishing(
+            "context",
+            index,
+            source,
+            text,
+            "punctuation",
+            &AppContext::default(),
+        )
+        .unwrap();
+    }
+    let (_, _, error) = core
+        .processing_session("context")
+        .unwrap()
+        .finish()
+        .unwrap();
+    assert!(error.is_none());
+    core.cancel_session("context".into());
+    core.start_session("separate".into()).unwrap();
+    core.queue_polishing(
+        "separate",
+        0,
+        ChunkSource::Mic,
+        "another recording",
+        "punctuation",
+        &AppContext::default(),
+    )
+    .unwrap();
+    core.processing_session("separate")
+        .unwrap()
+        .finish()
+        .unwrap();
+    core.cancel_session("separate".into());
+    let requests = seen.lock().unwrap();
+    assert!(requests.iter().all(|r| r.allow_preceding_context));
+    assert_eq!(
+        requests[2].preceding_text.as_deref(),
+        Some("earlier microphone words")
+    );
+    assert!(requests[1].preceding_text.is_none());
+    assert!(requests[3].preceding_text.is_none());
+    assert!(requests
+        .iter()
+        .all(|r| r.system_prompt == crate::punctuation::PROMPT));
+    drop(requests);
+    core.set_active_mode("dictation".into()).unwrap();
+    assert!(core
+        .llm_request("off words", "dictation", &AppContext::default(), false)
+        .unwrap()
+        .is_none());
 }

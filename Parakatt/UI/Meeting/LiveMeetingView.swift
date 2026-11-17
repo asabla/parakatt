@@ -46,7 +46,7 @@ private struct LiveMeetingContent: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(meeting.isMeetingPaused ? "Paused" : "Recording")
                     .font(.system(.title3, weight: .semibold))
-                Text("\(elapsedText) · \(appState.activeMode) mode")
+                Text("\(elapsedText) · \(TextProcessingPresentation.title(appState.activeMode))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

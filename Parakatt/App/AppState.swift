@@ -361,7 +361,6 @@ class AppState: ObservableObject, HotkeyRecording {
             }
 
             settings.recoveryAudio = bridge?.getRecoveryAudio() ?? false
-            settings.llmContextEnabled = bridge?.getLlmContextEnabled() ?? false
 
             // Load behavior settings from config
             if let ap = try? bridge?.getAutoPaste() { autoPaste = ap }
@@ -632,6 +631,7 @@ class AppState: ObservableObject, HotkeyRecording {
         stopStreamingUpdates()
         captureHealthTimer?.invalidate()
         captureHealthTimer = nil
+        isProcessing = true
         isRecording = false
         currentAudioLevel = 0
         isCaptureDraining = true
@@ -676,8 +676,12 @@ class AppState: ObservableObject, HotkeyRecording {
         // the commit pipeline finishes processing the buffer tail.
         if audioInput.previewActive {
             audioInput.previewActive = false
+            let generation = speechGeneration
+            let previewText = liveTranscription
             audioInput.preview?.stop { [weak self] finalText in
-                guard let self, !self.isRecording, self.isProcessing, !finalText.isEmpty else { return }
+                guard let self, self.speechGeneration == generation,
+                      self.liveTranscription == previewText,
+                      !self.isRecording, self.isProcessing, !finalText.isEmpty else { return }
                 self.livePreviewCommitted = finalText
                 self.livePreviewTentative = ""
                 self.liveTranscription = finalText
@@ -764,8 +768,8 @@ class AppState: ObservableObject, HotkeyRecording {
                     DispatchQueue.main.async {
                         guard self.speechGeneration == generation else { return }
                         self.closeProcessing()
+                        self.liveTranscription = result.text
                         self.isProcessing = false
-                        self.liveTranscription = nil
                         self.pttAccumulatedText = nil
                         self.lastTranscription = result.text
                         self.historyRevision &+= 1
@@ -789,7 +793,6 @@ class AppState: ObservableObject, HotkeyRecording {
                         guard self.speechGeneration == generation else { return }
                         self.closeProcessing()
                         self.isProcessing = false
-                        self.liveTranscription = nil
                         self.pttAccumulatedText = nil
                         self.pttSessionId = nil
                         self.errorMessage = "Transcription failed: \(error.localizedDescription)"
@@ -799,7 +802,6 @@ class AppState: ObservableObject, HotkeyRecording {
             }
         } else {
             // Path A: short recording, no session — single-shot processing.
-            liveTranscription = nil
             NSLog("[Parakatt] Recording stopped (short, single-shot)")
 
             audioInput.lock.lock()
@@ -923,6 +925,8 @@ class AppState: ObservableObject, HotkeyRecording {
         get { settings.llmProvider }
         set { settings.llmProvider = newValue }
     }
+    @Published private(set) var appliedLlmProvider = ""
+    @Published private(set) var appliedLlmModel = ""
     var llmBaseUrl: String {
         get { settings.llmBaseUrl }
         set { settings.llmBaseUrl = newValue }
@@ -938,6 +942,8 @@ class AppState: ObservableObject, HotkeyRecording {
 
     func loadLlmApiKeyFromKeychain() {
         guard let bridge else { return }
+        appliedLlmProvider = ""
+        appliedLlmModel = ""
         if let legacy = KeychainService.get("llm-api-key"), KeychainService.get("llm-api-key-openai") == nil {
             if KeychainService.set(legacy, forKey: "llm-api-key-openai") { KeychainService.delete("llm-api-key") }
         }
@@ -959,9 +965,19 @@ class AppState: ObservableObject, HotkeyRecording {
         if !saved.provider.isEmpty && !saved.model.isEmpty { configureLlm() }
     }
 
+    func chatGptAccount() -> String? { bridge?.getChatGptAccount() }
+    func setChatGptAccount(_ id: String?) throws {
+        guard bridge?.getChatGptAccount() != id else { return }
+        try bridge?.setChatGptAccount(id)
+        if appliedLlmProvider == "chatgpt" { appliedLlmProvider = ""; appliedLlmModel = "" }
+    }
+
     func selectLlmProvider(_ provider: String) {
         guard let saved = bridge?.getProviderSettings(provider) else { return }
-        try? bridge?.configureLlm(provider: "", baseUrl: "", model: "", apiKey: nil)
+        do { try bridge?.configureLlm(provider: "", baseUrl: "", model: "", apiKey: nil) }
+        catch { errorMessage = error.localizedDescription; return }
+        appliedLlmProvider = ""
+        appliedLlmModel = ""
         llmProvider = provider
         llmBaseUrl = saved.baseUrl
         llmModel = saved.model
@@ -994,6 +1010,8 @@ class AppState: ObservableObject, HotkeyRecording {
                 apiKey: key
             )
             NSLog("[Parakatt] LLM configured: provider=%@, model=%@", llmProvider, llmModel)
+            appliedLlmProvider = llmProvider
+            appliedLlmModel = llmModel
             return true
         } catch {
             errorMessage = error.localizedDescription
@@ -1002,10 +1020,6 @@ class AppState: ObservableObject, HotkeyRecording {
         }
     }
 
-    func setLlmContextEnabled(_ enabled: Bool) {
-        do { try bridge?.setLlmContextEnabled(enabled); settings.llmContextEnabled = enabled }
-        catch { errorMessage = error.localizedDescription }
-    }
     func testLlmPipeline(completion: @escaping @MainActor @Sendable (String) -> Void) {
         guard let bridge else { completion("Engine unavailable"); return }
         DispatchQueue.global(qos: .userInitiated).async {
@@ -1055,7 +1069,6 @@ class AppState: ObservableObject, HotkeyRecording {
             guard let bridge else { return }
             try bridge.loadProfile(name)
             settings.recoveryAudio = bridge.getRecoveryAudio()
-            settings.llmContextEnabled = bridge.getLlmContextEnabled()
             // Reload settings from the new config
             if let ap = try? bridge.getAutoPaste() { autoPaste = ap }
             if let so = try? bridge.getShowOverlay() { showRecordingOverlay = so }
@@ -1804,6 +1817,7 @@ class AppState: ObservableObject, HotkeyRecording {
                 DispatchQueue.main.async {
                     guard self.speechGeneration == generation else { return }
                     self.closeProcessing()
+                    self.liveTranscription = result.text
                     self.isProcessing = false
                     self.lastTranscription = result.text
                     self.historyRevision &+= 1

@@ -17,7 +17,6 @@ final class SettingsCoordinator: ObservableObject {
     @Published var showRecordingOverlay = true
     @Published var debugMode = false
     @Published var recoveryAudio = false
-    @Published var llmContextEnabled = false
     @Published var speakerLabelsEnabled = false
     @Published var activeMode = "dictation"
 
@@ -27,6 +26,8 @@ final class SettingsCoordinator: ObservableObject {
         didSet { if oldValue != llmProvider { loadLlmApiKeyFromKeychain() } }
     }
     var credentialAccountResolver: ((String) -> String)?
+    var readCredential: (String) -> String? = { KeychainService.get($0) }
+    var writeCredential: (String, String) -> Bool = { KeychainService.set($0, forKey: $1) }
     private var credentialAccount: String { credentialAccountResolver?(llmProvider) ?? "llm-api-key-\(llmProvider)" }
     private var loadingCredential = false
     @Published var credentialError: String?
@@ -36,7 +37,7 @@ final class SettingsCoordinator: ObservableObject {
         didSet {
             // Persist API key to Keychain instead of config file.
             if !loadingCredential && ["openai", "anthropic"].contains(llmProvider) {
-                credentialError = KeychainService.set(llmApiKey, forKey: credentialAccount) ? nil : "Could not store the API key in Keychain."
+                credentialError = writeCredential(llmApiKey, credentialAccount) ? nil : "Could not store the API key in Keychain."
             }
         }
     }
@@ -46,7 +47,7 @@ final class SettingsCoordinator: ObservableObject {
     func loadLlmApiKeyFromKeychain() {
         loadingCredential = true
         credentialError = nil
-        llmApiKey = KeychainService.get(credentialAccount) ?? ""
+        llmApiKey = readCredential(credentialAccount) ?? ""
         loadingCredential = false
     }
 }

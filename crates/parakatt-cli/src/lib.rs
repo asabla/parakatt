@@ -11,6 +11,7 @@
 )]
 //! Output-only local file transcription. No Engine, history, or credential store is opened.
 pub mod input;
+pub mod processing;
 
 use std::path::{Path, PathBuf};
 
@@ -31,6 +32,8 @@ pub struct FileTranscript {
     pub text: String,
     pub duration_secs: f64,
     pub segments: Vec<Segment>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub processing: Option<processing::Processing>,
 }
 
 #[derive(Debug, Serialize)]
@@ -86,6 +89,7 @@ pub fn transcribe_file(
         backend: "cpu",
         text: result.text,
         duration_secs: samples.len() as f64 / f64::from(input::SAMPLE_RATE),
+        processing: None,
         segments: result
             .segments
             .into_iter()

@@ -896,7 +896,7 @@ impl Engine {
 
     /// Delete a custom mode by name. Built-in modes (dictation, clean, email, code) cannot be deleted.
     pub fn delete_mode(&self, name: String) -> Result<(), CoreError> {
-        let builtin = ["dictation", "clean", "email", "code"];
+        let builtin = ["dictation", "punctuation", "clean", "email", "code"];
         if builtin.contains(&name.to_lowercase().as_str()) {
             return Err(CoreError::ConfigError(format!(
                 "Cannot delete built-in mode: {name}"
@@ -996,6 +996,7 @@ impl Engine {
         }
         let mut updated = config.clone();
         updated.general.active_mode = mode;
+        updated.general.dictation_punctuation_enabled = false;
         updated.save(&self.config_dir)?;
         *config = updated;
         Ok(())
@@ -1296,7 +1297,14 @@ impl Engine {
         let mut saved = crate::util::lock_named(&self.config, "config", CoreError::ConfigError)?;
         let mut config = saved.clone();
         let generation = config.llm.generation.clone();
-        let http = Self::build_llm(&provider, &base_url, &model, api_key, &generation)?;
+        let http = Self::build_llm(
+            &provider,
+            &base_url,
+            &model,
+            api_key,
+            &generation,
+            config.llm.chatgpt.account_id.clone(),
+        )?;
         config.llm.active_provider =
             (!provider.is_empty() && provider != "none").then_some(provider.clone());
         match provider.as_str() {
@@ -1309,6 +1317,7 @@ impl Engine {
                 config.llm.lmstudio.model = Some(model);
             }
             "openai" => config.llm.openai.model = Some(model),
+            "chatgpt" => config.llm.chatgpt.model = Some(model),
             "anthropic" => config.llm.anthropic.model = Some(model),
             _ => {}
         }
@@ -1316,6 +1325,9 @@ impl Engine {
         // Swift confirms successful provider-specific Keychain migration.
         let mut llm = crate::util::lock_named(&self.llm, "llm", CoreError::LlmError)?;
         self.persist_config(&mut saved, config)?;
+        if let Some(previous) = llm.as_ref() {
+            previous.invalidate();
+        }
         *llm = http;
         Ok(())
     }
@@ -1362,6 +1374,10 @@ impl Engine {
                 "https://api.openai.com".into(),
                 config.llm.openai.model.clone().unwrap_or_default(),
             ),
+            "chatgpt" => (
+                "https://api.openai.com/v1".into(),
+                config.llm.chatgpt.model.clone().unwrap_or_default(),
+            ),
             "anthropic" => (
                 "https://api.anthropic.com".into(),
                 config.llm.anthropic.model.clone().unwrap_or_default(),
@@ -1373,6 +1389,23 @@ impl Engine {
             base_url,
             model,
         }
+    }
+    pub fn get_chatgpt_account(&self) -> Option<String> {
+        self.config
+            .lock()
+            .ok()
+            .and_then(|c| c.llm.chatgpt.account_id.clone())
+    }
+    pub fn set_chatgpt_account(&self, account_id: Option<String>) -> Result<(), CoreError> {
+        self.update_config(|config| {
+            config.llm.chatgpt.account_id = account_id;
+            Ok(())
+        })?;
+        let llm = crate::util::lock_named(&self.llm, "llm", CoreError::LlmError)?;
+        if let Some(provider) = llm.as_ref().filter(|p| p.name() == "chatgpt") {
+            provider.invalidate();
+        }
+        Ok(())
     }
     pub fn get_generation_settings(&self) -> crate::llm::GenerationSettings {
         (match crate::util::lock_named(&self.config, "config", CoreError::ConfigError) {
@@ -1592,6 +1625,18 @@ impl Engine {
             Ok(())
         })
     }
+    pub fn get_dictation_punctuation_enabled(&self) -> bool {
+        self.config
+            .lock()
+            .map(|config| config.general.dictation_punctuation_enabled)
+            .unwrap_or(false)
+    }
+    pub fn set_dictation_punctuation_enabled(&self, enabled: bool) -> Result<(), CoreError> {
+        self.update_config(|config| {
+            config.general.dictation_punctuation_enabled = enabled;
+            Ok(())
+        })
+    }
     pub fn test_llm_pipeline(&self) -> Result<crate::llm::ProviderDiagnostic, CoreError> {
         let provider = crate::util::lock_named(&self.llm, "llm", CoreError::LlmError)?
             .clone()
@@ -1727,6 +1772,16 @@ impl Engine {
 
     /// Start a new chunked transcription session.
     pub fn start_session(&self, session_id: String) -> Result<(), CoreError> {
+        let enabled = crate::util::lock_named(&self.config, "config", CoreError::ConfigError)?
+            .general
+            .dictation_punctuation_enabled;
+        self.start_session_with_punctuation(session_id, enabled)
+    }
+    pub(super) fn start_session_with_punctuation(
+        &self,
+        session_id: String,
+        enabled: bool,
+    ) -> Result<(), CoreError> {
         let mut processing = crate::util::lock_named(
             &self.processing,
             "processing",
@@ -1752,7 +1807,7 @@ impl Engine {
         .retain(|(id, _)| id != &session_id);
         processing.insert(
             session_id.clone(),
-            crate::processing::ProcessingSession::new(session_id),
+            crate::processing::ProcessingSession::with_dictation_punctuation(session_id, enabled),
         );
         Ok(())
     }
@@ -2593,6 +2648,7 @@ impl Engine {
         text: &str,
         mode: &str,
         ctx: &AppContext,
+        dictation_punctuation_enabled: bool,
     ) -> Result<Option<ProcessingJob>, CoreError> {
         if text.trim().is_empty() {
             return Ok(None);
@@ -2604,12 +2660,23 @@ impl Engine {
             config.modes.clone()
         };
         let max_words = config.general.llm_max_words as usize;
-        let allow_preceding_context = config.general.llm_context_enabled;
+        // Context is part of processing, not an independent user-facing switch.
+        // The queue bounds it to this session and speaker; the CLI remains explicit.
+        let allow_preceding_context = true;
         drop(config);
+        let punctuation_only =
+            mode.eq_ignore_ascii_case("dictation") || mode.eq_ignore_ascii_case("punctuation");
+        if mode.eq_ignore_ascii_case("dictation") && !dictation_punctuation_enabled {
+            return Ok(None);
+        }
         let Some(mode) = modes::find_mode(&all_modes, mode) else {
             return Ok(None);
         };
-        let Some(mut system_prompt) = mode.system_prompt.clone() else {
+        let Some(mut system_prompt) = (if punctuation_only {
+            Some(crate::punctuation::PROMPT.into())
+        } else {
+            mode.system_prompt.clone()
+        }) else {
             return Ok(None);
         };
         let Some(provider) =
@@ -2622,7 +2689,7 @@ impl Engine {
                 "Polishing skipped: input exceeds the configured word limit".into(),
             ));
         }
-        let words = if mode.dictionary_enabled {
+        let words = if mode.dictionary_enabled && !punctuation_only {
             crate::util::lock_named(&self.dictionary, "Dictionary", CoreError::ConfigError)?
                 .domain_vocabulary(ctx, &mode.name)
         } else {
@@ -2638,7 +2705,7 @@ impl Engine {
                 allow_preceding_context,
                 text: text.into(),
                 system_prompt,
-                context: Some(ctx.clone()),
+                context: (!punctuation_only).then(|| ctx.clone()),
             },
         )))
     }
@@ -2665,11 +2732,13 @@ impl Engine {
         context: &AppContext,
     ) -> Result<(), CoreError> {
         let session = self.processing_session(id)?;
-        let (work, error) = match self.llm_request(text, mode, context) {
-            Ok(work) => (work, None),
-            Err(error) => (None, Some(error.to_string())),
-        };
-        session.enqueue(index, source, text.into(), work, error)
+        let (work, error) =
+            match self.llm_request(text, mode, context, session.dictation_punctuation_enabled) {
+                Ok(work) => (work, None),
+                Err(error) => (None, Some(error.to_string())),
+            };
+        let policy = crate::punctuation::OutputPolicy::for_mode(mode);
+        session.enqueue_with_policy(index, source, text.into(), work, error, policy)
     }
     #[allow(clippy::too_many_arguments)]
     fn auto_save_transcription(
@@ -2748,6 +2817,7 @@ impl Engine {
         model: &str,
         key: Option<String>,
         generation: &crate::llm::GenerationSettings,
+        chatgpt_account: Option<String>,
     ) -> Result<Option<Arc<dyn LlmProvider>>, CoreError> {
         use crate::llm::http::{HttpProvider, Wire};
         if provider.is_empty() || provider == "none" {
@@ -2757,6 +2827,13 @@ impl Engine {
             return Err(CoreError::ConfigError(
                 "Select an LLM model before enabling the provider".into(),
             ));
+        }
+        if provider == "chatgpt" {
+            return Ok(Some(Arc::new(crate::chatgpt::ChatGptProvider::new(
+                crate::chatgpt::ChatGptAccounts::new()?,
+                chatgpt_account,
+                model.into(),
+            )?)));
         }
         let remote = provider == "openai" || provider == "anthropic";
         if remote && key.as_ref().is_none_or(|k| k.is_empty()) {
@@ -2795,6 +2872,9 @@ impl Engine {
         if (settings.provider == "openai" || settings.provider == "anthropic") && key.is_none() {
             return Ok(());
         }
+        if settings.provider == "chatgpt" {
+            return Ok(());
+        }
         if settings.model.is_empty() {
             return Ok(());
         }
@@ -2804,6 +2884,7 @@ impl Engine {
             &settings.model,
             key,
             &config.llm.generation,
+            config.llm.chatgpt.account_id.clone(),
         )?;
         drop(config);
         *crate::util::lock_named(&self.llm, "llm", CoreError::LlmError)? = provider;
@@ -3222,7 +3303,7 @@ mod processing_integration_tests {
             "recognized words"
         );
         let (_, request) = engine
-            .llm_request("recognized words", "clean", &AppContext::default())
+            .llm_request("recognized words", "clean", &AppContext::default(), false)
             .unwrap()
             .unwrap();
         assert_eq!(request.text, "recognized words");

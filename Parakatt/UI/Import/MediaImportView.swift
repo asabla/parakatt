@@ -18,8 +18,9 @@ struct MediaImportView: View {
             HStack {
                 Button("Choose Videos…", action: chooseFiles)
                 Picker("Text processing", selection: $mode) {
-                    Text("Dictation (original speech)").tag("dictation")
-                    Text("Clean (configured LLM)").tag("clean")
+                    Text("Off").tag("dictation")
+                    Text("Punctuation").tag("punctuation")
+                    Text("Grammar + punctuation").tag("clean")
                 }.frame(maxWidth: 330)
             }
             HStack {
@@ -30,7 +31,7 @@ struct MediaImportView: View {
                 ForEach(YouTubeBrowser.allCases) { browser in Text(browser.label).tag(browser) }
             }.frame(maxWidth: 330)
             if browser != .anonymous { Text(browserSessionNotice).font(.caption).foregroundStyle(.secondary) }
-            Text("Local files stay in place. Downloaded videos use the best available quality and remain until you remove them. Clean mode uses your configured text provider.").font(.caption).foregroundStyle(.secondary)
+            Text("Local files stay in place. Downloaded videos remain until you remove them. Punctuation and Grammar + punctuation use your configured AI provider, with recent speech as context. Off never sends text to an AI provider.").font(.caption).foregroundStyle(.secondary)
             Divider()
             if service.jobs.isEmpty { Text("Drop MP4, MOV, MKV, or WebM files here.").foregroundStyle(.secondary).frame(maxWidth: .infinity, maxHeight: .infinity) }
             else {

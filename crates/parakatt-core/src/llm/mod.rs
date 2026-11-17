@@ -55,6 +55,9 @@ pub trait LlmProvider: Send + Sync {
         self.process(request)
     }
 
+    /// Stop pending work when this provider is replaced.
+    fn invalidate(&self) {}
+
     /// Provider name for display and logging.
     fn name(&self) -> &str;
 
