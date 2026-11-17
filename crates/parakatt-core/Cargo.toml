@@ -45,7 +45,7 @@ jsonwebtoken = { version = "10", default-features = false, features = ["aws_lc_r
 regex = "1"
 
 # Storage
-rusqlite = { version = "0.41.1", features = ["bundled", "backup"] }
+rusqlite = { version = "0.42.0", features = ["bundled", "backup"] }
 uuid = { version = "1", features = ["v4"] }
 chrono = "0.4"
 
