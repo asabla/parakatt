@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## 0.8.0
+
+### Added
+- Import Teams WebVTT and supported Slack Huddle JSON into macOS Transcription History
+- Add an experimental Linux desktop with local dictation, meeting capture, searchable history, media imports, playback, and recording recovery
+- Preview transcript text, speaker labels, and timing before saving on Linux, with file import and read-only retrieval from configured Teams and Slack accounts
+- Correct speaker labels and save confirmed action items with supporting quotes in the Linux preview, with Markdown export
+
+### Changed
+- Update the shared ONNX Runtime and UniFFI dependencies and the Linux desktop dependencies
+
+### Fixed
+- Preserve the Teams device sign-in code when the provider does not supply an instruction message
+
 ## 0.7.6
 
 ### Changed
