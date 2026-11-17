@@ -11,7 +11,7 @@ The packaged Parakatt release targets Apple Silicon and macOS 14 or later. The e
 ./scripts/sync-version.sh --check
 ```
 
-The script updates `project.yml`, `Parakatt/Info.plist`, the core manifest, and the core entry in both Cargo lockfiles. A new version increases the build number by one. To use a specific higher build number, add `--build-number N`. Repeating the same version does not increase the number. Make reads `VERSION` directly. Dependency versions are not changed.
+The script updates `project.yml`, `Parakatt/Info.plist`, the core manifest, the CLI and fuzz manifests that depend on the core, and both Cargo lockfiles. A new version increases the build number by one. To use a specific higher build number, add `--build-number N`. Repeating the same version does not increase the number. Make reads `VERSION` directly. Dependency versions are not changed.
 
 Update `CHANGELOG.md` and `RELEASE_NOTES.md`. The first release-note line must be `# Parakatt X.Y.Z`. The changelog must contain `## X.Y.Z`. The release workflow checks both before building.
 
