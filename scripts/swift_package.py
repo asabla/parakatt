@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 
+from native_build_inputs import source_fingerprint
 from native_runtime import verify_webgpu
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,24 +20,7 @@ FFI_MODULE = "parakatt_coreFFI"
 
 def fingerprint():
     digest = hashlib.sha256()
-    paths = [
-        ROOT / name
-        for name in (
-            "Cargo.toml",
-            "Cargo.lock",
-            "rust-toolchain.toml",
-            "Makefile",
-            "scripts/swift-package.py",
-            "scripts/swift_package.py",
-            "scripts/native_runtime.py",
-        )
-    ]
-    for directory in ("crates", "vendor"):
-        for pattern in ("*.rs", "Cargo.toml", "*.json", "uniffi.toml"):
-            paths.extend(sorted((ROOT / directory).rglob(pattern)))
-    for path in paths:
-        digest.update(str(path.relative_to(ROOT)).encode())
-        digest.update(path.read_bytes())
+    digest.update(source_fingerprint(ROOT).encode())
     digest.update(subprocess.check_output(["rustc", "-Vv"]))
     for key in (
         "RUSTFLAGS",

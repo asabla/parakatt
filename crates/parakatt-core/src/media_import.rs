@@ -22,6 +22,8 @@ pub struct MediaAttachment {
 }
 #[derive(Debug, Clone, Serialize, Deserialize, uniffi::Record)]
 pub struct ImportJob {
+    #[serde(default)]
+    pub dictation_punctuation_enabled: bool,
     pub id: String,
     pub kind: String,
     pub input: String,
@@ -145,7 +147,9 @@ impl Storage {
                     expected_chunk,
                     recognized,
                     text,
-                    if job.mode == "dictation" || text.trim().is_empty() {
+                    if job.mode == "dictation" && !job.dictation_punctuation_enabled
+                        || text.trim().is_empty()
+                    {
                         "processed"
                     } else {
                         "pending"

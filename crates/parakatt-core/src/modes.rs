@@ -15,6 +15,13 @@ pub fn default_modes() -> Vec<ModeConfig> {
             dictionary_enabled: true,
         },
         ModeConfig {
+            name: "punctuation".to_string(),
+            stt_provider: None,
+            llm_provider: None,
+            system_prompt: Some(crate::punctuation::PROMPT.into()),
+            dictionary_enabled: true,
+        },
+        ModeConfig {
             name: "clean".to_string(),
             stt_provider: None,
             llm_provider: None, // will use engine default when set

@@ -1,5 +1,6 @@
 # Rust
 /target/
+*.profraw
 
 # macOS
 .DS_Store
