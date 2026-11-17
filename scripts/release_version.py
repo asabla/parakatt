@@ -64,6 +64,13 @@ def synchronize(root, version=None, build_number=None, check=False, tag=None):
     updates["crates/parakatt-core/Cargo.toml"] = replace_once(
         manifest, r'(^version = ")[^"]*("\s*$)', version, "Rust package version"
     )
+    for name in ("crates/parakatt-cli/Cargo.toml", "fuzz/Cargo.toml"):
+        updates[name] = replace_once(
+            (root / name).read_text(),
+            r'(^parakatt-core = \{[^\n]*?\bversion = ")[^"]+("[^\n]*\}\s*$)',
+            version,
+            "local core dependency version",
+        )
     for name in ("Cargo.lock", "fuzz/Cargo.lock"):
         updates[name] = replace_once(
             (root / name).read_text(),

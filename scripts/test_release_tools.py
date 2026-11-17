@@ -24,6 +24,8 @@ class ReleaseTests(unittest.TestCase):
             "project.yml",
             "Parakatt/Info.plist",
             "crates/parakatt-core/Cargo.toml",
+            "crates/parakatt-cli/Cargo.toml",
+            "fuzz/Cargo.toml",
             "Cargo.lock",
             "fuzz/Cargo.lock",
             "homebrew/parakatt.rb",
@@ -67,6 +69,22 @@ class ReleaseTests(unittest.TestCase):
                 ),
             )
         self.assertEqual((self.root / "homebrew/parakatt.rb").read_bytes(), cask)
+
+    def test_minor_bump_updates_local_core_requirements(self):
+        major, minor, _ = map(int, self.version.split("."))
+        next_minor = f"{major}.{minor + 1}.0"
+        names = ("crates/parakatt-cli/Cargo.toml", "fuzz/Cargo.toml")
+        originals = {name: (self.root / name).read_text() for name in names}
+        synchronize(self.root, next_minor)
+        for name, original in originals.items():
+            with self.subTest(name=name):
+                self.assertEqual(
+                    (self.root / name).read_text(),
+                    original.replace(
+                        f', version = "{self.version}"', f', version = "{next_minor}"'
+                    ),
+                )
+        self.assertEqual(synchronize(self.root, check=True)[0], next_minor)
 
     def test_sync_same_version_does_not_bump_build(self):
         before = self.snapshot()
