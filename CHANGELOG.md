@@ -5,15 +5,19 @@
 ## 0.8.0
 
 ### Added
+- Add optional ChatGPT plan sign-in and text cleanup to the macOS app and experimental file CLI
 - Import Teams WebVTT and supported Slack Huddle JSON into macOS Transcription History
 - Add an experimental Linux desktop with local dictation, meeting capture, searchable history, media imports, playback, and recording recovery
 - Preview transcript text, speaker labels, and timing before saving on Linux, with file import and read-only retrieval from configured Teams and Slack accounts
 - Correct speaker labels and save confirmed action items with supporting quotes in the Linux preview, with Markdown export
 
 ### Changed
+- Use one text cleanup selection across macOS Settings and the menu bar: Off, Punctuation, or Grammar + punctuation
+- Reject punctuation results that change words or numbers and keep original recognition and timestamps in history
 - Update the shared ONNX Runtime and UniFFI dependencies and the Linux desktop dependencies
 
 ### Fixed
+- Keep the recording overlay visible while transcription finishes
 - Preserve the Teams device sign-in code when the provider does not supply an instruction message
 
 ## 0.7.6
