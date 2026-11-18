@@ -29,7 +29,7 @@ target/linux-venv/bin/parakatt-desktop
 
 `make linux-desktop` recreates its project-local virtual environment before installing the locked dependencies. This also replaces incomplete environments restored by build caches.
 
-On x86_64 the build script downloads Microsoft's ONNX Runtime 1.31.0 release, checks the SHA-256 pinned in `config/linux-runtime.json`, and bundles its shared library and notices. `ORT_LIB_PATH` can select an existing matching runtime instead. Other architectures require an explicit compatible runtime and are not validated here. Python bindings are generated from an unstripped build; the installed library uses the release build. Wheels are architecture-specific and must be built on a compatible Linux baseline.
+On x86_64 the build script downloads Microsoft's ONNX Runtime 1.31.0 wheel from PyPI, checks the SHA-256 pinned in `config/linux-runtime.json`, and extracts its native shared library and notices. The build does not install the wheel's Python bindings. `ORT_LIB_PATH` can select an existing matching runtime instead. Other architectures require an explicit compatible runtime and are not validated here. Parakatt's Python bindings are generated from an unstripped build; the installed library uses the release build. Wheels are architecture-specific and must be built on a compatible Linux baseline.
 
 Model installation is explicit: open **Settings → Models → Manage downloads…**, select Parakeet v3, and choose **Download / repair**. An existing installation can be used with `--models-dir /path/to/models`. Use `--data-dir /path/to/isolated-data` for isolated testing. Offline dictation does not require any API credentials.
 

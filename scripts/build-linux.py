@@ -10,8 +10,9 @@ import platform
 import shutil
 import subprocess
 import sys
-import tarfile
+import tempfile
 import urllib.request
+import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -31,22 +32,41 @@ def runtime_environment():
         )
     cache = ROOT / "target/linux-runtime"
     cache.mkdir(parents=True, exist_ok=True)
-    archive = cache / f"onnxruntime-{manifest['version']}.tgz"
-    if not archive.exists():
-        partial = archive.with_suffix(".part")
-        with (
-            urllib.request.urlopen(manifest["url"], timeout=60) as source,
-            partial.open("wb") as output,
-        ):
-            shutil.copyfileobj(source, output)
-        partial.replace(archive)
-    with archive.open("rb") as stream:
-        if hashlib.file_digest(stream, "sha256").hexdigest() != manifest["sha256"]:
-            archive.unlink()
-            raise RuntimeError("ONNX Runtime checksum mismatch; the archive was discarded")
-    with tarfile.open(archive, "r:gz") as package:
-        package.extractall(cache, filter="data")
-    library = cache / manifest["directory"] / "lib"
+    archive = cache / manifest["url"].rsplit("/", 1)[-1]
+    runtime = cache / manifest["directory"]
+    library = runtime / "lib"
+    library.mkdir(parents=True, exist_ok=True)
+    versioned = f"libonnxruntime.so.{manifest['version']}"
+    soname = f"libonnxruntime.so.{manifest['version'].split('.')[0]}"
+    with tempfile.TemporaryDirectory(dir=cache) as staging:
+        staged = Path(staging)
+        source_archive = archive if archive.is_file() else staged / archive.name
+        if source_archive != archive:
+            with (
+                urllib.request.urlopen(manifest["url"], timeout=60) as source,
+                source_archive.open("wb") as output,
+            ):
+                shutil.copyfileobj(source, output)
+        with source_archive.open("rb") as stream:
+            if hashlib.file_digest(stream, "sha256").hexdigest() != manifest["sha256"]:
+                source_archive.unlink()
+                raise RuntimeError("ONNX Runtime checksum mismatch; the archive was discarded")
+        if source_archive != archive:
+            source_archive.replace(archive)
+        with zipfile.ZipFile(archive) as package:
+            for member, destination in (
+                (f"onnxruntime/capi/{versioned}", library / versioned),
+                ("onnxruntime/LICENSE", runtime / "LICENSE"),
+                ("onnxruntime/ThirdPartyNotices.txt", runtime / "ThirdPartyNotices.txt"),
+            ):
+                temporary = staged / destination.name
+                with package.open(member) as source, temporary.open("wb") as output:
+                    shutil.copyfileobj(source, output)
+                temporary.replace(destination)
+        for alias in (soname, "libonnxruntime.so"):
+            link = staged / alias
+            link.symlink_to(versioned)
+            link.replace(library / alias)
     environment["ORT_LIB_PATH"] = str(library)
     environment["ORT_PREFER_DYNAMIC_LINK"] = "1"
     environment["LD_LIBRARY_PATH"] = str(library) + (

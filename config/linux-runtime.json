@@ -1,6 +1,6 @@
 {
   "version": "1.31.0",
   "directory": "onnxruntime-linux-x64-1.31.0",
-  "url": "https://github.com/microsoft/onnxruntime/releases/download/v1.31.0/onnxruntime-linux-x64-1.31.0.tgz",
-  "sha256": "cc5c72baf5ae5c8238a6841f0897227be2d02826b9cf98eaf02fdefaeeb03a57"
+  "url": "https://files.pythonhosted.org/packages/6c/44/1e9e762b95b7da0a8424913a1ed7c38cdaf88624a3c41ddba24ebac88bc9/onnxruntime-1.31.0-cp312-cp312-manylinux_2_28_x86_64.whl",
+  "sha256": "5e129d6c56abd53e659cb70f00a108d6824086470ff99c2e47a82e5786563db3"
 }
