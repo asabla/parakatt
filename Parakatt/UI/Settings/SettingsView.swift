@@ -251,6 +251,23 @@ private struct SpeechPreferencesView: View {
     @State private var previewEnabled = true
     @State private var runtimeStatus: SpeechRuntimeStatus?
     @State private var statusQueryActive = false
+    @State private var appliedPreviewModel: String?
+    private static let fallbackPreviewModel = "nemotron-speech-streaming-en-0.6b"
+
+    private var verifiedPreviewModels: [ParakattCore.ModelInfo] {
+        models.filter { $0.providerType == "nemotron-streaming" && $0.downloaded }
+    }
+
+    private func isUnavailable(_ id: String?) -> Bool {
+        guard let id else { return false }
+        return !verifiedPreviewModels.contains { $0.id == id }
+    }
+
+    private var appliedPreviewName: String {
+        let id = appliedPreviewModel ?? Self.fallbackPreviewModel
+        if appliedPreviewModel == nil, isUnavailable(id) { return "Automatic" }
+        return models.first { $0.id == id }?.displayName ?? id
+    }
 
     private func refreshStatus() {
         guard !statusQueryActive else { return }
@@ -263,22 +280,40 @@ private struct SpeechPreferencesView: View {
             VStack(alignment: .leading, spacing: 12) {
                 if let status = runtimeStatus {
                     Text("Execution backend: \(status.actualBackend == .webGpu ? "WebGPU encoder + CPU decoder" : "CPU")")
-                    switch status.readiness {
-                    case .unavailable: Text("Preview model: unavailable")
-                    case .loading: Text("Preview model: loading")
-                    case .ready: Text("Preview model: ready")
-                    case .failed(let message): Text("Preview model failed: \(message)").foregroundStyle(.red)
+                    Text("Preview model: \(previewEnabled ? appliedPreviewName : "off")")
+                    if previewEnabled {
+                        switch status.readiness {
+                        case .unavailable: Text("Preview runtime: unavailable")
+                        case .loading: Text("Preview runtime: loading")
+                        case .ready: Text("Preview runtime: ready")
+                        case .failed(let message): Text("Preview runtime failed: \(message)").foregroundStyle(.red)
+                        }
                     }
                     if let message = status.message { Text(message).font(.caption).foregroundStyle(.secondary) }
                 }
-                Toggle("Streaming preview", isOn: $previewEnabled)
-                    .onChange(of: previewEnabled) { _, enabled in appState.setPreviewEnabled(enabled) }
+                Toggle("Streaming preview", isOn: Binding(
+                    get: { previewEnabled },
+                    set: {
+                        appState.setPreviewEnabled($0)
+                        previewEnabled = appState.previewEnabled()
+                    }
+                ))
                 if let current = settings {
                     Picker("Preview model", selection: Binding(get: { current.previewModel ?? "" }, set: { settings?.previewModel = $0.isEmpty ? nil : $0 })) {
-                        Text("Keep current selection").tag("")
-                        ForEach(models.filter { $0.providerType == "nemotron-streaming" }, id: \.id) { model in
+                        Text("Automatic (English if installed)").tag("")
+                        if let missing = current.previewModel, isUnavailable(missing) {
+                            Text(models.isEmpty
+                                ? missing
+                                : "\(models.first(where: { $0.id == missing })?.displayName ?? missing) (unavailable)")
+                                .tag(missing).disabled(true)
+                        }
+                        ForEach(verifiedPreviewModels, id: \.id) { model in
                             Text(model.displayName).tag(model.id)
                         }
+                    }
+                    if !models.isEmpty, isUnavailable(current.previewModel) {
+                        Text("Selected preview model is unavailable. Install or repair it below, or choose another.")
+                            .font(.caption).foregroundStyle(.orange)
                     }
                     Picker("Language", selection: Binding(get: { current.language }, set: { settings?.language = $0 })) {
                         Text("Automatic").tag(SpeechLanguage.automatic)
@@ -293,11 +328,19 @@ private struct SpeechPreferencesView: View {
                     Stepper("CPU threads: \(current.cpuThreads == 0 ? "Automatic" : String(current.cpuThreads))", value: Binding(get: { current.cpuThreads }, set: { settings?.cpuThreads = $0 }), in: 0...64)
                     Text("Automatic uses validated combinations. WebGPU tries GPU acceleration and uses CPU if it fails. Download a preview model below before selecting it.")
                         .font(.caption).foregroundStyle(.secondary)
-                    Button("Apply speech settings") { if let settings { appState.saveSpeechSettings(settings) } }
-                        .disabled(recording.isRecording || recording.isProcessing || meeting.isMeetingActive)
+                    Button("Apply speech settings") {
+                        if let settings { appState.saveSpeechSettings(settings) }
+                        appliedPreviewModel = appState.speechSettings()?.previewModel
+                    }
+                    .disabled(recording.isRecording || recording.isProcessing || meeting.isMeetingActive || isUnavailable(current.previewModel))
                 }
             }.padding(8)
-        }.onAppear { settings = appState.speechSettings(); previewEnabled = appState.previewEnabled(); refreshStatus() }
+        }.onAppear {
+            settings = appState.speechSettings()
+            appliedPreviewModel = settings?.previewModel
+            previewEnabled = appState.previewEnabled()
+            refreshStatus()
+        }
         .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in refreshStatus() }
     }
 }
@@ -322,8 +365,8 @@ struct ModelRowView: View {
                                 .foregroundStyle(.green)
                                 .font(.caption)
                         }
-                        if appState.activeModelId == model.id {
-                            Text("Active")
+                        if appState.isModelLoaded && appState.activeModelId == model.id {
+                            Text("Final transcription")
                                 .font(.caption2)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
