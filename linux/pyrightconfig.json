@@ -10,6 +10,7 @@
     "parakatt_linux/authentication.py",
     "parakatt_linux/connections.py",
     "parakatt_linux/transcript_service.py",
+    "parakatt_linux/transcript_dialog.py",
     "parakatt_linux/chatgpt.py",
     "parakatt_linux/chatgpt_settings.py"
   ],

@@ -1,11 +1,13 @@
 """Small Qt controls shared by the history, settings, and recording windows."""
 
 import math
+from collections.abc import Callable
 from datetime import datetime
 
 from PySide6.QtCore import QRect, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (
+    QBoxLayout,
     QButtonGroup,
     QCheckBox,
     QDialog,
@@ -28,7 +30,7 @@ from PySide6.QtWidgets import (
 from .appearance import label
 
 
-def button(label, function, layout):
+def button(label: str, function: Callable[[], object], layout: QBoxLayout) -> QPushButton:
     widget = QPushButton(label)
     widget.clicked.connect(function)
     layout.addWidget(widget)
@@ -55,7 +57,7 @@ def duration(seconds):
     )
 
 
-def timestamp(seconds):
+def timestamp(seconds: float) -> str:
     seconds = max(0, int(seconds))
     minutes, seconds = divmod(seconds, 60)
     hours, minutes = divmod(minutes, 60)
@@ -188,7 +190,7 @@ class SegmentedControl(QFrame):
         self.buttons[index].setChecked(True)
         self.changed.emit(index)
 
-    def currentIndex(self):
+    def currentIndex(self) -> int:
         return self.group.checkedId()
 
 
@@ -352,7 +354,7 @@ def add_segment(widget, start, text):
     return item
 
 
-def empty_state(title, description, symbol="document"):
+def empty_state(title: str, description: str, symbol: str = "document") -> QWidget:
     widget = QWidget()
     layout = QVBoxLayout(widget)
     layout.addStretch()

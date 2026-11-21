@@ -32,7 +32,7 @@ def apply_appearance():
     app.setStyleSheet(STYLE.replace("@ASSETS@", str(Path(__file__).parent / "assets")))
 
 
-def label(text, role="muted"):
+def label(text: str, role: str = "muted") -> QLabel:
     widget = QLabel(text)
     widget.setProperty("role", role)
     return widget
