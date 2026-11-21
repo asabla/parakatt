@@ -271,6 +271,29 @@ class DesktopWorkflowTests(unittest.TestCase):
         quit_app.assert_called_once()
         self.assertIsNone(self.window.settings_dialog)
 
+    def test_background_wayland_dictation_saves_without_opening_windows_or_copying(self):
+        from PySide6.QtWidgets import QApplication
+
+        self.window.wayland = True
+        self.backend.preferences["copy"] = True
+        self.core.set_show_overlay(True)
+        with (
+            patch.object(self.window, "isActiveWindow", return_value=False),
+            patch.object(QApplication, "activeWindow", return_value=None),
+            patch.object(QApplication, "clipboard") as clipboard,
+            patch("parakatt_linux.app.Recording") as capture,
+        ):
+            self.window.toggle_recording(external=True)
+            self.window.recording_timer.stop()
+            capture.return_value.start.assert_called_once_with()
+            self.assertFalse(self.window.overlay.isVisible())
+            self.assertFalse(self.window.live_window.isVisible())
+            self.window.on_event("recorded", SimpleNamespace(text="Project notes."))
+            clipboard.assert_not_called()
+            self.assertIn("Copy it from History", self.window.statusBar().currentMessage())
+            self.window.on_event("recording_done", None)
+            self.flush()
+
     def test_auxiliary_windows_and_timeline_order(self):
         from parakatt_linux.desktop_widgets import add_segment
 

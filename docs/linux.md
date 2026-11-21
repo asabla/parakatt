@@ -80,7 +80,7 @@ The Linux interface follows the supplied macOS references: compact history toolb
 
 The **Meetings** filter includes imported Teams and Slack transcripts. **Videos** includes audio/video imports. The pencil enables editing; **Save changes** commits it, while background refreshes preserve an open edit. The transcript overflow menu exposes original recognized text, speaker corrections, meeting actions, undo, and retry. Ctrl+F focuses transcript find when an item is selected and history search otherwise. The selection control enables multiple selection and batch deletion.
 
-The overlay uses measured microphone levels and does not request keyboard focus. Its visibility follows **General → Show recording overlay**. Closing the meeting window leaves capture running; Stop finishes and saves, while Discard confirms deletion of the active recording and its recovery data. Pause drains incoming audio without retaining it for recognition or recovery; the elapsed timer excludes paused time. Recognition may still finish processing audio captured before the pause.
+The overlay uses measured microphone levels and follows **General → Show recording overlay**. On Wayland, dictation started by shortcut while another app is focused keeps the recording controls in Parakatt so the active app retains focus. Closing the meeting window leaves capture running; Stop finishes and saves, while Discard confirms deletion of the active recording and its recovery data. Pause drains incoming audio without retaining it for recognition or recovery; the elapsed timer excludes paused time. Recognition may still finish processing audio captured before the pause.
 
 [Review screenshots and reproduction instructions](linux-ux.md) cover the empty/selected history states, timeline, settings and recording controls. All preview transcripts are synthetic.
 
@@ -88,7 +88,7 @@ The overlay uses measured microphone levels and does not request keyboard focus.
 
 In **GNOME Settings → Keyboard → View and Customize Shortcuts → Custom Shortcuts**, bind the absolute command printed by the installer, followed by `--toggle`. The `--meeting` command toggles meeting recording. The first invocation starts the app if needed. The shortcut is a toggle; hold-to-talk is not implemented.
 
-Wayland text is copied to the clipboard; paste with Ctrl+V. Unrestricted synthetic keystrokes and focused-window inspection are not available to ordinary Wayland applications. Automatic paste is currently supported only on X11 with `xdotool`. There is no automatic per-application context/default-mode detection on Wayland. A future consent-based portal integration is needed for equivalent behavior on supported compositors.
+On GNOME Wayland, start Parakatt before using the shortcut from another app. The first invocation starts the window when Parakatt is closed. When a recording finishes in the background, open **History**, select the recording and choose **Copy**, then paste with Ctrl+V in the destination. GNOME does not allow Parakatt to set the clipboard while another app has focus. Automatic paste is available on X11 with `xdotool`. There is no automatic per-application context/default-mode detection on Wayland.
 
 GNOME does not show StatusNotifier tray icons by default. Install a compatible AppIndicator extension if tray controls are wanted; otherwise the app remains a normal window and closing it stops active work and quits. Meeting output capture uses an output monitor, not macOS-style per-application audio isolation. It requires PipeWire's PulseAudio compatibility service or PulseAudio itself. Headphones help avoid microphone feedback.
 
@@ -111,7 +111,7 @@ CI also runs the Qt suite against headless Mutter on Wayland. That exercises win
 | Check | Expected behavior |
 | --- | --- |
 | GNOME custom shortcut | Launch with `--toggle`, then invoke it twice from another app. Capture starts and stops in the same Parakatt instance. Repeat with `--meeting`. |
-| Clipboard and overlay | Start dictation from a text editor. The editor keeps focus and the result can be pasted into it after stop. Check overlay visibility and the Stop button. |
+| Clipboard and overlay | Open Parakatt, switch to a text editor, and start and stop dictation with the shortcut. The editor keeps focus. Copy the saved transcript from History and paste it into the editor. Start another dictation inside Parakatt to check the overlay and Stop button. |
 | Meeting inputs | Select a microphone and output monitor. Speak and play test speech over headphones. Verify both sources appear in the timeline, pause excludes new audio, and Stop saves the transcript. |
 | Media | Import and play a local video with sound. Seek from the timeline, then check browser-assisted import separately with an authorized session. |
 | Desktop keyring and sign-in | Connect and test a permitted ChatGPT account. Restart, verify account and model availability, then sign out. Verify that a locked keyring gives a recoverable error. |

@@ -859,5 +859,5 @@ def diagnostics() -> dict[str, object]:
             for name in ("ffmpeg", "ffprobe", "pactl", "yt-dlp", "xdotool")
         },
         "global_shortcut": "Bind parakatt-desktop --toggle in GNOME Settings > Keyboard > Custom Shortcuts",
-        "wayland_paste": "Transcript is copied to the clipboard; paste with Ctrl+V",
+        "wayland_paste": "Copy background recordings from History and paste with Ctrl+V",
     }

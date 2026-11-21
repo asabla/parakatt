@@ -183,7 +183,7 @@ def tools_panel(window):
     items.addLayout(form)
     content.addWidget(card)
     helper = label(
-        "On Wayland, paste copied text with Ctrl+V. Global recording shortcuts are configured in GNOME Settings → Keyboard."
+        "On Wayland, copy background recordings from History. Set global recording shortcuts in GNOME Settings → Keyboard."
     )
     helper.setWordWrap(True)
     content.addWidget(helper)
