@@ -245,6 +245,32 @@ class DesktopWorkflowTests(unittest.TestCase):
         self.assertFalse(self.core.get_show_overlay())
         self.assertEqual(self.backend.preferences["microphone"], "unavailable-device")
 
+    def test_quit_closes_settings_and_cancels_pending_sign_in(self):
+        from PySide6.QtCore import QTimer
+
+        from parakatt_linux.settings import Settings
+
+        dialog = Settings(self.backend, self.window)
+        request = MagicMock()
+        dialog.chatgpt.request = request
+        with (
+            patch("parakatt_linux.app.Settings", return_value=dialog),
+            patch("parakatt_linux.app.Recording") as start_capture,
+            patch("parakatt_linux.app.QApplication.quit") as quit_app,
+        ):
+
+            def quit_from_tray():
+                self.window.toggle_recording()
+                self.window.quit()
+
+            QTimer.singleShot(0, quit_from_tray)
+            self.window.settings()
+
+        start_capture.assert_not_called()
+        request.cancel.assert_called_once()
+        quit_app.assert_called_once()
+        self.assertIsNone(self.window.settings_dialog)
+
     def test_auxiliary_windows_and_timeline_order(self):
         from parakatt_linux.desktop_widgets import add_segment
 
