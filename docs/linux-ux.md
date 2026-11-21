@@ -28,7 +28,7 @@ Unavailable saved audio devices and a saved preview-model identifier are retaine
 
 ## Recording
 
-Meetings have a separate window with elapsed time, source badge, processed/timeline selector, first-batch progress, Pause/Resume, Stop, and Discard. The overlay has the recording indicator, measured microphone level, Stop, shortcut hint, microphone and model status. It avoids requesting keyboard focus.
+Meetings have a separate window with elapsed time, source badge, processed/timeline selector, first-batch progress, Pause/Resume, Stop, and Discard. The overlay has the recording indicator, measured microphone level, Stop, shortcut hint, microphone and model status. On Wayland, dictation started by a global shortcut in another app leaves the overlay closed so that app retains focus.
 
 ![Meeting transcription](images/linux-desktop/meeting.png)
 

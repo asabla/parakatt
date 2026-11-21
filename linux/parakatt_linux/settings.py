@@ -145,7 +145,9 @@ class Settings(QDialog):
         )
         helper.setWordWrap(True)
         items.addWidget(helper)
-        items.addWidget(ui_label("Wayland: completed text is copied; paste with Ctrl+V."))
+        items.addWidget(
+            ui_label("Wayland: open History to copy recordings made in the background.")
+        )
         content.addWidget(card)
         content.addStretch()
         tabs.addTab(scroll_page(dashboard), "Dashboard")
@@ -186,7 +188,7 @@ class Settings(QDialog):
         behavior_row(
             items,
             "Copy completed dictation",
-            "Copy text to the clipboard after recording",
+            "Copy text after recording. On Wayland, Parakatt needs keyboard focus to copy.",
             self.copy,
             "copy",
         )
@@ -196,7 +198,7 @@ class Settings(QDialog):
         behavior_row(
             items,
             "Auto-paste transcription",
-            "X11 with xdotool. On Wayland, paste copied text with Ctrl+V.",
+            "X11 with xdotool. On Wayland, copy from History and paste with Ctrl+V.",
             self.paste,
             "copy",
         )
@@ -205,7 +207,7 @@ class Settings(QDialog):
         behavior_row(
             items,
             "Show recording overlay",
-            "Display compact recording controls above other windows",
+            "Display compact recording controls. On Wayland, dictation shortcuts leave the active app in focus.",
             self.overlay,
             "sidebar",
             "#30d158",

@@ -104,6 +104,9 @@ class Window(QMainWindow):
         # Preserve an explicitly selected backend for desktop testing.
         os.environ.setdefault("QT_AUDIO_BACKEND", "pulseaudio")
         super().__init__()
+        self.wayland = os.environ.get("XDG_SESSION_TYPE") == "wayland" or (
+            QApplication.platformName().startswith("wayland")
+        )
         apply_appearance()
         self.backend, self.core = backend, backend.engine
         self.events = Events()
@@ -600,7 +603,7 @@ class Window(QMainWindow):
             self.settings_dialog = None
             dialog.deleteLater()
 
-    def toggle_recording(self, meeting=False):
+    def toggle_recording(self, meeting=False, *, external=False):
         if self.quitting:
             return
         if self.settings_dialog is not None:
@@ -635,10 +638,13 @@ class Window(QMainWindow):
         device = self.backend.preferences.get("microphone") or "System default microphone"
         self.overlay.device.setText(device if len(device) < 32 else device[:29] + "…")
         self.overlay.device.setToolTip(device)
-        if meeting or not self.core.get_show_overlay():
+        # A new top-level window can take focus on Wayland even with Qt's
+        # no-focus flags. A shortcut in another app must leave it focused.
+        background = external and self.wayland and not meeting and not self.isActiveWindow()
+        if not background and (meeting or not self.core.get_show_overlay()):
             self.live_window.show()
             self.live_window.raise_()
-        if self.core.get_show_overlay():
+        if not background and self.core.get_show_overlay():
             screen = self.screen().availableGeometry()
             self.overlay.move(screen.center().x() - self.overlay.width() // 2, screen.y() + 24)
             self.overlay.show()
@@ -720,7 +726,9 @@ class Window(QMainWindow):
             self.live_text.setPlainText(value.text)
             self.live_window.update_view()
             self.selected = self.recording.id if self.recording else None
-            if self.backend.preferences.get("copy", True):
+            copy_enabled = self.backend.preferences.get("copy", True)
+            can_copy = not self.wayland or QApplication.activeWindow() is not None
+            if copy_enabled and can_copy:
                 QApplication.clipboard().setText(value.text)
             if self.core.get_auto_paste() and os.environ.get("XDG_SESSION_TYPE") == "x11":
                 self.task(
@@ -728,11 +736,11 @@ class Window(QMainWindow):
                         ["xdotool", "key", "--clearmodifiers", "ctrl+v"], check=True
                     )
                 )
-            self.live_status.setText(
-                "Recording saved. Text copied."
-                if self.backend.preferences.get("copy", True)
-                else "Recording saved."
-            )
+            message = "Recording saved."
+            if copy_enabled:
+                message += " Text copied." if can_copy else " Copy it from History."
+            self.live_status.setText(message)
+            self.statusBar().showMessage(message)
         elif kind == "recording_done":
             self.preview_text.clear()
             self.recording = None
@@ -1586,11 +1594,11 @@ def run_window(app, paths, server, command):
         QMessageBox.critical(None, "Parakatt startup", str(error))
         return 1
 
-    def dispatch(message):
+    def dispatch(message, *, external=True):
         if window.quitting:
             return
         if message == "toggle":
-            window.toggle_recording()
+            window.toggle_recording(external=external)
         elif message == "meeting":
             window.toggle_recording(True)
         elif message == "show":
@@ -1599,7 +1607,7 @@ def run_window(app, paths, server, command):
     receive_commands(server, dispatch)
     window.show()
     if command != "show":
-        QTimer.singleShot(0, lambda: dispatch(command))
+        QTimer.singleShot(0, lambda: dispatch(command, external=False))
     return app.exec()
 
 
