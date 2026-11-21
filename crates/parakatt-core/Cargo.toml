@@ -68,6 +68,9 @@ tempfile = "3"
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework = "3.7"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3.6.3", features = ["async-secret-service", "async-io", "crypto-rust"] }
+
 [[example]]
 name = "test_parakeet"
 path = "examples/test_parakeet.rs"

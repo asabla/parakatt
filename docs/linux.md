@@ -53,7 +53,7 @@ This creates a per-user launcher pointing at the project's virtual environment; 
 | Settings | Dashboard, General, Models, LLM, Dictionary and Statistics tabs; validated dictionary/mode editors; grouped model and provider settings; devices, clipboard/overlay behavior and retention |
 | Transcript imports | File preview, Teams account/transcript selection, Slack workspace/source selection; save only after explicit Import |
 | Tools | Backups & profiles, Recovery with empty/selection states, and Diagnostics with optional technical details |
-| Credentials | Provider-specific keys in Secret Service / GNOME Keyring; no plaintext fallback. Verified migration of legacy keys |
+| Credentials | Provider-specific API keys and shared desktop/CLI ChatGPT accounts in Secret Service / GNOME Keyring; no plaintext fallback. Verified migration of legacy keys and account files |
 | Media | Local audio/video, multiple audio tracks, direct/YouTube links through yt-dlp, durable chunk checkpoints, pause/resume, source fingerprint checks |
 | Playback | Qt multimedia plays the original source, with seeking, volume, speed, and sentence-to-time navigation |
 | Recovery | Periodic audio checkpoints when enabled, retained interrupted drafts, recovery of committed text or saved audio |
@@ -63,6 +63,16 @@ This creates a per-user launcher pointing at the project's virtual environment; 
 Imports run one at a time and yield to live capture between chunks. A changed source or changed processing configuration cannot silently resume an old import. Files imported from disk stay external; **Remove downloaded media** only removes files under Parakatt's own media directory. Removing a transcript does not delete external files. Database backups do not include source videos or downloaded speech models.
 
 YouTube browser sign-in is selected for one attempt in **Parakatt → Imports…**. Sign into the browser first. Cookie access is handled by yt-dlp; the app does not save cookies or the browser selection in history or settings. Live streams, playlists, DRM, and non-media web pages are not a supported import contract.
+
+## AI text cleanup and ChatGPT
+
+General and LLM settings share one cleanup choice: **Off**, **Punctuation**, or **Grammar + punctuation**, plus Email, Code and saved custom modes. Off keeps local recognition and dictionary corrections without an AI request. AI processing automatically includes up to 120 preceding words from the same recording and speaker; remote providers receive this context. Failed processing preserves the recognized text and timeline.
+
+In **Settings → LLM**, choose **ChatGPT plan**, then **Continue with ChatGPT**. Complete sign-in in your browser, select an available model and save. Account controls support adding accounts, signing in again and signing out. Switching accounts clears the model selection. Saved model names must be verified against the account's catalog before saving. **Test connection** applies the selected account/model and sends a short synthetic request; it can consume plan usage, but sends no recording. **Manage usage** opens ChatGPT's usage settings. A usage pause requires an explicit retry; Parakatt never falls back to API billing or another provider.
+
+The desktop and CLI share ChatGPT accounts through Secret Service / GNOME Keyring. This requires a running, unlocked desktop keyring, including for CLI account commands. Older Linux account files are removed only after their contents are written to and verified in the keyring. Unavailable storage, corrupt files or conflicting file/keyring accounts produce an error without overwriting the existing data or falling back to a file. Account actions persist immediately; cancelling Settings does not undo a completed sign-in or sign-out.
+
+Automated tests use mocked account responses. Live sign-in, refresh, revocation and usage-limit behavior still need verification with an authorized account on GNOME; no live account was used for the review captures.
 
 ## Interface and review screenshots
 

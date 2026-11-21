@@ -88,7 +88,7 @@ Output goes to stdout; errors and diagnostic messages go to stderr. Exit codes a
 
 ### ChatGPT plan in the CLI
 
-Sign in once on each computer. On macOS, the app and CLI share saved ChatGPT accounts in Keychain. Linux stores credentials under `$XDG_CONFIG_HOME/parakatt/accounts` (default `~/.config/parakatt/accounts`) with owner-only access. Account commands do not load a speech model or open history.
+Sign in once on each computer. On macOS, the app and CLI share saved ChatGPT accounts in Keychain. On Linux, the desktop and CLI share accounts in Secret Service / GNOME Keyring; unlock your desktop keyring before signing in. The owner-only directory `$XDG_CONFIG_HOME/parakatt/accounts` (default `~/.config/parakatt/accounts`) holds the process lock. Existing Linux account files migrate only after a verified keyring write, then the old file is removed. There is no plaintext fallback when Secret Service is unavailable. Account commands do not load a speech model or open history.
 
 ```bash
 parakatt auth login
