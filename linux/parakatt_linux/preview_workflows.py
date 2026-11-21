@@ -68,7 +68,7 @@ def render(output: Path) -> None:
         for index, name in [(2, "models-settings"), (3, "llm-settings"), (4, "dictionary")]:
             settings.tabs.setCurrentIndex(index)
             if index == 3:
-                settings.provider.setCurrentText("ollama")
+                settings.provider.setCurrentIndex(settings.provider.findData("ollama"))
             save(settings, name)
         rule = RuleEditor(settings, "graph q l", "GraphQL", "when_mode", "code")
         rule.show()

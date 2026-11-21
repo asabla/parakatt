@@ -49,7 +49,7 @@ enum Command {
         #[arg(long, value_enum, requires = "llm")]
         mode: Option<Mode>,
     },
-    /// Manage the ChatGPT accounts shared with the macOS app
+    /// Manage the ChatGPT accounts shared with the desktop app
     Auth {
         #[command(subcommand)]
         command: AuthCommand,

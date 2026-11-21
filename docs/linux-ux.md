@@ -65,3 +65,15 @@ QT_QPA_PLATFORM=offscreen PYTHONPATH=linux \
 ```
 
 The renderer uses a temporary database and sample office text. It does not authenticate, download models or open capture devices.
+
+## ChatGPT and unified cleanup
+
+The General and LLM tabs use the macOS cleanup labels while retaining stable shared-engine mode names. ChatGPT account controls reuse the core's browser sign-in and account/model APIs. Available models, permission status and usage pauses come from that account; OpenAI API remains a separate provider.
+
+[Cleanup and ChatGPT captures](images/linux-cleanup/) show the real Qt settings with a signed-out fixture. No account is connected and no account storage is read. Reproduce them with:
+
+```sh
+QT_QPA_PLATFORM=offscreen PYTHONPATH=linux \
+  target/linux-venv/bin/python -m parakatt_linux.preview_cleanup \
+  --output target/linux-cleanup-preview
+```

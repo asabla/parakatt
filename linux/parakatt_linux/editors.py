@@ -102,10 +102,12 @@ class ModeEditor(QDialog):
         form = QFormLayout()
         self.name = QLineEdit(name)
         self.name.setPlaceholderText("e.g. Meeting minutes")
-        self.name.setReadOnly(name.lower() in ("dictation", "clean", "email", "code"))
+        self.name.setReadOnly(
+            name.lower() in ("dictation", "punctuation", "clean", "email", "code")
+        )
         self.provider = QComboBox()
         self.provider.addItem("Default provider", "")
-        for value in ["ollama", "lmstudio", "openai", "anthropic"]:
+        for value in ["ollama", "lmstudio", "chatgpt", "openai", "anthropic"]:
             self.provider.addItem(value, value)
         if provider and self.provider.findData(provider) < 0:
             self.provider.addItem(provider, provider)
@@ -147,5 +149,11 @@ class ModeEditor(QDialog):
             name.casefold() != self.original_name.casefold() and name.casefold() in existing
         ):
             self.error.setText("Choose a unique, non-empty mode name.")
+            return
+        if name.casefold() != self.original_name.casefold() and name.casefold() in (
+            "off",
+            "grammar + punctuation",
+        ):
+            self.error.setText("That name is reserved for a built-in cleanup choice.")
             return
         self.accept()

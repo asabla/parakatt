@@ -35,6 +35,7 @@ class NativeAPI:
         self.SpeechLanguage = parakatt_core.SpeechLanguage
         self.TranscriptProvider = parakatt_core.TranscriptProvider
         self.TranscriptImportRequest = parakatt_core.TranscriptImportRequest
+        self.ChatGptAccounts = parakatt_core.ChatGptAccounts
         self.init_logging = parakatt_core.init_logging
 
     def request(

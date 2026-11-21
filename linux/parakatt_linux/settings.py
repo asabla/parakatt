@@ -7,7 +7,6 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
-    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -31,6 +30,8 @@ from PySide6.QtWidgets import (
 
 from .appearance import label as ui_label
 from .backend import audio_sources
+from .chatgpt import BASIC_MODES, BUILTIN_MODES, cleanup_description, cleanup_title
+from .chatgpt_settings import ChatGptSettings
 from .desktop_widgets import Switch, ask, button, empty_state, icon
 from .editors import ModeEditor, RuleEditor
 
@@ -87,7 +88,7 @@ def stat_cards(stats, keys):
 
 
 class Settings(QDialog):
-    def __init__(self, backend, parent):
+    def __init__(self, backend, parent, chatgpt_service=None):
         super().__init__(parent)
         self.backend, self.core = backend, backend.engine
         self.setWindowTitle("Parakatt Settings")
@@ -167,11 +168,13 @@ class Settings(QDialog):
         content.addWidget(ui_label("Text cleanup", "section"))
         card, items = group_box()
         self.cleanup = QComboBox()
-        self.cleanup.addItems([mode.name for mode in self.core.list_modes()])
-        self.cleanup.setCurrentText(self.core.get_active_mode())
+        self.populate_cleanup(self.cleanup)
         items.addWidget(self.cleanup)
+        self.cleanup_hint = ui_label(cleanup_description(self.cleanup.currentData()))
+        self.cleanup_hint.setWordWrap(True)
+        items.addWidget(self.cleanup_hint)
         helper = ui_label(
-            "Processing applies to your next recording. Remote AI providers receive the recognized text and, when enabled, preceding speech as context. Failed processing keeps your original text."
+            "When AI processing is enabled, up to 120 preceding words from the same recording and speaker provide context automatically. Remote providers receive this text. Changes apply to the next recording; failed processing keeps your original text."
         )
         helper.setWordWrap(True)
         items.addWidget(helper)
@@ -374,8 +377,16 @@ class Settings(QDialog):
         form = QFormLayout()
         settings = self.core.get_llm_settings()
         self.provider = QComboBox()
-        self.provider.addItems(["none", "ollama", "lmstudio", "openai", "anthropic"])
-        self.provider.setCurrentText(settings.provider or "none")
+        for value, title in (
+            ("none", "None"),
+            ("ollama", "Ollama"),
+            ("lmstudio", "LM Studio"),
+            ("chatgpt", "ChatGPT plan"),
+            ("openai", "OpenAI API"),
+            ("anthropic", "Anthropic"),
+        ):
+            self.provider.addItem(title, value)
+        self.provider.setCurrentIndex(max(0, self.provider.findData(settings.provider or "none")))
         self.url, self.model, self.key = (
             QLineEdit(settings.base_url),
             QLineEdit(settings.model),
@@ -383,20 +394,41 @@ class Settings(QDialog):
         )
         self.key.setEchoMode(QLineEdit.EchoMode.Password)
         self.key.setPlaceholderText("Leave blank to keep the stored key")
+        self.url_label, self.model_label, self.key_label = (
+            QLabel("Server URL"),
+            QLabel("Model"),
+            QLabel("API key"),
+        )
         form.addRow("Provider", self.provider)
-        form.addRow("Server URL", self.url)
-        form.addRow("Model", self.model)
-        form.addRow("API key", self.key)
+        form.addRow(self.url_label, self.url)
+        form.addRow(self.model_label, self.model)
+        form.addRow(self.key_label, self.key)
         items.addLayout(form)
         self.provider_hint = ui_label("")
         self.provider_hint.setWordWrap(True)
         items.addWidget(self.provider_hint)
         content.addWidget(card)
+        self.chatgpt = ChatGptSettings(backend, parent.pool, chatgpt_service)
+        self.chatgpt.busy_changed.connect(lambda busy: self.provider.setEnabled(not busy))
+        content.addWidget(self.chatgpt)
+        self.finished.connect(lambda _: self.chatgpt.activate(False))
         card, items = group_box()
-        items.addWidget(ui_label("Context & output", "section"))
-        self.context = QCheckBox("Use preceding recognized speech as context")
-        self.context.setChecked(self.core.get_llm_context_enabled())
-        items.addWidget(self.context)
+        items.addWidget(ui_label("Text cleanup", "section"))
+        self.llm_cleanup = QComboBox()
+        self.populate_cleanup(self.llm_cleanup)
+        items.addWidget(self.llm_cleanup)
+        self.llm_cleanup_hint = ui_label(cleanup_description(self.llm_cleanup.currentData()))
+        self.llm_cleanup_hint.setWordWrap(True)
+        items.addWidget(self.llm_cleanup_hint)
+        self.no_provider_hint = ui_label("")
+        self.no_provider_hint.setWordWrap(True)
+        items.addWidget(self.no_provider_hint)
+        content.addWidget(card)
+        self.cleanup.currentIndexChanged.connect(lambda _: self.sync_cleanup(self.cleanup))
+        self.llm_cleanup.currentIndexChanged.connect(lambda _: self.sync_cleanup(self.llm_cleanup))
+        card, items = group_box()
+        self.output_card = card
+        items.addWidget(ui_label("Output", "section"))
         generation = self.core.get_generation_settings()
         self.tokens = QSpinBox()
         self.tokens.setRange(1, 1000000)
@@ -405,20 +437,23 @@ class Settings(QDialog):
         form.addRow("Output token limit", self.tokens)
         items.addLayout(form)
         helper = ui_label(
-            "Remote providers receive the recognized text and any enabled context. Failed processing keeps the original text."
+            "Context is included automatically from the same recording and speaker. Failed processing keeps the original text."
         )
         helper.setWordWrap(True)
         items.addWidget(helper)
         content.addWidget(card)
-        self.provider.currentTextChanged.connect(self.provider_changed)
-        self.update_provider_hint(self.provider.currentText())
+        self.provider.currentIndexChanged.connect(
+            lambda _: self.provider_changed(self.provider.currentData())
+        )
+        self.update_provider_hint(self.provider.currentData())
+        self.chatgpt.activate(self.provider.currentData() == "chatgpt")
         notice = ui_label(
-            "API keys stay in Secret Service / GNOME Keyring, never in settings files."
+            "API keys and ChatGPT credentials stay in Secret Service / GNOME Keyring, never in settings files. ChatGPT plan usage and OpenAI API billing are separate; Parakatt never switches between them automatically."
         )
         notice.setWordWrap(True)
         content.addWidget(notice)
         content.addStretch()
-        tabs.addTab(llm, "LLM")
+        tabs.addTab(scroll_page(llm), "LLM")
 
         dictionary = QWidget()
         form = QVBoxLayout(dictionary)
@@ -554,10 +589,24 @@ class Settings(QDialog):
             self.catalog_attached = False
 
     def update_provider_hint(self, provider):
+        chatgpt = provider == "chatgpt"
+        self.output_card.setVisible(provider not in ("chatgpt", "none"))
+        self.chatgpt.setVisible(chatgpt)
+        for widget in (self.url, self.url_label, self.model, self.model_label):
+            widget.setVisible(not chatgpt and provider != "none")
+        for widget in (self.key, self.key_label):
+            widget.setVisible(provider in ("openai", "anthropic"))
         self.key.setEnabled(provider in ("openai", "anthropic"))
+        self.no_provider_hint.setText(
+            "Select and save a provider to enable AI text cleanup. Without one, all modes keep the recognized text and dictionary corrections."
+            if provider == "none"
+            else "Up to 120 preceding words from the same recording and speaker provide context automatically. Remote providers receive this text. Changes apply to the next recording; failed processing keeps your original text."
+        )
         self.provider_hint.setText(
             "No AI provider selected."
             if provider == "none"
+            else "Connect your ChatGPT account below. No API key is required."
+            if chatgpt
             else "Text is sent to the configured server. Use a local server for local processing."
             if provider in ("ollama", "lmstudio")
             else "Recognized text is sent to this cloud provider when a processing mode uses it."
@@ -569,6 +618,29 @@ class Settings(QDialog):
         self.model.setText(settings.model)
         self.key.clear()
         self.update_provider_hint(provider)
+        self.chatgpt.activate(provider == "chatgpt")
+
+    def populate_cleanup(self, control):
+        names = list(BASIC_MODES)
+        names.extend(mode.name for mode in self.core.list_modes() if mode.name not in names)
+        active = self.core.get_active_mode()
+        if active not in names:
+            names.append(active)
+        for name in names:
+            control.addItem(cleanup_title(name), name)
+        control.setCurrentIndex(max(0, control.findData(active)))
+
+    def sync_cleanup(self, source):
+        name = source.currentData()
+        for control, helper in (
+            (self.cleanup, self.cleanup_hint),
+            (self.llm_cleanup, self.llm_cleanup_hint),
+        ):
+            if control is not source:
+                control.blockSignals(True)
+                control.setCurrentIndex(control.findData(name))
+                control.blockSignals(False)
+            helper.setText(cleanup_description(name))
 
     def add_rule(self, rule=None):
         row = self.rules.rowCount()
@@ -688,6 +760,22 @@ class Settings(QDialog):
                 )
             )
 
+        self.refresh_cleanup_modes()
+
+    def refresh_cleanup_modes(self):
+        names = list(BASIC_MODES)
+        names.extend(self.modes.item(row, 0).text() for row in range(self.modes.rowCount()))
+        names = list(dict.fromkeys(names))
+        selected = self.cleanup.currentData()
+        for control in (self.cleanup, self.llm_cleanup):
+            control.blockSignals(True)
+            control.clear()
+            for name in names:
+                control.addItem(cleanup_title(name), name)
+            control.setCurrentIndex(max(0, control.findData(selected)))
+            control.blockSignals(False)
+        self.sync_cleanup(self.cleanup)
+
     def add_mode(self, mode=None):
         row = self.modes.rowCount()
         self.modes.insertRow(row)
@@ -709,12 +797,13 @@ class Settings(QDialog):
         row = self.modes.currentRow()
         if row >= 0:
             name = self.modes.item(row, 0).text()
-            if name.lower() in ("dictation", "clean", "email", "code"):
+            if name.lower() in BUILTIN_MODES:
                 QMessageBox.information(
                     self, "Mode", "Built-in modes can be edited but cannot be removed."
                 )
             else:
                 self.modes.removeRow(row)
+                self.refresh_cleanup_modes()
 
     def save(self):
         rules = [
@@ -744,17 +833,19 @@ class Settings(QDialog):
                 )
             )
         names = {mode.name.lower() for mode in modes}
-        if not {"dictation", "clean", "email", "code"}.issubset(names):
-            raise ValueError(
-                "Keep the four built-in mode names; add a custom mode for a different name"
-            )
+        if not set(BUILTIN_MODES).issubset(names):
+            raise ValueError("Keep the built-in mode names; add a custom mode for a different name")
         for rule in rules:
             message = self.core.validate_dictionary_pattern(rule.pattern)
             if message:
                 raise ValueError(message)
-        self.backend.configure_llm(
-            self.provider.currentText(), self.url.text(), self.model.text(), self.key.text()
-        )
+        provider = self.provider.currentData()
+        model = self.chatgpt.require_model() if provider == "chatgpt" else self.model.text()
+        if self.chatgpt.busy:
+            raise ValueError("Wait for the ChatGPT operation to finish before saving.")
+        if provider == "chatgpt":
+            self.core.set_chatgpt_account(self.chatgpt.selected)
+        self.backend.configure_llm(provider, self.url.text(), model, self.key.text())
         self.core.set_dictionary_rules(rules)
         for mode in modes:
             self.core.save_mode(mode)
@@ -768,8 +859,7 @@ class Settings(QDialog):
         self.core.set_auto_paste(self.paste.isChecked())
         self.core.set_show_overlay(self.overlay.isChecked())
         self.core.set_debug_mode(self.debug.isChecked())
-        self.core.set_active_mode(self.cleanup.currentText())
-        self.core.set_llm_context_enabled(self.context.isChecked())
+        self.core.set_active_mode(self.cleanup.currentData())
         generation = self.core.get_generation_settings()
         generation.output_limit = self.tokens.value()
         self.core.set_generation_settings(generation)
