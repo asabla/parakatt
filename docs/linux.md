@@ -106,6 +106,14 @@ target/linux-venv/bin/parakatt-desktop --diagnostics
 
 The tests cover checkpoint overlap and pause/resume, changed-source rejection, bounded capture behavior, paths, subtitles, native settings persistence, actual recognition/history edits when a model is supplied, and recording lifecycle/recovery using an injected audio source. The Qt tests exercise category filters and pagination (including Teams/Slack classification), find/timeline navigation, explicit edit/save, settings persistence, clipboard use, separate panels, pause/discard, and original-video playback. CI builds the native bindings and runs these checks on Ubuntu, including real recognition from pinned speech fixtures.
 
-Offscreen tests do not prove microphone access, output-monitor capture, browser-cookie access, GNOME shortcut handling, Wayland clipboard ownership, or visible video/audio playback. Verify those in a real logged-in GNOME session before treating the port as a daily-use replacement. No claim is made that Fedora, actual audio devices, or GNOME integration have been validated by the cloud tests.
+CI also runs the Qt suite against headless Mutter on Wayland. That exercises window creation, dialogs, and the local shortcut command socket with a real compositor. A logged-in GNOME session on Ubuntu and Fedora is still needed for these checks:
+
+| Check | Expected behavior |
+| --- | --- |
+| GNOME custom shortcut | Launch with `--toggle`, then invoke it twice from another app. Capture starts and stops in the same Parakatt instance. Repeat with `--meeting`. |
+| Clipboard and overlay | Start dictation from a text editor. The editor keeps focus and the result can be pasted into it after stop. Check overlay visibility and the Stop button. |
+| Meeting inputs | Select a microphone and output monitor. Speak and play test speech over headphones. Verify both sources appear in the timeline, pause excludes new audio, and Stop saves the transcript. |
+| Media | Import and play a local video with sound. Seek from the timeline, then check browser-assisted import separately with an authorized session. |
+| Desktop keyring and sign-in | Connect and test a permitted ChatGPT account. Restart, verify account and model availability, then sign out. Verify that a locked keyring gives a recoverable error. |
 
 Playback defaults to Qt’s PulseAudio backend, matching the compatibility service used for capture on PipeWire desktops. This also avoids Qt 6.12’s native PipeWire backend crashing when the client library is present without its configuration. Set `QT_AUDIO_BACKEND` explicitly to override that choice. The desktop installation runs `pip check` to verify that the hashed runtime lock matches package requirements.

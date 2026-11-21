@@ -21,7 +21,6 @@ from PySide6.QtGui import (
 )
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
-from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -60,6 +59,7 @@ from .backend import (
     probe,
     subtitle_text,
 )
+from .desktop_instance import claim_instance, receive_commands
 from .desktop_widgets import (
     ROW_DATA,
     HistoryDelegate,
@@ -113,6 +113,7 @@ class Window(QMainWindow):
         self.recording = None
         self.importer = None
         self.transcript_dialog = None
+        self.settings_dialog = None
         self.selected = None
         self.history_offset = 0
         self.history_generation = 0
@@ -581,6 +582,8 @@ class Window(QMainWindow):
         self.mode.blockSignals(False)
 
     def settings(self):
+        if self.quitting or self.settings_dialog is not None:
+            return
         if self.recording or self.importer:
             QMessageBox.information(
                 self,
@@ -588,10 +591,21 @@ class Window(QMainWindow):
                 "Stop recording and pause the import before changing processing settings.",
             )
             return
-        if Settings(self.backend, self).exec():
-            self.refresh_modes()
+        dialog = Settings(self.backend, self)
+        self.settings_dialog = dialog
+        try:
+            if dialog.exec():
+                self.refresh_modes()
+        finally:
+            self.settings_dialog = None
+            dialog.deleteLater()
 
     def toggle_recording(self, meeting=False):
+        if self.quitting:
+            return
+        if self.settings_dialog is not None:
+            self.statusBar().showMessage("Close Settings before starting a recording.", 5000)
+            return
         if self.recording:
             self.recording.stop()
             self.record_button.setEnabled(False)
@@ -1514,6 +1528,8 @@ class Window(QMainWindow):
 
     def quit(self):
         self.quitting = True
+        if self.settings_dialog is not None:
+            self.settings_dialog.reject()
         if self.transcript_dialog is not None:
             self.transcript_dialog.reject()
         self.centralWidget().setEnabled(False)
@@ -1551,55 +1567,40 @@ def main():
     app.setOrganizationName("Parakatt")
     app.setQuitOnLastWindowClosed(False)
     paths = Paths.discover(args.models_dir, args.data_dir)
-    # One instance per data directory. Never unlink a live instance's socket.
-    import hashlib
-
-    ident = hashlib.sha256(str(paths.config.resolve()).encode()).hexdigest()[:16]
-    name = f"parakatt-{os.getuid()}-{ident}"
-    client = QLocalSocket()
-    client.connectToServer(name)
-    if client.waitForConnected(500):
-        client.write(b"meeting" if args.meeting else b"toggle" if args.toggle else b"show")
-        client.waitForBytesWritten(1000)
-        client.disconnectFromServer()
+    command = "meeting" if args.meeting else "toggle" if args.toggle else "show"
+    instance = claim_instance(paths.config, command)
+    if instance is None:
         return
-    QLocalServer.removeServer(name)
-    server = QLocalServer()
-    server.setSocketOptions(QLocalServer.SocketOption.UserAccessOption)
-    if not server.listen(name):
-        raise RuntimeError(server.errorString())
+    lock, server = instance
     try:
-        backend = Backend(paths)
-        window = Window(backend)
+        return run_window(app, paths, server, command)
+    finally:
+        server.close()
+        lock.unlock()
+
+
+def run_window(app, paths, server, command):
+    try:
+        window = Window(Backend(paths))
     except Exception as error:
         QMessageBox.critical(None, "Parakatt startup", str(error))
         return 1
 
-    def connection():
-        socket = server.nextPendingConnection()
+    def dispatch(message):
+        if window.quitting:
+            return
+        if message == "toggle":
+            window.toggle_recording()
+        elif message == "meeting":
+            window.toggle_recording(True)
+        elif message == "show":
+            window.show_window()
 
-        def receive():
-            message = bytes(socket.readAll())
-            if message == b"toggle":
-                window.toggle_recording()
-            elif message == b"meeting":
-                window.toggle_recording(True)
-            elif message == b"show":
-                window.show_window()
-            socket.disconnectFromServer()
-
-        socket.readyRead.connect(receive)
-        socket.disconnected.connect(socket.deleteLater)
-        if socket.bytesAvailable():
-            receive()
-
-    server.newConnection.connect(connection)
+    receive_commands(server, dispatch)
     window.show()
-    if args.toggle or args.meeting:
-        QTimer.singleShot(0, lambda: window.toggle_recording(args.meeting))
-    result = app.exec()
-    server.close()
-    return result
+    if command != "show":
+        QTimer.singleShot(0, lambda: dispatch(command))
+    return app.exec()
 
 
 if __name__ == "__main__":
