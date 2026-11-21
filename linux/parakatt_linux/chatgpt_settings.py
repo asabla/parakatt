@@ -304,13 +304,21 @@ class ChatGptSettings(QFrame):
 
             def complete() -> tuple[ChatGptAccount, bool]:
                 account = request.complete()
-                self.backend.engine.set_chatgpt_account(account.id)
                 return account, self.service.take_plan_confirmation(account.id)
 
             self.task("signed_in", complete)
         elif kind == "signed_in":
             account, confirmation = cast("tuple[ChatGptAccount, bool]", value)
             self.request = None
+            # Only apply a completed sign-in after checking this dialog's
+            # revision. Closing/cancelling can leave a late worker response.
+            try:
+                self.backend.engine.set_chatgpt_account(account.id)
+            except Exception as error:
+                self.message.setText(str(error))
+                self.update_controls()
+                self.busy_changed.emit(False)
+                return
             self.selected = account.id
             self.saved_model = ""
             self.notice.setText(

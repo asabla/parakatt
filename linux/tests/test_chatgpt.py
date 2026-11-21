@@ -215,6 +215,30 @@ class AccountWidgetTests(unittest.TestCase):
         self.assertIn("Usage limit reached", self.widget.message.text())
         self.assertEqual(self.widget.status.text(), "Usage paused")
 
+    def test_cancel_during_completion_cannot_apply_the_late_account(self):
+        self.widget.active = True
+        started, release = threading.Event(), threading.Event()
+        self.service.begin_sign_in.return_value = SimpleNamespace(
+            id="attempt", authorization_url="https://auth.openai.com/test"
+        )
+
+        def complete(_):
+            started.set()
+            self.assertTrue(release.wait(3))
+            return account()
+
+        self.service.complete_sign_in.side_effect = complete
+        with patch("parakatt_linux.chatgpt_settings.QDesktopServices.openUrl", return_value=True):
+            self.widget.start_sign_in()
+            self.pool.waitForDone(3000)
+            self.app.processEvents()
+            self.assertTrue(started.wait(3))
+            self.widget.cancel_sign_in()
+            release.set()
+            self.flush()
+        self.backend.engine.set_chatgpt_account.assert_not_called()
+        self.assertEqual(self.widget.message.text(), "Sign-in cancelled.")
+
     def test_failed_model_fetch_refreshes_usage_status_without_retry_loop(self):
         self.widget.activate(True)
         self.flush()
