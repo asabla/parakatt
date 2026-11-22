@@ -106,6 +106,9 @@ jobs:
     name: Swift Build & Tests
     runs-on: macos-15
     timeout-minutes: 60
+    env:
+      # Do not restore Xcode build products or test results from the Rust cache.
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target/swift-rust
     outputs:
       inputs_ready: ${{ steps.inputs-ready.outputs.ready }}
     steps:
@@ -136,9 +139,8 @@ jobs:
         if: steps.bindings.outputs.cache-hit != 'true'
         uses: Swatinem/rust-cache@v2.9.3
         with:
-          workspaces: ". -> target"
-          key: swift-inputs
-      # Restore the tools after rust-cache, which can replace the target directory.
+          workspaces: ". -> target/swift-rust"
+          key: swift-inputs-v2
       - name: Cache pinned build tools
         id: tools
         uses: actions/cache/restore@v6.1.0
@@ -162,8 +164,7 @@ jobs:
           test "$(target/ci-tools/bin/swiftlint version)" = '0.65.1'
           test -f target/ci-tools/share/xcodegen/SettingPresets/base.yml
           test -f target/ci-tools/share/xcodegen/SettingPresets/Configs/debug.yml
-      # rust-cache prunes target/ in its post-job hook. Save tools before that runs.
-      - name: Save verified build tools before Rust cache cleanup
+      - name: Save verified build tools
         if: steps.tools.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6.1.0
         with:
@@ -207,7 +208,7 @@ jobs:
         run: python3 scripts/test_media_tool_downloads.py
       - name: Prepare pinned media dependencies
         run: make media-tools
-      - name: Save prepared media before Rust cache cleanup
+      - name: Save prepared media
         if: steps.media.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6.1.0
         with:
@@ -218,7 +219,7 @@ jobs:
             target/playback-engine/licenses
             target/playback-engine/stamp
           key: ${{ steps.media.outputs.cache-primary-key }}
-      - name: Save verified media downloads before Rust cache cleanup
+      - name: Save verified media downloads
         if: steps.media.outputs.cache-hit != 'true' && steps.media-downloads.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6.1.0
         with:

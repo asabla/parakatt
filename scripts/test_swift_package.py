@@ -18,15 +18,16 @@ class SwiftPackageTests(unittest.TestCase):
         for features in ("", "webgpu"):
             with self.subTest(features=features), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
+                target = root / "cargo-target"
                 manifest = root / "crates/parakatt-core/native-runtime-manifest.json"
                 manifest.parent.mkdir(parents=True)
                 manifest.write_text(json.dumps({"archive_sha256": "example-pin"}))
                 calls = []
 
-                def run(arguments, root=root, calls=calls, **kwargs):
+                def run(arguments, target=target, calls=calls, **kwargs):
                     calls.append((arguments, kwargs))
                     if arguments[:2] == ["cargo", "build"]:
-                        output = root / "target" / swift_package.TARGET / "release"
+                        output = target / swift_package.TARGET / "release"
                         output.mkdir(parents=True)
                         (output / "libparakatt_core.dylib").write_bytes(b"core")
                         (output / "libwebgpu_dawn.dylib").write_bytes(b"dawn")
@@ -47,6 +48,10 @@ class SwiftPackageTests(unittest.TestCase):
 
                 with (
                     patch.dict(os.environ, {"MACOSX_DEPLOYMENT_TARGET": "14.0"}),
+                    patch(
+                        "swift_package.subprocess.check_output",
+                        return_value=json.dumps({"target_directory": str(target)}),
+                    ),
                     patch("swift_package.subprocess.run", side_effect=run),
                     patch("swift_package.verify_webgpu") as verify,
                 ):
@@ -86,11 +91,16 @@ class SwiftPackageTests(unittest.TestCase):
     def test_failed_generation_preserves_the_previous_package(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
+            (root / "target").mkdir()
             package = root / "ParakattCore"
             package.mkdir()
             original = package / "previous-bindings.swift"
             original.write_text("previous valid package")
             with (
+                patch(
+                    "swift_package.subprocess.check_output",
+                    return_value=json.dumps({"target_directory": str(root / "target")}),
+                ),
                 patch(
                     "swift_package.subprocess.run",
                     side_effect=[None, subprocess.CalledProcessError(1, "cargo")],

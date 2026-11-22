@@ -37,11 +37,15 @@ def fingerprint():
 def build(root, features):
     if features not in ("", "webgpu"):
         raise ValueError("Supported speech build features: empty or webgpu")
-    target = root / "target"
-    target.mkdir(exist_ok=True)
     environment = dict(os.environ)
     environment.setdefault("MACOSX_DEPLOYMENT_TARGET", "14.0")
     environment.pop("CARGO_NET_OFFLINE", None)
+    metadata = subprocess.check_output(
+        ["cargo", "metadata", "--locked", "--no-deps", "--format-version", "1"],
+        cwd=root,
+        env=environment,
+    )
+    target = Path(json.loads(metadata)["target_directory"])
     feature_args = ["--features", features] if features else []
     subprocess.run(
         [
