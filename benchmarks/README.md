@@ -115,7 +115,7 @@ fresh schema-2 baseline before using the current acceptance command.
 
 ## App stop-to-final replay
 
-Build the app and use its stable launcher before running:
+Build the app before running:
 
 ```sh
 python3 scripts/measure-recording-latency.py /absolute/path/to/Parakatt.app \

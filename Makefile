@@ -1,4 +1,4 @@
-.PHONY: all rust cli swift-package swift-package-force media-tools xcode build release package test clean run launcher prepare-run run-detached verify-version quality fuzz-check mutation-check coverage-check swift-analysis
+.PHONY: all rust cli swift-package swift-package-force media-tools xcode build release package test clean run run-detached verify-version quality fuzz-check mutation-check coverage-check swift-analysis
 
 # Keep the generated FFI package separate from older global Xcode artifacts.
 export PARAKATT_DERIVED_DATA ?= $(CURDIR)/target/xcode
