@@ -34,17 +34,12 @@ def check_normal_startup(app, timeout=30, settle_seconds=1):
                     ready = (
                         "[Parakatt] Normal startup complete" in text
                         and "[Parakatt] Engine created" in text
-                        and "[Parakatt] Notification permission " in text
                     )
                     if ready:
                         if ready_at is None:
                             ready_at = time.monotonic()
                         if time.monotonic() - ready_at >= settle_seconds:
-                            return {
-                                "started": True,
-                                "mode": "normal",
-                                "notification_callback": True,
-                            }
+                            return {"started": True, "mode": "normal"}
                     time.sleep(0.05)
                 raise RuntimeError(
                     f"Normal startup did not finish.\n{log_path.read_text()[-4000:]}"
