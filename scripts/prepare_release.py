@@ -26,10 +26,11 @@ def prepare(root, dist, *, require_notarized=False):
     subprocess.run(["hdiutil", "verify", str(dist / names[0])], check=True)
     if require_notarized:
         subprocess.run(["xcrun", "stapler", "validate", str(dist / names[0])], check=True)
-        with tempfile.TemporaryDirectory(prefix="parakatt-verify-release-") as directory:
-            subprocess.run(["ditto", "-x", "-k", str(dist / names[1]), directory], check=True)
-            app = Path(directory) / "Parakatt.app"
-            verify_bundle(app)
+    with tempfile.TemporaryDirectory(prefix="parakatt-verify-release-") as directory:
+        subprocess.run(["ditto", "-x", "-k", str(dist / names[1]), directory], check=True)
+        app = Path(directory) / "Parakatt.app"
+        verify_bundle(app)
+        if require_notarized:
             subprocess.run(["xcrun", "stapler", "validate", str(app)], check=True)
     checksums = []
     for name in names:
