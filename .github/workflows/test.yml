@@ -124,12 +124,6 @@ jobs:
         run: |
           python3 scripts/ci_build_inputs.py environment >> "$GITHUB_OUTPUT"
           python3 scripts/native_build_inputs.py >> "$GITHUB_OUTPUT"
-      - name: Cache pinned build tools
-        id: tools
-        uses: actions/cache/restore@v6.1.0
-        with:
-          path: target/ci-tools
-          key: macos-ci-tools-v3-${{ steps.environment.outputs.environment }}-${{ hashFiles('scripts/install-xcodegen.sh', 'scripts/install-swiftlint.py', 'rust-toolchain.toml') }}
       - name: Cache generated Rust framework and Swift bindings
         id: bindings
         uses: actions/cache@v6.1.0
@@ -139,11 +133,18 @@ jobs:
             .swift-package-fingerprint
           key: swift-webgpu-v4-${{ steps.environment.outputs.environment }}-${{ steps.environment.outputs.native_sources }}
       - name: Cache Rust build dependencies
-        if: steps.bindings.outputs.cache-hit != 'true' || steps.tools.outputs.cache-hit != 'true'
+        if: steps.bindings.outputs.cache-hit != 'true'
         uses: Swatinem/rust-cache@v2.9.3
         with:
           workspaces: ". -> target"
           key: swift-inputs
+      # Restore the tools after rust-cache, which can replace the target directory.
+      - name: Cache pinned build tools
+        id: tools
+        uses: actions/cache/restore@v6.1.0
+        with:
+          path: target/ci-tools
+          key: macos-ci-tools-v3-${{ steps.environment.outputs.environment }}-${{ hashFiles('scripts/install-xcodegen.sh', 'scripts/install-swiftlint.py', 'rust-toolchain.toml') }}
       - name: Install pinned build tools on cache miss
         if: steps.tools.outputs.cache-hit != 'true'
         run: |
