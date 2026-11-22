@@ -33,6 +33,7 @@ def mach_o_files(app):
 
 def nested_code(app):
     """Plan leaf signing once and seal each framework after its contents."""
+    app = app.resolve()
     frameworks = [
         path for path in app.rglob("*.framework") if path.is_dir() and not path.is_symlink()
     ]

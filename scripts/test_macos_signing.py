@@ -27,8 +27,13 @@ class SigningTests(unittest.TestCase):
                 path.write_bytes(b"\xcf\xfa\xed\xfe")
             (framework / "Versions/Current").symlink_to("A")
             (framework / "Core").symlink_to("Versions/Current/Core")
-            self.assertEqual(set(nested_code(app)), {library, helper, framework})
-            self.assertEqual(nested_code(app)[-1], framework)
+            alias = Path(directory) / "Alias.app"
+            alias.symlink_to(app, target_is_directory=True)
+            planned = nested_code(alias)
+            self.assertEqual(
+                set(planned), {path.resolve() for path in (library, helper, framework)}
+            )
+            self.assertEqual(planned[-1], framework.resolve())
 
     def test_notary_rejection_does_not_staple_even_with_zero_exit_status(self):
         with (

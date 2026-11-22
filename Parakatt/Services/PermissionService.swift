@@ -1,7 +1,5 @@
-import AppKit
-import ApplicationServices
+import Cocoa
 import AVFoundation
-import CoreGraphics
 
 /// Reads live permission state. Starting a recording owns the microphone and system audio prompts.
 @MainActor
