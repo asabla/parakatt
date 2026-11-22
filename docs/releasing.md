@@ -45,7 +45,7 @@ hdiutil verify "dist/Parakatt-$(cat VERSION)-arm64.dmg"
 python3 scripts/prepare_release.py
 ```
 
-`make package` reuses `bin/parakatt-launcher`, checks its recorded signature identity, checks app version/build fields and native dependencies, checks bundled helpers and notices, and runs isolated startup. Do not run `make launcher` as a routine release step. Changing the launcher or its signing identity requires a separate installed-update permission test.
+`make package` builds the launcher with the app, signs nested code before sealing the completed bundle, and verifies the bundle with `codesign --verify --deep --strict`. It checks version and deployment targets, runs isolated startup, and builds the ZIP and DMG. By default it creates a sealed ad-hoc candidate for local tests and pull requests. The Release workflow requires Developer ID signing and notarization.
 
 Run local playback with a real window:
 
@@ -77,7 +77,8 @@ records and unfinished work do not belong in release notes or tracked release
 reports.
 
 - Install the packaged app on an actual macOS 14 system. Start it and test transcription and original-video playback. A deployment-target check does not replace this test.
-- Update an existing installation. Verify Microphone, Accessibility, and system-audio permissions. Check recording and paste after the update. An unchanged launcher hash alone does not prove permission persistence.
+- Open the installed app through Finder or `open /Applications/Parakatt.app`. Check the app’s microphone and Accessibility status in Settings, record real microphone and system audio, and paste a dictation into a separate app. Repeat after updating without clearing the grants. Test the ad-hoc to Developer ID migration with one reauthorization if needed. Verify persistence separately across two releases signed by the same Apple team.
+- Compare a Finder replacement and an in-place `brew upgrade --cask parakatt` in separate test runs. See [Homebrew’s upgrade FAQ](https://docs.brew.sh/FAQ#why-do-my-cask-apps-lose-their-dock-position--launchpad-position--permission-settings-when-i-run-brew-upgrade) for App Management and the reinstall fallback. Record the result for each permission and the actual capture or paste step.
 - Check microphone capture, system-audio capture, pause/resume, and recording controls with live input. Check initial model loading and silent or missing input.
 - Check complete synthetic responses with configured local and remote LLM providers. Use **Test selected model** with the model that will be used. Mock servers do not prove live provider compatibility.
 - Check local window playback, seeking, cancellation, subtitles, and transcript behavior after the video is removed.
@@ -109,6 +110,25 @@ To prepare an update manually, download the release assets and verify the DMG ch
 
 ## Signing
 
-This repository currently distributes ad-hoc signed builds. Developer ID signing and Apple notarization are not configured. The release notes must state that limit.
+Tagged releases require a Developer ID Application certificate from the project’s Apple team and an App Store Connect team API key for notarization. Set `MACOS_TEAM_ID` as a GitHub Actions variable. Configure these Actions secrets using the repository’s secret manager:
 
-Enabling notarization requires an Apple Developer account, a Developer ID Application certificate/private key, and notarization credentials. This also changes the launcher signing identity. Prepare that as a separate change, validate all nested code, notarize and staple the app and DMG, and verify permission persistence with the previously installed release. Do not claim that an unsigned launcher hash proves behavior after this transition.
+| Secret | Value |
+| --- | --- |
+| `MACOS_CERTIFICATE_P12_BASE64` | Base64 of the Developer ID Application identity export with its private key |
+| `MACOS_CERTIFICATE_PASSWORD` | Password for the PKCS#12 export |
+| `MACOS_NOTARY_KEY_BASE64` | Base64 of the notarization `.p8` key |
+| `MACOS_NOTARY_KEY_ID` | App Store Connect API key ID |
+| `MACOS_NOTARY_ISSUER_ID` | App Store Connect issuer ID |
+
+Use single-line base64. The workflow imports the identity into a temporary keychain, checks the signed bundle against the expected Developer ID team and `com.parakatt.app`, submits the app and DMG to Apple, and staples both tickets. Release metadata is generated only after the shipped ZIP and DMG pass signature and ticket checks. The generated cask installs the notarized DMG with quarantine handling left to macOS and Homebrew.
+
+For a signed candidate on a Mac with the identity installed and a `notarytool` keychain profile set up, run:
+
+```sh
+PARAKATT_CODESIGN_IDENTITY='Developer ID Application: Example (ABCDEFGHIJ)' \
+PARAKATT_SIGNING_TEAM_ID=ABCDEFGHIJ \
+PARAKATT_NOTARY_PROFILE=parakatt-release make package
+python3 scripts/prepare_release.py --require-notarized
+```
+
+Record the signing requirement with `codesign --display -r - /Applications/Parakatt.app` before and after the test. The Debug build uses `com.parakatt.app.debug` and Launch Services, so day-to-day development uses separate macOS grants. Use the Release artifact for installed-upgrade tests.

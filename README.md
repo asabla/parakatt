@@ -54,7 +54,7 @@ make all
 make run
 ```
 
-`make run` and `make run-detached` install the checked-in stable launcher before starting the app. Microphone permission is checked when recording starts. If macOS asks for access, grant it and start recording again. Use **Input Device > MacBook Pro Microphone** to test the built-in microphone explicitly; **System Default** follows macOS, including connected headsets.
+`make run` and `make run-detached` open the built Debug app through Launch Services. It has a separate bundle ID and permission grants. Microphone permission is checked when recording starts. If macOS asks for access, grant it and start recording again. Use **Input Device > MacBook Pro Microphone** to test the built-in microphone explicitly; **System Default** follows macOS, including connected headsets.
 
 Make prefers tools in `target/tools/bin` and uses `target/xcode` for Xcode build output. This keeps generated bindings separate from older global Xcode artifacts. Set `PARAKATT_DERIVED_DATA` to use a different build directory.
 
@@ -150,12 +150,11 @@ The recording overlay shows the actual input device, model readiness, and missin
 
 ## Unsigned Builds
 
-If you download a release that hasn't been notarized by Apple, macOS Gatekeeper will block it. To open:
+Releases through 0.8.0 used ad-hoc signing. Prefer a notarized release when available. For a verified older download, use Apple’s [Open Anyway instructions](https://support.apple.com/en-us/102445) if macOS blocks it.
 
-1. Right-click the app and select **Open**, then confirm in the dialog, or
-2. Run `xattr -cr /Applications/Parakatt.app` in Terminal
+After changing from an ad-hoc release to Developer ID, macOS may ask for access again. Open Parakatt from Applications. To enable automatic paste, use **Settings → Dashboard → Open Accessibility Settings** and enable the installed app. If it isn’t listed, add it from Applications. When access is unavailable, the saved transcript can be copied from History.
 
-This is standard for open-source macOS apps distributed outside the App Store.
+For Homebrew upgrades that lose grants, check the terminal’s **App Management** permission and relaunch Parakatt from Applications after the upgrade. [Homebrew’s upgrade FAQ](https://docs.brew.sh/FAQ#why-do-my-cask-apps-lose-their-dock-position--launchpad-position--permission-settings-when-i-run-brew-upgrade)
 
 ## Troubleshooting
 
@@ -221,7 +220,7 @@ The same target prepares VLCKit 3.7.3 from the official VideoLAN binary archive 
 
 `make xcode`, `make build`, and `make release` prepare these tools automatically. Xcode copies the executables into the app's Helpers directory and notices into Resources. Runtime calls use absolute bundled paths, ignore user downloader configuration, and disable tool self-updates and remote component installation. Update the tool lock and release Parakatt to update these dependencies.
 
-Release packages include a separate `*-media-sources.zip` with corresponding source archives, build options, and preparation instructions. The stable launcher is unchanged. Developer ID signing and notarization remain separate from this feature.
+Release packages include a separate `*-media-sources.zip` with corresponding source archives, build options, and preparation instructions.
 
 Run the packaged media check with:
 

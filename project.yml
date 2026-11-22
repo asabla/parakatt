@@ -18,9 +18,7 @@ packages:
     revision: "a3cf605d7a96f6ff50e04fcb6dea6e2613cfcbe4" # HotKey 0.2.1
 
 targets:
-  # Framework containing all application code.
-  # This target changes on every release — that's fine because TCC
-  # permissions are tied to the main executable, not frameworks.
+  # Framework containing the application code and shared by the test target.
   ParakattApp:
     type: framework
     platform: macOS
@@ -53,11 +51,7 @@ targets:
       - package: ParakattCore
       - package: HotKey
 
-  # Thin launcher app target.
-  # The compiled executable is replaced with a pre-built stable binary
-  # for release builds so that macOS TCC permissions persist across updates.
-  # During development, Xcode compiles this normally — TCC resets only
-  # matter for distributed builds.
+  # Application entry point. Packaging signs the finished bundle.
   Parakatt:
     type: application
     platform: macOS
@@ -78,7 +72,6 @@ targets:
       path: Parakatt/Parakatt.entitlements
       properties:
         com.apple.security.device.audio-input: true
-        com.apple.security.automation.apple-events: true
         com.apple.security.cs.disable-library-validation: true
     settings:
       base:
@@ -95,6 +88,9 @@ targets:
         ENABLE_HARDENED_RUNTIME: true
         INFOPLIST_FILE: Parakatt/Info.plist
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/../Frameworks"
+      configs:
+        Debug:
+          PRODUCT_BUNDLE_IDENTIFIER: com.parakatt.app.debug
     dependencies:
       - framework: target/playback-engine/VLCKit.framework
         embed: true

@@ -1,7 +1,6 @@
 """Check that normal-startup verification rejects crashes and missing callbacks."""
 
 from pathlib import Path
-import plistlib
 import tempfile
 import unittest
 
@@ -15,8 +14,6 @@ class StartupTests(unittest.TestCase):
         self.app = Path(directory.name) / "Fixture.app"
         executable = self.app / "Contents/MacOS/Parakatt"
         executable.parent.mkdir(parents=True)
-        with (self.app / "Contents/Info.plist").open("wb") as stream:
-            plistlib.dump({"CFBundleShortVersionString": "1.2.3"}, stream)
         self.executable = executable
 
     def program(self, code):
@@ -27,7 +24,7 @@ class StartupTests(unittest.TestCase):
         self.program(
             "assert 'PARAKATT_SMOKE_TEST' not in os.environ\n"
             "assert os.environ['PARAKATT_DATA_ROOT']\n"
-            "assert sys.argv[-1] == '1.2.3'\n"
+            "assert sys.argv[1:] == ['-hasCompletedOnboarding', 'YES']\n"
             "print('[Parakatt] Engine created', flush=True)\n"
             "print('[Parakatt] Normal startup complete', flush=True)\n"
             "print('[Parakatt] Notification permission granted: 0', flush=True)\n"

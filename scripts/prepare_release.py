@@ -5,12 +5,14 @@ import hashlib
 from pathlib import Path
 import shutil
 import subprocess
+import tempfile
 
+from macos_signing import verify_bundle
 from prepare_homebrew import cask_for_dmg
 from release_version import synchronize
 
 
-def prepare(root, dist):
+def prepare(root, dist, *, require_notarized=False):
     version, _ = synchronize(root, check=True)
     synchronize(root, check=True, tag=f"v{version}")
     names = [
@@ -22,6 +24,13 @@ def prepare(root, dist):
         if not (dist / name).is_file():
             raise ValueError(f"Missing release asset: {name}")
     subprocess.run(["hdiutil", "verify", str(dist / names[0])], check=True)
+    if require_notarized:
+        subprocess.run(["xcrun", "stapler", "validate", str(dist / names[0])], check=True)
+        with tempfile.TemporaryDirectory(prefix="parakatt-verify-release-") as directory:
+            subprocess.run(["ditto", "-x", "-k", str(dist / names[1]), directory], check=True)
+            app = Path(directory) / "Parakatt.app"
+            verify_bundle(app)
+            subprocess.run(["xcrun", "stapler", "validate", str(app)], check=True)
     checksums = []
     for name in names:
         with (dist / name).open("rb") as stream:
@@ -35,9 +44,12 @@ def prepare(root, dist):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dist", type=Path, default=Path("dist"))
+    parser.add_argument("--require-notarized", action="store_true")
     args = parser.parse_args()
     try:
-        prepare(Path(__file__).resolve().parents[1], args.dist)
+        prepare(
+            Path(__file__).resolve().parents[1], args.dist, require_notarized=args.require_notarized
+        )
     except (ValueError, OSError, subprocess.CalledProcessError) as error:
         parser.exit(1, f"Release preparation failed: {error}\n")
 

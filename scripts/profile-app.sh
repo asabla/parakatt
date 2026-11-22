@@ -21,7 +21,7 @@ info['CFBundleName'] = 'ParakattPerformanceFixture'
 info['ParakattPerformanceOutput'] = sys.argv[2]
 with open(sys.argv[1], 'wb') as stream: plistlib.dump(info, stream)
 PYTHON
-# Only the disposable profiling copy is signed; the stable launcher is unchanged.
+# Re-seal the disposable profiling copy after changing its bundle identity.
 codesign --force --sign - --options runtime --entitlements Parakatt/Parakatt.entitlements "$TASK_PROFILE_APP" > "$TASK_OUTPUT-sign.log" 2>&1
 # Launch the exact executable ourselves, then attach by PID. On some macOS
 # versions Instruments --launch substitutes an installed app with the same name.

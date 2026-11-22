@@ -205,6 +205,26 @@ class ReleaseTests(unittest.TestCase):
         self.assertFalse((dist / "SHA256SUMS").exists())
         self.assertFalse((dist / "parakatt.rb").exists())
 
+    def test_unstapled_zip_stops_distribution_metadata_generation(self):
+        import subprocess
+
+        dist = self.root / "dist"
+        dist.mkdir()
+        for suffix in ("arm64.dmg", "arm64.zip", "media-sources.zip"):
+            (dist / f"Parakatt-{self.version}-{suffix}").write_bytes(b"asset")
+
+        def run(command, *, check):
+            if command[:3] == ["xcrun", "stapler", "validate"] and command[-1].endswith(".app"):
+                raise subprocess.CalledProcessError(65, command)
+
+        with (
+            patch("prepare_release.subprocess.run", side_effect=run),
+            self.assertRaises(subprocess.CalledProcessError),
+        ):
+            prepare(self.root, dist, require_notarized=True)
+        self.assertFalse((dist / "SHA256SUMS").exists())
+        self.assertFalse((dist / "parakatt.rb").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

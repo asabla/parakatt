@@ -65,7 +65,7 @@ Swift+Rust hybrid macOS menu bar app. Rust handles compute-heavy work (STT, LLM)
 - `project.yml` — XcodeGen config → generates `Parakatt.xcodeproj`
 - Target: macOS 14.0+, Apple Silicon (aarch64)
 - Swift dependencies: HotKey (0.2.1, via SPM)
-- Entitlements: audio-input, apple-events automation, disable-library-validation (for Rust FFI)
+- Entitlements: audio-input, disable-library-validation (for Rust FFI)
 
 ## Config
 

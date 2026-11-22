@@ -7,7 +7,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     let appState = AppState()
     private var menuBarManager: MenuBarManager?
     private var hotkeyService: HotkeyService?
-    private var permissionService: PermissionService?
     private var overlayController: RecordingOverlayController?
     private var onboardingWindow: NSWindow?
 
@@ -24,8 +23,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if runMaintenanceSmokeIfRequested() { return }
         if runPerformanceFixtureIfRequested() { return }
 
-        permissionService = PermissionService()
-        permissionService?.requestPermissionsIfNeeded()
+        PermissionService.logStatus()
 
         menuBarManager = MenuBarManager(appState: appState)
         overlayController = RecordingOverlayController(appState: appState)

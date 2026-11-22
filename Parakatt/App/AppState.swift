@@ -777,12 +777,7 @@ class AppState: ObservableObject, HotkeyRecording {
                         self.errorMessage = nil
 
                         if !result.text.isEmpty {
-                            if self.autoPaste {
-                                let inserted = self.textInsertionService?.insertText(result.text) ?? false
-                                if !inserted {
-                                    self.errorMessage = "Could not paste text — transcription copied to clipboard"
-                                }
-                            }
+                            self.pasteTranscriptionIfEnabled(result.text)
                             NSLog("[Parakatt] PTT session result (%@, %.2fs): %d characters",
                                   mode, result.durationSecs, result.text.count)
                         }
@@ -1824,12 +1819,7 @@ class AppState: ObservableObject, HotkeyRecording {
                     self.errorMessage = nil
 
                     if !result.text.isEmpty {
-                        if self.autoPaste {
-                            let inserted = self.textInsertionService?.insertText(result.text) ?? false
-                            if !inserted {
-                                self.errorMessage = "Could not paste text — transcription copied to clipboard"
-                            }
-                        }
+                        self.pasteTranscriptionIfEnabled(result.text)
                         self.sendTranscriptionNotification(preview: result.text, source: "push_to_talk")
                         NSLog("[Parakatt] Result (%@, %.2fs): %d characters", self.activeMode, result.durationSecs, result.text.count)
                     } else {
@@ -1846,6 +1836,12 @@ class AppState: ObservableObject, HotkeyRecording {
                 }
             }
         }
+    }
+
+    private func pasteTranscriptionIfEnabled(_ text: String) {
+        guard autoPaste else { return }
+        let insertion = textInsertionService?.insertText(text) ?? .unavailable
+        errorMessage = insertion.recoveryMessage
     }
 
     // MARK: - Incremental push-to-talk processing
