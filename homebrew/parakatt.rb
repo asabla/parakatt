@@ -12,15 +12,10 @@ cask "parakatt" do
 
   app "Parakatt.app"
 
-  postflight do
-    # Remove quarantine so the unsigned app can launch without right-click workaround
-    system_command "/usr/bin/xattr",
-                   args: ["-dr", "com.apple.quarantine", "#{appdir}/Parakatt.app"],
-                   sudo: false
-
-    ohai "Parakatt requires Microphone and Accessibility permissions."
-    ohai "Grant these in System Settings > Privacy & Security on first launch."
-  end
+  caveats <<~EOS
+    Open Parakatt from Applications. Allow Microphone when recording and enable
+    Accessibility in Parakatt Settings if you want automatic paste.
+  EOS
 
   zap trash: [
     "~/Library/Application Support/Parakatt",

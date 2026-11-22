@@ -4,6 +4,7 @@ import SwiftUI
 struct OnboardingView: View {
     @EnvironmentObject var appState: AppState
     @State private var currentStep = 0
+    @State private var permissions = PermissionService.status()
     var onComplete: () -> Void
 
     private let steps = ["Welcome", "Modes", "Setup"]
@@ -174,15 +175,18 @@ struct OnboardingView: View {
                     color: .orange,
                     title: "Accessibility permission",
                     subtitle: "Required to insert text into other apps",
-                    done: AXIsProcessTrusted()
+                    done: permissions.accessibilityTrusted
                 )
                 SetupRow(
                     icon: "mic.fill",
                     color: .green,
                     title: "Microphone permission",
-                    subtitle: "Granted automatically when you first record",
-                    done: true
+                    subtitle: permissions.microphoneTitle,
+                    done: permissions.microphoneGranted
                 )
+                if !permissions.accessibilityTrusted {
+                    Button("Open Accessibility Settings", action: PermissionService.openAccessibilitySettings)
+                }
             }
             .padding(16)
             .background(.quaternary, in: RoundedRectangle(cornerRadius: 12))
@@ -195,6 +199,9 @@ struct OnboardingView: View {
             Spacer()
         }
         .padding(30)
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            permissions = PermissionService.status()
+        }
     }
 }
 

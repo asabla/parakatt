@@ -1,4 +1,4 @@
-.PHONY: all rust cli swift-package swift-package-force media-tools xcode build release package test clean run launcher prepare-run run-detached verify-version quality fuzz-check mutation-check coverage-check swift-analysis
+.PHONY: all rust cli swift-package swift-package-force media-tools xcode build release package test clean run run-detached verify-version quality fuzz-check mutation-check coverage-check swift-analysis
 
 # Keep the generated FFI package separate from older global Xcode artifacts.
 export PARAKATT_DERIVED_DATA ?= $(CURDIR)/target/xcode
@@ -13,7 +13,6 @@ VERSION := $(shell cat VERSION)
 APP_NAME := Parakatt
 DMG_NAME := $(APP_NAME)-$(VERSION)-arm64.dmg
 ZIP_NAME := $(APP_NAME)-$(VERSION)-arm64.zip
-LAUNCHER_BIN := bin/parakatt-launcher
 
 # Build everything from scratch
 all: rust swift-package xcode build
@@ -105,33 +104,9 @@ release: verify-version media-tools
 # Get the Release build products directory
 RELEASE_BUILD_DIR = $(shell python3 scripts/build-products.py Release)
 
-# Build the stable launcher binary once and store it in bin/.
-# This binary should be committed or stored as a release artifact.
-# It must NOT be rebuilt on every release — only when Launcher/main.swift
-# or entitlements change.
-launcher:
-	@mkdir -p bin
-	swiftc -O -target arm64-apple-macos14.0 \
-		-o "$(LAUNCHER_BIN)" \
-		Launcher/main.swift
-	codesign --force --sign - \
-		--entitlements Parakatt/Parakatt.entitlements \
-		--options runtime \
-		"$(LAUNCHER_BIN)"
-	@echo "Launcher built at $(LAUNCHER_BIN)"
-	@echo "CDHash:"
-	@codesign -dvvv "$(LAUNCHER_BIN)" 2>&1 | grep CDHash
-
-# Package the Release .app, swapping in the stable launcher for distribution.
-# Local run targets also reuse this launcher to keep the executable identity stable.
-package: verify-launcher release
-	@if [ ! -f "$(LAUNCHER_BIN)" ]; then \
-		echo "Error: pre-built launcher not found at $(LAUNCHER_BIN)"; \
-		echo "Run 'make launcher' first to build the stable launcher binary."; \
-		exit 1; \
-	fi
-	@echo "Swapping in stable launcher binary..."
-	cp "$(LAUNCHER_BIN)" "$(RELEASE_BUILD_DIR)/$(APP_NAME).app/Contents/MacOS/$(APP_NAME)"
+# Sign the final bundle after Xcode has embedded the frameworks and media helpers.
+package: release
+	python3 scripts/macos_signing.py app "$(RELEASE_BUILD_DIR)/$(APP_NAME).app"
 	python3 scripts/verify-app.py "$(RELEASE_BUILD_DIR)/$(APP_NAME).app"
 	python3 scripts/smoke-app.py "$(RELEASE_BUILD_DIR)/$(APP_NAME).app"
 	python3 scripts/smoke-app.py "$(RELEASE_BUILD_DIR)/$(APP_NAME).app" --normal-startup
@@ -151,23 +126,14 @@ package: verify-launcher release
 			--app-drop-link 425 190 \
 			"dist/$(DMG_NAME)" \
 			"$(RELEASE_BUILD_DIR)/$(APP_NAME).app" || exit $$?; \
+		python3 scripts/macos_signing.py dmg "dist/$(DMG_NAME)" || exit $$?; \
 		echo "Created dist/$(DMG_NAME)"; \
 	else \
 		echo "Skipping DMG (install create-dmg: brew install create-dmg)"; \
 	fi
 
-# Reuse the release launcher identity for local microphone and Accessibility grants.
-prepare-run: verify-launcher
-	cp "$(LAUNCHER_BIN)" "$$(python3 scripts/build-products.py Debug)/Parakatt.app/Contents/MacOS/Parakatt"
-	python3 scripts/verify-launcher.py "$$(python3 scripts/build-products.py Debug)/Parakatt.app/Contents/MacOS/Parakatt"
-
-# Run the built app (with log output)
-run: prepare-run
-	@pkill -f Parakatt 2>/dev/null; sleep 1; \
-	"$$(python3 scripts/build-products.py Debug)/Parakatt.app/Contents/MacOS/Parakatt"
-
-# Run the built app detached (no logs)
-run-detached: prepare-run
+# Launch the Debug bundle through Launch Services for normal permission attribution.
+run run-detached:
 	@open "$$(python3 scripts/build-products.py Debug)/Parakatt.app"
 
 # Download the Parakeet TDT 0.6B v3 multilingual ONNX model (~2.55GB)
@@ -186,9 +152,6 @@ clean:
 
 # Quick rebuild after Rust changes only
 rebuild: rust swift-package xcode build
-
-verify-launcher:
-	python3 scripts/verify-launcher.py
 
 verify-version:
 	./scripts/sync-version.sh --check

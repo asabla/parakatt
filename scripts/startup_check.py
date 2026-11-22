@@ -2,7 +2,6 @@
 
 import os
 from pathlib import Path
-import plistlib
 import subprocess
 import tempfile
 import time
@@ -10,8 +9,6 @@ import time
 
 def check_normal_startup(app, timeout=30, settle_seconds=1):
     app = Path(app).resolve()
-    with (app / "Contents/Info.plist").open("rb") as stream:
-        version = plistlib.load(stream)["CFBundleShortVersionString"]
     with tempfile.TemporaryDirectory(prefix="parakatt-normal-startup-") as directory:
         env = dict(os.environ, PARAKATT_DATA_ROOT=directory, CFFIXED_USER_HOME=directory)
         env.pop("PARAKATT_SMOKE_TEST", None)
@@ -21,10 +18,6 @@ def check_normal_startup(app, timeout=30, settle_seconds=1):
             str(app / "Contents/MacOS/Parakatt"),
             "-hasCompletedOnboarding",
             "YES",
-            "-accessibilityPrompted",
-            "YES",
-            "-lastKnownAppVersion",
-            version,
         ]
         log_path = Path(directory) / "startup.log"
         with log_path.open("w") as log:
@@ -41,17 +34,12 @@ def check_normal_startup(app, timeout=30, settle_seconds=1):
                     ready = (
                         "[Parakatt] Normal startup complete" in text
                         and "[Parakatt] Engine created" in text
-                        and "[Parakatt] Notification permission " in text
                     )
                     if ready:
                         if ready_at is None:
                             ready_at = time.monotonic()
                         if time.monotonic() - ready_at >= settle_seconds:
-                            return {
-                                "started": True,
-                                "mode": "normal",
-                                "notification_callback": True,
-                            }
+                            return {"started": True, "mode": "normal"}
                     time.sleep(0.05)
                 raise RuntimeError(
                     f"Normal startup did not finish.\n{log_path.read_text()[-4000:]}"

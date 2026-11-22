@@ -1,17 +1,7 @@
 import Foundation
 
-// Stable launcher binary for Parakatt.
-//
-// This executable must NEVER change between releases so that macOS TCC
-// (Transparency, Consent, and Control) permissions persist across updates.
-// TCC keys permissions on the main executable's CDHash — if this binary
-// stays identical, users keep their Accessibility/Microphone/Screen Recording
-// grants after upgrading.
-//
-// All actual application code lives in ParakattApp.framework, which is
-// loaded at runtime via dlopen. The framework can change freely between
-// versions without affecting TCC.
-
+// Bundle entry point. The application framework runs in this process, so
+// system permissions are attributed to the signed Parakatt app bundle.
 let frameworksPath = Bundle.main.privateFrameworksPath ?? {
     // Fallback: derive from executable path
     let execURL = URL(fileURLWithPath: CommandLine.arguments[0])

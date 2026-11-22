@@ -36,6 +36,7 @@ jobs:
         run: |
           ./scripts/sync-version.sh --check
           python3 scripts/test_release_tools.py
+          python3 -m unittest discover -s scripts -p test_macos_signing.py
           python3 scripts/test_benchmark_gates.py
           python3 scripts/test_benchmark_worker.py
           python3 scripts/test_media_build_environment.py
@@ -105,6 +106,9 @@ jobs:
     name: Swift Build & Tests
     runs-on: macos-15
     timeout-minutes: 60
+    env:
+      # Do not restore Xcode build products or test results from the Rust cache.
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target/swift-rust
     outputs:
       inputs_ready: ${{ steps.inputs-ready.outputs.ready }}
     steps:
@@ -123,12 +127,6 @@ jobs:
         run: |
           python3 scripts/ci_build_inputs.py environment >> "$GITHUB_OUTPUT"
           python3 scripts/native_build_inputs.py >> "$GITHUB_OUTPUT"
-      - name: Cache pinned build tools
-        id: tools
-        uses: actions/cache/restore@v6.1.0
-        with:
-          path: target/ci-tools
-          key: macos-ci-tools-v3-${{ steps.environment.outputs.environment }}-${{ hashFiles('scripts/install-xcodegen.sh', 'scripts/install-swiftlint.py', 'rust-toolchain.toml') }}
       - name: Cache generated Rust framework and Swift bindings
         id: bindings
         uses: actions/cache@v6.1.0
@@ -138,11 +136,17 @@ jobs:
             .swift-package-fingerprint
           key: swift-webgpu-v4-${{ steps.environment.outputs.environment }}-${{ steps.environment.outputs.native_sources }}
       - name: Cache Rust build dependencies
-        if: steps.bindings.outputs.cache-hit != 'true' || steps.tools.outputs.cache-hit != 'true'
+        if: steps.bindings.outputs.cache-hit != 'true'
         uses: Swatinem/rust-cache@v2.9.3
         with:
-          workspaces: ". -> target"
-          key: swift-inputs
+          workspaces: ". -> target/swift-rust"
+          key: swift-inputs-v2
+      - name: Cache pinned build tools
+        id: tools
+        uses: actions/cache/restore@v6.1.0
+        with:
+          path: target/ci-tools
+          key: macos-ci-tools-v3-${{ steps.environment.outputs.environment }}-${{ hashFiles('scripts/install-xcodegen.sh', 'scripts/install-swiftlint.py', 'rust-toolchain.toml') }}
       - name: Install pinned build tools on cache miss
         if: steps.tools.outputs.cache-hit != 'true'
         run: |
@@ -160,8 +164,7 @@ jobs:
           test "$(target/ci-tools/bin/swiftlint version)" = '0.65.1'
           test -f target/ci-tools/share/xcodegen/SettingPresets/base.yml
           test -f target/ci-tools/share/xcodegen/SettingPresets/Configs/debug.yml
-      # rust-cache prunes target/ in its post-job hook. Save tools before that runs.
-      - name: Save verified build tools before Rust cache cleanup
+      - name: Save verified build tools
         if: steps.tools.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6.1.0
         with:
@@ -205,7 +208,7 @@ jobs:
         run: python3 scripts/test_media_tool_downloads.py
       - name: Prepare pinned media dependencies
         run: make media-tools
-      - name: Save prepared media before Rust cache cleanup
+      - name: Save prepared media
         if: steps.media.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6.1.0
         with:
@@ -216,7 +219,7 @@ jobs:
             target/playback-engine/licenses
             target/playback-engine/stamp
           key: ${{ steps.media.outputs.cache-primary-key }}
-      - name: Save verified media downloads before Rust cache cleanup
+      - name: Save verified media downloads
         if: steps.media.outputs.cache-hit != 'true' && steps.media-downloads.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6.1.0
         with:

@@ -30,6 +30,7 @@ jobs:
         run: |
           ./scripts/sync-version.sh --check --tag "$GITHUB_REF_NAME"
           python3 scripts/test_release_tools.py
+          python3 -m unittest discover -s scripts -p test_macos_signing.py
           python3 scripts/test_benchmark_gates.py
           python3 scripts/test_benchmark_worker.py
           python3 scripts/test_media_build_environment.py
@@ -81,7 +82,14 @@ jobs:
           cargo audit --json > dependency-advisories.json
 
       - name: Build and verify release package
-        run: make package
+        env:
+          MACOS_TEAM_ID: ${{ vars.MACOS_TEAM_ID }}
+          MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_NOTARY_KEY_BASE64: ${{ secrets.MACOS_NOTARY_KEY_BASE64 }}
+          MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
+          MACOS_NOTARY_ISSUER_ID: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
+        run: python3 scripts/with_release_signing.py make package
 
       - name: Check bundled video playback
         run: |
@@ -91,7 +99,7 @@ jobs:
 
       - name: Verify DMG and prepare release metadata
         run: |
-          python3 scripts/prepare_release.py
+          python3 scripts/prepare_release.py --require-notarized
           cp dependency-advisories.json dist/dependency-advisories.json
 
       - name: Create GitHub Release

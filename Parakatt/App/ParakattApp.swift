@@ -1,15 +1,8 @@
 import SwiftUI
 
-/// Parakatt — macOS voice-to-text application.
+/// The SwiftUI scene for the menu bar app.
 ///
-/// Runs as a menubar-only app (no dock icon).
-/// LSUIElement = YES in Info.plist hides the dock icon.
-/// Parakatt SwiftUI app.
-///
-/// Note: @main is intentionally absent — the app is launched via the
-/// parakatt_main() entry point in EntryPoint.swift, which is called
-/// by the stable launcher binary. This keeps the launcher's CDHash
-/// unchanged across versions so TCC permissions persist.
+/// The app executable calls `parakatt_main` to start this scene.
 struct ParakattApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 

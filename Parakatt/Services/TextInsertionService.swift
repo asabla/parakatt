@@ -1,52 +1,70 @@
 import Cocoa
 import Carbon
 
-/// Inserts transcribed text into the currently focused application.
-///
-/// Strategy order:
-/// 1. Try AXUIElement selectedText replacement (most native, no clipboard clobber)
-/// 2. Fall back to clipboard paste via CGEvent Cmd+V
-/// 3. Fall back to clipboard paste via AppleScript System Events
-///
-/// Logs which strategy was used for debugging.
+enum TextInsertionResult: Equatable {
+    case empty
+    case inserted
+    case pasteRequested
+    case permissionRequired
+    case unavailable
+
+    var recoveryMessage: String? {
+        switch self {
+        case .empty, .inserted, .pasteRequested: nil
+        case .permissionRequired:
+            "Recording saved. Enable Accessibility in System Settings to paste automatically, or copy from History."
+        case .unavailable:
+            "Recording saved. Copy the transcript from History to paste it."
+        }
+    }
+}
+
 @MainActor
 final class TextInsertionService {
+    struct Actions {
+        let isAccessibilityTrusted: @MainActor () -> Bool
+        let replaceSelection: @MainActor (String) -> Bool
+        let canPostEvents: @MainActor () -> Bool
+        let makePasteRequest: @MainActor () -> (@MainActor () -> Void)?
+    }
 
-    private let clipboard = ClipboardTransaction()
+    private let clipboard: ClipboardTransaction
+    private let actions: Actions
 
-    /// Insert text into the focused application. Returns false if all strategies fail.
-    @discardableResult
-    func insertText(_ text: String) -> Bool {
-        guard !text.isEmpty else { return false }
+    init(clipboard: ClipboardTransaction = ClipboardTransaction(), actions: Actions? = nil) {
+        self.clipboard = clipboard
+        self.actions = actions ?? Actions(
+            isAccessibilityTrusted: { AXIsProcessTrusted() },
+            replaceSelection: Self.insertViaAccessibility,
+            canPostEvents: { CGPreflightPostEventAccess() },
+            makePasteRequest: Self.makePasteRequest
+        )
+    }
 
-        let trusted = AXIsProcessTrusted()
-        NSLog("[Parakatt] Inserting text (%d chars), AXIsProcessTrusted=%d", text.count, trusted)
-
-        // Only attempt the AX path when we actually have permission;
-        // otherwise it always fails after a noisy round-trip and we
-        // skip straight to clipboard paste.
-        if trusted, insertViaAccessibility(text) {
+    func insertText(_ text: String) -> TextInsertionResult {
+        guard !text.isEmpty else { return .empty }
+        if actions.isAccessibilityTrusted(), actions.replaceSelection(text) {
             NSLog("[Parakatt] Text inserted via Accessibility API (%d chars)", text.count)
-            return true
+            return .inserted
         }
-
-        if insertViaPaste(text) {
-            NSLog("[Parakatt] Text inserted via CGEvent paste (%d chars)", text.count)
-            return true
+        guard actions.canPostEvents() else {
+            NSLog("[Parakatt] Paste unavailable: event posting permission is missing")
+            return .permissionRequired
         }
-
-        if insertViaAppleScript(text) {
-            NSLog("[Parakatt] Text inserted via AppleScript paste (%d chars)", text.count)
-            return true
+        guard let post = actions.makePasteRequest(), clipboard.set(text) else {
+            NSLog("[Parakatt] Paste unavailable: could not prepare Cmd+V or write to clipboard")
+            return .unavailable
         }
-
-        NSLog("[Parakatt] All text insertion strategies failed (%d chars)", text.count)
-        return false
+        post()
+        clipboard.scheduleRestore()
+        // Core Graphics does not confirm whether the target accepted Cmd+V.
+        NSLog("[Parakatt] Paste requested via CGEvent (%d chars)", text.count)
+        return .pasteRequested
     }
 
     // MARK: - Strategy 1: Accessibility API
 
-    private func insertViaAccessibility(_ text: String) -> Bool {
+    private static func insertViaAccessibility(_ text: String) -> Bool {
         let systemWide = AXUIElementCreateSystemWide()
 
         var focusedElement: AnyObject?
@@ -91,56 +109,21 @@ final class TextInsertionService {
 
     // MARK: - Strategy 2: Clipboard + CGEvent Cmd+V
 
-    private func insertViaPaste(_ text: String) -> Bool {
-        guard let source = CGEventSource(stateID: .combinedSessionState) else {
-            NSLog("[Parakatt] CGEvent Strategy: failed to create event source")
-            return false
-        }
-
-        let vKeyCode: CGKeyCode = CGKeyCode(kVK_ANSI_V)
+    private static func makePasteRequest() -> (@MainActor () -> Void)? {
+        guard let source = CGEventSource(stateID: .combinedSessionState) else { return nil }
+        let vKeyCode = CGKeyCode(kVK_ANSI_V)
         guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: vKeyCode, keyDown: true),
               let keyUp = CGEvent(keyboardEventSource: source, virtualKey: vKeyCode, keyDown: false) else {
-            NSLog("[Parakatt] CGEvent Strategy: failed to create key events")
-            return false
+            return nil
         }
-
-        setClipboard(text)
-
         keyDown.flags = .maskCommand
         keyUp.flags = .maskCommand
-        keyDown.post(tap: .cgSessionEventTap)
-        usleep(10_000) // 10ms between keyDown/keyUp (was 30ms)
-        keyUp.post(tap: .cgSessionEventTap)
-
-        scheduleClipboardRestore()
-        return true
-    }
-
-    // MARK: - Strategy 3: Clipboard + AppleScript System Events
-
-    private func insertViaAppleScript(_ text: String) -> Bool {
-        setClipboard(text)
-
-        let script = NSAppleScript(source: """
-            tell application "System Events"
-                keystroke "v" using command down
-            end tell
-        """)
-        var error: NSDictionary?
-        script?.executeAndReturnError(&error)
-        if let error = error {
-            NSLog("[Parakatt] AppleScript Strategy: failed - %@", error)
-            return false
+        return {
+            keyDown.post(tap: .cgSessionEventTap)
+            usleep(10_000)
+            keyUp.post(tap: .cgSessionEventTap)
         }
-
-        scheduleClipboardRestore()
-        return true
     }
-
-    // MARK: - Clipboard helpers
-
-    private func setClipboard(_ text: String) { clipboard.set(text) }
-    private func scheduleClipboardRestore() { clipboard.scheduleRestore() }
 }
 
 /// Preserves every representation and item without replacing a later user copy.
@@ -154,7 +137,8 @@ final class ClipboardTransaction {
     init(pasteboard: NSPasteboard = .general) { self.pasteboard = pasteboard }
     deinit { pendingRestore?.cancel() }
 
-    func set(_ text: String) {
+    @discardableResult
+    func set(_ text: String) -> Bool {
         pendingRestore?.cancel()
         // Consecutive insertions still restore the clipboard from before the first one.
         if expectedChange != pasteboard.changeCount {
@@ -163,8 +147,10 @@ final class ClipboardTransaction {
             } ?? []
         }
         pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
+        let written = pasteboard.setString(text, forType: .string)
         expectedChange = pasteboard.changeCount
+        if !written { restore() }
+        return written
     }
 
     func restore() {

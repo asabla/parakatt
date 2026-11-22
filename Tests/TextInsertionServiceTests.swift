@@ -3,8 +3,61 @@ import XCTest
 
 final class TextInsertionServiceTests: XCTestCase {
     @MainActor
-    func testInsertEmptyTextReturnsFalse() {
-        XCTAssertFalse(TextInsertionService().insertText(""))
+    func testInsertEmptyTextReturnsEmpty() {
+        XCTAssertEqual(TextInsertionService().insertText(""), .empty)
+    }
+
+    @MainActor
+    func testDeniedPostPermissionPreservesClipboardAndSkipsEventPreparation() {
+        let pasteboard = NSPasteboard(name: .init(UUID().uuidString))
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.setString("original", forType: .string)
+        let service = TextInsertionService(
+            clipboard: ClipboardTransaction(pasteboard: pasteboard),
+            actions: .init(
+                isAccessibilityTrusted: { false },
+                replaceSelection: { _ in
+                    XCTFail("Accessibility was denied")
+                    return false
+                },
+                canPostEvents: { false },
+                makePasteRequest: {
+                    XCTFail("Event posting was denied")
+                    return nil
+                }
+            )
+        )
+
+        XCTAssertEqual(service.insertText("private transcription"), .permissionRequired)
+        XCTAssertEqual(pasteboard.string(forType: .string), "original")
+    }
+
+    @MainActor
+    func testPasteRequestUsesTemporaryClipboardAfterAccessibilityReplacementFails() {
+        let pasteboard = NSPasteboard(name: .init(UUID().uuidString))
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.setString("original", forType: .string)
+        let clipboard = ClipboardTransaction(pasteboard: pasteboard)
+        var posted = false
+        let service = TextInsertionService(
+            clipboard: clipboard,
+            actions: .init(
+                isAccessibilityTrusted: { true },
+                replaceSelection: { _ in false },
+                canPostEvents: { true },
+                makePasteRequest: {
+                    {
+                        XCTAssertEqual(pasteboard.string(forType: .string), "transcription")
+                        posted = true
+                    }
+                }
+            )
+        )
+
+        XCTAssertEqual(service.insertText("transcription"), .pasteRequested)
+        XCTAssertTrue(posted)
+        clipboard.restore()
+        XCTAssertEqual(pasteboard.string(forType: .string), "original")
     }
 
     @MainActor

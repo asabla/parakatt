@@ -32,6 +32,7 @@ struct SettingsView: View {
 struct DashboardSettingsView: View {
     @EnvironmentObject var appState: AppState
     @State private var stats: [(String, String)] = []
+    @State private var permissions = PermissionService.status()
 
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
@@ -142,16 +143,16 @@ struct DashboardSettingsView: View {
                     VStack(spacing: 0) {
                         DashboardStatusRow(
                             label: "Accessibility",
-                            value: AXIsProcessTrusted() ? "Granted" : "Not granted",
+                            value: permissions.accessibilityTrusted ? "Granted" : "Not granted",
                             icon: "hand.raised.fill",
-                            color: AXIsProcessTrusted() ? .green : .red
+                            color: permissions.accessibilityTrusted ? .green : .secondary
                         )
                         Divider().padding(.leading, 40)
                         DashboardStatusRow(
                             label: "Microphone",
-                            value: "Granted on first use",
+                            value: permissions.microphoneTitle,
                             icon: "mic.fill",
-                            color: .green
+                            color: permissions.microphoneGranted ? .green : .secondary
                         )
                     }
                     .background {
@@ -164,6 +165,9 @@ struct DashboardSettingsView: View {
                             .strokeBorder(.quaternary, lineWidth: 0.5)
                     }
                     .clipShape(RoundedRectangle(cornerRadius: 10))
+                    if !permissions.accessibilityTrusted {
+                        Button("Open Accessibility Settings", action: PermissionService.openAccessibilitySettings)
+                    }
                 }
             }
             .padding(20)
@@ -171,6 +175,10 @@ struct DashboardSettingsView: View {
         .background(.quaternary.opacity(0.5))
         .onAppear {
             appState.queryStatistics { stats = $0 }
+            permissions = PermissionService.status()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            permissions = PermissionService.status()
         }
     }
 }

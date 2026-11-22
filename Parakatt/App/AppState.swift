@@ -303,7 +303,6 @@ class AppState: ObservableObject, HotkeyRecording {
         // Set up services
         textInsertionService = TextInsertionService()
         contextService = ContextService()
-        requestNotificationPermission()
 
         // Create audio capture once — reused across all recording sessions
         let capture = AudioCaptureService()
@@ -777,12 +776,7 @@ class AppState: ObservableObject, HotkeyRecording {
                         self.errorMessage = nil
 
                         if !result.text.isEmpty {
-                            if self.autoPaste {
-                                let inserted = self.textInsertionService?.insertText(result.text) ?? false
-                                if !inserted {
-                                    self.errorMessage = "Could not paste text — transcription copied to clipboard"
-                                }
-                            }
+                            self.pasteTranscriptionIfEnabled(result.text)
                             NSLog("[Parakatt] PTT session result (%@, %.2fs): %d characters",
                                   mode, result.durationSecs, result.text.count)
                         }
@@ -1824,12 +1818,7 @@ class AppState: ObservableObject, HotkeyRecording {
                     self.errorMessage = nil
 
                     if !result.text.isEmpty {
-                        if self.autoPaste {
-                            let inserted = self.textInsertionService?.insertText(result.text) ?? false
-                            if !inserted {
-                                self.errorMessage = "Could not paste text — transcription copied to clipboard"
-                            }
-                        }
+                        self.pasteTranscriptionIfEnabled(result.text)
                         self.sendTranscriptionNotification(preview: result.text, source: "push_to_talk")
                         NSLog("[Parakatt] Result (%@, %.2fs): %d characters", self.activeMode, result.durationSecs, result.text.count)
                     } else {
@@ -1846,6 +1835,12 @@ class AppState: ObservableObject, HotkeyRecording {
                 }
             }
         }
+    }
+
+    private func pasteTranscriptionIfEnabled(_ text: String) {
+        guard autoPaste else { return }
+        let insertion = textInsertionService?.insertText(text) ?? .unavailable
+        errorMessage = insertion.recoveryMessage
     }
 
     // MARK: - Incremental push-to-talk processing
@@ -2180,31 +2175,25 @@ class AppState: ObservableObject, HotkeyRecording {
 
     // MARK: - Notifications
 
-    func requestNotificationPermission() {
+    private func sendTranscriptionNotification(preview: String, source: String) {
+        guard ProcessInfo.processInfo.environment["PARAKATT_STOP_LATENCY"] == nil else { return }
+        let title = source == "meeting" ? "Meeting transcription ready" : "Transcription complete"
+        let body = String(preview.prefix(100))
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { @Sendable granted, error in
             if let error {
                 NSLog("[Parakatt] Notification permission error: %@", error.localizedDescription)
-            } else {
-                NSLog("[Parakatt] Notification permission granted: %d", granted)
             }
-        }
-    }
+            guard granted else { return }
 
-    private func sendTranscriptionNotification(preview: String, source: String) {
-        guard ProcessInfo.processInfo.environment["PARAKATT_STOP_LATENCY"] == nil else { return }
-        let content = UNMutableNotificationContent()
-        content.title = source == "meeting" ? "Meeting transcription ready" : "Transcription complete"
-        content.body = String(preview.prefix(100))
-        content.sound = .default
-
-        let request = UNNotificationRequest(
-            identifier: UUID().uuidString,
-            content: content,
-            trigger: nil
-        )
-        UNUserNotificationCenter.current().add(request) { @Sendable error in
-            if let error {
-                NSLog("[Parakatt] Failed to send notification: %@", error.localizedDescription)
+            let content = UNMutableNotificationContent()
+            content.title = title
+            content.body = body
+            content.sound = .default
+            let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+            UNUserNotificationCenter.current().add(request) { @Sendable error in
+                if let error {
+                    NSLog("[Parakatt] Failed to send notification: %@", error.localizedDescription)
+                }
             }
         }
     }
