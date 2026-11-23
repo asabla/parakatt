@@ -2217,7 +2217,7 @@ name = "parakatt-core"
 version = "0.8.0"
 dependencies = [
  "aws-lc-rs",
- "base64 0.22.1",
+ "base64 0.23.1",
  "chrono",
  "dirs",
  "env_logger",
