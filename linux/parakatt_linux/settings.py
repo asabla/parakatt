@@ -45,7 +45,7 @@ def group_box():
     return box, layout
 
 
-def scroll_page(widget):
+def scroll_page(widget: QWidget) -> QScrollArea:
     scroll = QScrollArea()
     scroll.setWidgetResizable(True)
     scroll.setWidget(widget)

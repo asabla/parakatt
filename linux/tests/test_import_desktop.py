@@ -116,25 +116,58 @@ class ImportDesktopTests(unittest.TestCase):
             seen.append(cancel)
             started.set()
             cancel.wait(2)
-            return old
+            return "prepared", old
 
-        self.dialog.run("prepared", delayed)
+        self.dialog.run(delayed)
         self.assertTrue(started.wait(2))
         self.dialog.cancel_request_now()
-        self.dialog.run("prepared", lambda cancel, generation: new)
+        self.dialog.run(lambda cancel, generation: ("prepared", new))
         self.flush()
         self.assertTrue(seen[0].is_set())
         self.assertEqual(self.dialog.prepared.title, "New")
         self.assertEqual(self.backend.history(), [])
 
+    def test_slack_discovery_and_preview_commit_the_reviewed_huddle(self):
+        connection = Connection("slack", "slack", "Work", workspace_id="T1")
+        content = '{"lines":[{"user_id":"U1","text":"Send the proposal.","start_time_ms":0,"end_time_ms":2000}]}'
+        with (
+            patch.object(self.dialog.service, "_slack_token", return_value="test-token"),
+            patch(
+                "parakatt_linux.transcript_service.slack_sources",
+                return_value=[TranscriptSource("F1", "Project Huddle")],
+            ),
+            patch(
+                "parakatt_linux.transcript_service.slack_transcript", return_value=content
+            ) as fetch,
+        ):
+            self.dialog.connections = [connection]
+            self.dialog.refresh_connections(connection.id)
+            self.dialog.source_type.setCurrentIndex(2)
+            self.dialog.load_slack_sources()
+            self.flush()
+            self.assertEqual(self.dialog.file_id.text(), "F1")
+            self.dialog.preview_slack()
+            self.flush()
+            self.assertEqual(self.dialog.prepared.source_id, "T1/F1")
+            self.assertEqual(self.dialog.prepared.speakers, ("U1",))
+            self.assertEqual(self.backend.history(), [])
+            self.dialog.commit()
+            self.flush()
+            fetch.assert_called_once()
+        (row,) = self.backend.history()
+        self.assertEqual(row.title, "Project Huddle")
+        self.assertEqual(row.audio_source, "slack")
+        self.assertIn("Send the proposal.", row.text)
+
     def test_sign_in_prompt_can_open_browser_while_other_controls_are_disabled(self):
         self.dialog.source_type.setCurrentIndex(1)
-        self.dialog.operation = "accounts"
         self.dialog.set_busy(True)
         self.dialog.on_result(
             self.dialog.generation,
-            "device_prompt",
-            DevicePrompt("TEST", "https://microsoft.com/devicelogin", "Enter TEST"),
+            (
+                "device_prompt",
+                DevicePrompt("TEST", "https://microsoft.com/devicelogin", "Enter TEST"),
+            ),
         )
         self.assertTrue(self.dialog.open_sign_in.isEnabled())
         self.assertFalse(self.dialog.meeting_reference.isEnabled())
@@ -142,10 +175,13 @@ class ImportDesktopTests(unittest.TestCase):
             self.dialog.open_device_sign_in()
         self.assertEqual(open_url.call_args.args[0].toString(), "https://microsoft.com/devicelogin")
         self.dialog.cancel_request_now()
+        with patch("parakatt_linux.transcript_dialog.QDesktopServices.openUrl") as open_url:
+            self.dialog.open_device_sign_in()
+        open_url.assert_not_called()
 
     def test_import_in_progress_cannot_be_canceled_after_confirmation(self):
         self.dialog.show_preview(self.preview())
-        self.dialog.operation = "committed"
+        self.dialog.committing = True
         self.dialog.set_busy(True)
         self.dialog.reject()
         self.assertTrue(self.dialog.isVisible())

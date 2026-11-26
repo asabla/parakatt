@@ -1,11 +1,24 @@
 """Desktop transcript sources, account setup and explicit preview/confirmation."""
 
+from __future__ import annotations
+
 import threading
 import uuid
+from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING, Literal, override
 
-from PySide6.QtCore import QAbstractTableModel, QObject, QRunnable, Qt, QUrl, Signal
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtCore import (
+    QAbstractTableModel,
+    QModelIndex,
+    QObject,
+    QPersistentModelIndex,
+    QRunnable,
+    Qt,
+    QUrl,
+    Signal,
+)
+from PySide6.QtGui import QCloseEvent, QDesktopServices
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -30,53 +43,86 @@ from PySide6.QtWidgets import (
 )
 
 from .appearance import label
-from .authentication import DevicePrompt
+from .authentication import Account, DevicePrompt
+from .backend import Backend
 from .connections import Connection, load_connections, save_connections
 from .desktop_widgets import SegmentedControl, button, empty_state, timestamp
-from .providers import MeetingSource, TranscriptSource
+from .providers import MeetingSource, SlackIdentity, TranscriptSource
 from .settings import scroll_page
 from .transcript_service import CommittedTranscript, PreparedTranscript, TranscriptService
 
+if TYPE_CHECKING:
+    from .app import Window
+
+type Provider = Literal["teams", "slack"]
+type ImportResult = (
+    tuple[Literal["prepared"], PreparedTranscript]
+    | tuple[Literal["accounts"], list[Account]]
+    | tuple[Literal["teams_sources"], tuple[MeetingSource, list[TranscriptSource]]]
+    | tuple[Literal["slack_sources"], list[TranscriptSource]]
+    | tuple[Literal["slack_connected"], tuple[SlackIdentity, str, bool, str | None]]
+    | tuple[Literal["disconnected"], str]
+    | tuple[Literal["committed"], CommittedTranscript]
+)
+type ImportMessage = (
+    ImportResult | tuple[Literal["device_prompt"], DevicePrompt] | tuple[Literal["error"], str]
+)
+
 
 class ImportSignals(QObject):
-    message = Signal(int, str, object)
+    message = Signal(int, object)
+
+    def send(self, generation: int, message: ImportMessage) -> None:
+        self.message.emit(generation, message)
 
 
 class ImportTask(QRunnable):
-    def __init__(self, generation, kind, function, signals):
+    def __init__(
+        self, generation: int, function: Callable[[], ImportResult], signals: ImportSignals
+    ) -> None:
         super().__init__()
-        self.generation, self.kind, self.function, self.signals = (
-            generation,
-            kind,
-            function,
-            signals,
-        )
+        self.generation, self.function, self.signals = generation, function, signals
 
-    def run(self):
+    @override
+    def run(self) -> None:
         try:
             result = self.function()
-            self.signals.message.emit(self.generation, self.kind, result)
         except Exception as error:
-            self.signals.message.emit(self.generation, "error", str(error))
+            self.signals.send(self.generation, ("error", str(error)))
+        else:
+            self.signals.send(self.generation, result)
 
 
 class UtteranceModel(QAbstractTableModel):
-    def __init__(self, preview, parent=None):
+    def __init__(self, preview: PreparedTranscript, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self.preview = preview
 
-    def rowCount(self, parent=None):
+    @override
+    def rowCount(self, parent: QModelIndex | QPersistentModelIndex | None = None) -> int:
         return 0 if parent is not None and parent.isValid() else len(self.preview.utterances)
 
-    def columnCount(self, parent=None):
+    @override
+    def columnCount(self, parent: QModelIndex | QPersistentModelIndex | None = None) -> int:
         return 0 if parent is not None and parent.isValid() else 3
 
-    def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
-        if role == Qt.ItemDataRole.DisplayRole and orientation == Qt.Orientation.Horizontal:
-            return ["Time", "Speaker", "Transcript"][section]
+    @override
+    def headerData(
+        self, section: int, orientation: Qt.Orientation, role: int = Qt.ItemDataRole.DisplayRole
+    ) -> str | None:
+        columns = ("Time", "Speaker", "Transcript")
+        if (
+            role == Qt.ItemDataRole.DisplayRole
+            and orientation == Qt.Orientation.Horizontal
+            and 0 <= section < len(columns)
+        ):
+            return columns[section]
         return None
 
-    def data(self, index, role=Qt.ItemDataRole.DisplayRole):
+    @override
+    def data(
+        self, index: QModelIndex | QPersistentModelIndex, role: int = Qt.ItemDataRole.DisplayRole
+    ) -> str | None:
         if not index.isValid() or role not in (
             Qt.ItemDataRole.DisplayRole,
             Qt.ItemDataRole.ToolTipRole,
@@ -95,7 +141,9 @@ class UtteranceModel(QAbstractTableModel):
 
 
 class ConnectionDialog(QDialog):
-    def __init__(self, provider, parent, existing=None):
+    def __init__(
+        self, provider: Provider, parent: QWidget, existing: Connection | None = None
+    ) -> None:
         super().__init__(parent)
         self.provider = provider
         self.setWindowTitle("Teams connection" if provider == "teams" else "Slack connection")
@@ -144,7 +192,7 @@ class ConnectionDialog(QDialog):
         actions.rejected.connect(self.reject)
         layout.addWidget(actions)
 
-    def validate(self):
+    def validate(self) -> None:
         if not self.label.text().strip():
             QMessageBox.information(self, "Connection name", "Enter a name for this connection.")
             return
@@ -164,7 +212,9 @@ class ConnectionDialog(QDialog):
 class TranscriptImportDialog(QDialog):
     imported = Signal(object)
 
-    def __init__(self, backend, parent, service=None):
+    def __init__(
+        self, backend: Backend, parent: Window, service: TranscriptService | None = None
+    ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Import Meeting Transcript")
         self.resize(1080, 760)
@@ -181,13 +231,13 @@ class TranscriptImportDialog(QDialog):
         except OSError as error:
             self.connections, warning = [], f"Cannot read connection settings: {error}"
             self.connections_unavailable = True
-        self.prepared = None
-        self.meeting = None
+        self.prepared: PreparedTranscript | None = None
+        self.meeting: MeetingSource | None = None
+        self.device_url: str | None = None
         self.generation = 0
         self.cancel_event = threading.Event()
         self.busy = False
-        self.operation = ""
-        self.connection_dialog = None
+        self.committing = False
         self.setWindowModality(Qt.WindowModality.WindowModal)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(18, 18, 18, 14)
@@ -271,7 +321,7 @@ class TranscriptImportDialog(QDialog):
         layout.addLayout(footer)
         self.refresh_connections()
 
-    def setup_file(self):
+    def setup_file(self) -> None:
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 8, 0, 0)
@@ -292,15 +342,13 @@ class TranscriptImportDialog(QDialog):
         layout.addStretch()
         self.source_pages.addWidget(scroll_page(page))
 
-    def setup_provider(self, provider):
+    def setup_provider(self, provider: Provider) -> None:
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 8, 0, 0)
         connections = QComboBox()
         connections.setMinimumContentsLength(16)
-        connections.currentIndexChanged.connect(
-            lambda _index, p=provider: self.connection_changed(p)
-        )
+        connections.currentIndexChanged.connect(lambda: self.connection_changed(provider))
         layout.addWidget(connections)
         row = QHBoxLayout()
         button("Add…", lambda: self.add_connection(provider), row)
@@ -321,7 +369,6 @@ class TranscriptImportDialog(QDialog):
             self.device_prompt.setTextFormat(Qt.TextFormat.PlainText)
             self.device_prompt.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
             layout.addWidget(self.device_prompt)
-            self.device_url = None
             self.open_sign_in = button("Open Microsoft sign-in", self.open_device_sign_in, layout)
             self.open_sign_in.hide()
             self.meeting_reference = QLineEdit()
@@ -367,16 +414,23 @@ class TranscriptImportDialog(QDialog):
         layout.addStretch()
         self.source_pages.addWidget(scroll_page(page))
 
-    def selected_connection(self, provider):
+    def selected_connection(self, provider: Provider) -> Connection | None:
         box = self.teams_connections if provider == "teams" else self.slack_connections
-        selected = box.currentData()
+        selected: object = box.currentData()
         return selected if isinstance(selected, Connection) else None
 
-    def refresh_connections(self, select_id=None):
-        for provider, box in [("teams", self.teams_connections), ("slack", self.slack_connections)]:
-            selected = select_id or (
-                box.currentData().id if isinstance(box.currentData(), Connection) else None
-            )
+    def selected_account(self) -> str | None:
+        account: object = self.accounts.currentData()
+        return account if isinstance(account, str) and account else None
+
+    def refresh_connections(self, select_id: str | None = None) -> None:
+        boxes: tuple[tuple[Provider, QComboBox], ...] = (
+            ("teams", self.teams_connections),
+            ("slack", self.slack_connections),
+        )
+        for provider, box in boxes:
+            current = self.selected_connection(provider)
+            selected = select_id or (current.id if current else None)
             box.blockSignals(True)
             box.clear()
             box.addItem("Choose a connection", None)
@@ -391,7 +445,7 @@ class TranscriptImportDialog(QDialog):
         elif self.source_type.currentIndex() == 2:
             self.connection_changed("slack")
 
-    def source_changed(self, index):
+    def source_changed(self, index: int) -> None:
         if self.busy:
             return
         self.source_pages.setCurrentIndex(index)
@@ -400,7 +454,7 @@ class TranscriptImportDialog(QDialog):
         if index == 1:
             self.connection_changed("teams")
 
-    def invalidate_preview(self, *_args):
+    def invalidate_preview(self, *_args: object) -> None:
         if not hasattr(self, "import_button"):
             return
         self.prepared = None
@@ -409,7 +463,7 @@ class TranscriptImportDialog(QDialog):
         self.passage.clear()
         self.summary.setText("Nothing is saved until you choose Import.")
 
-    def invalidate_sources(self, *_args):
+    def invalidate_sources(self, *_args: object) -> None:
         self.invalidate_preview()
         self.meeting = None
         if hasattr(self, "teams_sources"):
@@ -419,7 +473,7 @@ class TranscriptImportDialog(QDialog):
         if hasattr(self, "file_id"):
             self.file_id.clear()
 
-    def connection_changed(self, provider):
+    def connection_changed(self, provider: Provider) -> None:
         if not hasattr(self, "import_button"):
             return
         self.invalidate_sources()
@@ -427,9 +481,11 @@ class TranscriptImportDialog(QDialog):
             self.accounts.clear()
             connection = self.selected_connection("teams")
             if connection:
-                self.run("accounts", lambda cancel, generation: self.service.accounts(connection))
+                self.run(
+                    lambda _cancel, _generation: ("accounts", self.service.accounts(connection))
+                )
 
-    def set_busy(self, busy):
+    def set_busy(self, busy: bool) -> None:
         self.busy = busy
         self.source_type.setEnabled(not busy)
         for control_type in (QPushButton, QComboBox, QLineEdit):
@@ -437,35 +493,34 @@ class TranscriptImportDialog(QDialog):
                 if control is not self.open_sign_in:
                     control.setEnabled(not busy)
         self.progress.setVisible(busy)
-        self.cancel_request.setVisible(busy and self.operation != "committed")
-        self.close_button.setEnabled(not busy or self.operation != "committed")
+        self.cancel_request.setVisible(busy and not self.committing)
+        self.close_button.setEnabled(not busy or not self.committing)
         self.import_button.setEnabled(not busy and self.prepared is not None)
         self.open_sign_in.setEnabled(True)
 
-    def run(self, kind, function):
+    def run(
+        self, function: Callable[[threading.Event, int], ImportResult], *, committing: bool = False
+    ) -> None:
         if self.busy:
             return
         self.generation += 1
         self.cancel_event = threading.Event()
-        self.operation = kind
+        self.committing = committing
         self.set_busy(True)
         self.status.setText("Working…")
         generation, cancel = self.generation, self.cancel_event
-        self.pool.start(
-            ImportTask(generation, kind, lambda: function(cancel, generation), self.signals)
-        )
+        self.pool.start(ImportTask(generation, lambda: function(cancel, generation), self.signals))
 
-    def cancel_request_now(self):
-        if self.operation == "committed":
+    def cancel_request_now(self) -> None:
+        if self.busy and self.committing:
             return
         self.cancel_event.set()
         self.generation += 1
         self.set_busy(False)
-        self.device_prompt.clear()
-        self.open_sign_in.hide()
+        self.clear_device_prompt()
         self.status.setText("Request canceled. Nothing was imported.")
 
-    def open_file(self):
+    def open_file(self) -> None:
         path, _filter = QFileDialog.getOpenFileName(
             self,
             "Choose a meeting transcript",
@@ -478,21 +533,23 @@ class TranscriptImportDialog(QDialog):
         self.file_provider.setCurrentIndex(1 if source.suffix.lower() == ".json" else 0)
         self.file_label.setText(source.name)
         self.title.setText(source.stem)
-        provider = self.file_provider.currentData()
+        provider: Provider = "slack" if self.file_provider.currentIndex() == 1 else "teams"
         self.invalidate_preview()
         self.run(
-            "prepared",
-            lambda cancel, generation: self.service.from_file(source, provider, source.stem),
+            lambda _cancel, _generation: (
+                "prepared",
+                self.service.from_file(source, provider, source.stem),
+            ),
         )
 
-    def edit_connection(self, provider):
+    def edit_connection(self, provider: Provider) -> None:
         current = self.selected_connection(provider)
         if current is None:
             self.status.setText("Choose a connection to edit.")
             return
         self.add_connection(provider, current)
 
-    def add_connection(self, provider, existing=None):
+    def add_connection(self, provider: Provider, existing: Connection | None = None) -> None:
         if self.connections_unavailable:
             self.status.setText("Fix access to connection settings before saving a connection.")
             return
@@ -520,16 +577,18 @@ class TranscriptImportDialog(QDialog):
             name, resolve = dialog.label.text().strip(), dialog.option.isChecked()
             dialog.token.clear()
             self.run(
-                "slack_connected",
-                lambda cancel, generation: (
-                    self.service.connect_slack(token),
-                    name,
-                    resolve,
-                    existing.id if existing else None,
+                lambda _cancel, _generation: (
+                    "slack_connected",
+                    (
+                        self.service.connect_slack(token),
+                        name,
+                        resolve,
+                        existing.id if existing else None,
+                    ),
                 ),
             )
 
-    def remove_connection(self, provider):
+    def remove_connection(self, provider: Provider) -> None:
         connection = self.selected_connection(provider)
         if (
             connection
@@ -540,12 +599,14 @@ class TranscriptImportDialog(QDialog):
             )
             == QMessageBox.StandardButton.Yes
         ):
-            self.run(
-                "disconnected",
-                lambda cancel, generation: (self.service.disconnect(connection), connection.id),
-            )
 
-    def sign_in(self):
+            def disconnect(_cancel: threading.Event, _generation: int) -> ImportResult:
+                self.service.disconnect(connection)
+                return "disconnected", connection.id
+
+            self.run(disconnect)
+
+    def sign_in(self) -> None:
         connection = self.selected_connection("teams")
         if connection is None:
             self.status.setText("Add or choose a Teams connection first.")
@@ -553,32 +614,42 @@ class TranscriptImportDialog(QDialog):
         self.invalidate_preview()
         # run() creates the cancellation event before executing this closure.
         self.run(
-            "accounts",
-            lambda cancel, generation: self.service.sign_in(
-                connection,
-                lambda prompt: self.signals.message.emit(generation, "device_prompt", prompt),
-                cancel,
+            lambda cancel, generation: (
+                "accounts",
+                self.service.sign_in(
+                    connection,
+                    lambda prompt: self.signals.send(generation, ("device_prompt", prompt)),
+                    cancel,
+                ),
             ),
         )
 
-    def sign_out(self):
-        connection, account = self.selected_connection("teams"), self.accounts.currentData()
+    def sign_out(self) -> None:
+        connection, account = self.selected_connection("teams"), self.selected_account()
         if connection and account:
             self.run(
-                "accounts", lambda cancel, generation: self.service.sign_out(connection, account)
+                lambda _cancel, _generation: (
+                    "accounts",
+                    self.service.sign_out(connection, account),
+                )
             )
 
-    def open_device_sign_in(self):
+    def open_device_sign_in(self) -> None:
         if self.device_url:
             QDesktopServices.openUrl(QUrl(self.device_url))
 
-    def load_teams_sources(self):
+    def clear_device_prompt(self) -> None:
+        self.device_url = None
+        self.device_prompt.clear()
+        self.open_sign_in.hide()
+
+    def load_teams_sources(self) -> None:
         connection = self.selected_connection("teams")
         if not connection:
             self.status.setText("Choose a Teams connection first.")
             return
         account, reference, owner = (
-            self.accounts.currentData(),
+            self.selected_account(),
             self.meeting_reference.text().strip(),
             self.owner.text().strip() or "me",
         )
@@ -587,32 +658,37 @@ class TranscriptImportDialog(QDialog):
             return
         self.invalidate_sources()
         self.run(
-            "teams_sources",
-            lambda cancel, generation: self.service.teams_sources(
-                connection, account, reference, owner, cancel
+            lambda cancel, _generation: (
+                "teams_sources",
+                self.service.teams_sources(connection, account, reference, owner, cancel),
             ),
         )
 
-    def preview_teams(self):
-        connection, source = self.selected_connection("teams"), self.teams_sources.currentData()
+    def preview_teams(self) -> None:
+        connection, account, meeting = (
+            self.selected_connection("teams"),
+            self.selected_account(),
+            self.meeting,
+        )
+        source: object = self.teams_sources.currentData()
         if (
             not connection
+            or not account
             or not isinstance(source, TranscriptSource)
-            or not isinstance(self.meeting, MeetingSource)
+            or meeting is None
         ):
             self.status.setText("Find and select a Teams transcript first.")
             return
-        account, meeting = self.accounts.currentData(), self.meeting
         owner = self.owner.text().strip() or "me"
         title = self.title.text().strip() or meeting.title
         self.run(
-            "prepared",
-            lambda cancel, generation: self.service.from_teams(
-                connection, account, meeting, source, owner, title, cancel
+            lambda cancel, _generation: (
+                "prepared",
+                self.service.from_teams(connection, account, meeting, source, owner, title, cancel),
             ),
         )
 
-    def load_slack_sources(self):
+    def load_slack_sources(self) -> None:
         connection = self.selected_connection("slack")
         if not connection:
             self.status.setText("Connect a Slack workspace first.")
@@ -620,29 +696,33 @@ class TranscriptImportDialog(QDialog):
         channel = self.channel.text().strip()
         self.invalidate_sources()
         self.run(
-            "slack_sources",
-            lambda cancel, generation: self.service.slack_sources(connection, channel, cancel),
+            lambda cancel, _generation: (
+                "slack_sources",
+                self.service.slack_sources(connection, channel, cancel),
+            ),
         )
 
-    def slack_source_changed(self, *_args):
+    def slack_source_changed(self, *_args: object) -> None:
         self.invalidate_preview()
-        source = self.slack_sources.currentData()
+        source: object = self.slack_sources.currentData()
         if isinstance(source, TranscriptSource):
             self.file_id.setText(source.id)
             self.title.setText(source.title)
 
-    def preview_slack(self):
+    def preview_slack(self) -> None:
         connection, file_id = self.selected_connection("slack"), self.file_id.text().strip()
         if not connection or not file_id:
             self.status.setText("Choose a workspace and a Huddle transcript file.")
             return
         title = self.title.text().strip() or "Slack Huddle"
         self.run(
-            "prepared",
-            lambda cancel, generation: self.service.from_slack(connection, file_id, title, cancel),
+            lambda cancel, _generation: (
+                "prepared",
+                self.service.from_slack(connection, file_id, title, cancel),
+            ),
         )
 
-    def show_preview(self, prepared):
+    def show_preview(self, prepared: PreparedTranscript) -> None:
         self.prepared = prepared
         self.title.setText(prepared.title)
         timed = sum(cue.start_secs is not None for cue in prepared.utterances)
@@ -661,52 +741,56 @@ class TranscriptImportDialog(QDialog):
             "Review the source text, then choose Import. Nothing has been saved yet."
         )
 
-    def show_passage(self, current, _previous):
+    def show_passage(self, current: QModelIndex, _previous: QModelIndex) -> None:
         if self.prepared and current.isValid():
             self.passage.setPlainText(self.prepared.utterances[current.row()].text)
 
-    def commit(self):
+    def commit(self) -> None:
         if self.prepared is None or self.busy:
             return
         prepared, title = self.prepared, self.title.text().strip()
-        self.run("committed", lambda cancel, generation: self.service.commit(prepared, title))
+        self.run(
+            lambda _cancel, _generation: ("committed", self.service.commit(prepared, title)),
+            committing=True,
+        )
 
-    def on_result(self, generation, kind, value):
+    def on_result(self, generation: int, message: ImportMessage) -> None:
         try:
-            self.apply_result(generation, kind, value)
+            self.apply_result(generation, message)
         except Exception as error:
             self.set_busy(False)
             self.status.setText(str(error))
 
-    def apply_result(self, generation, kind, value):
+    def apply_result(self, generation: int, message: ImportMessage) -> None:
         if generation != self.generation:
             return
-        if kind == "device_prompt" and isinstance(value, DevicePrompt):
+        if message[0] == "device_prompt":
+            value = message[1]
             self.device_prompt.setText(value.message)
             self.device_url = value.url
             self.open_sign_in.show()
             return
         self.set_busy(False)
-        self.device_prompt.clear()
-        self.open_sign_in.hide()
-        if kind == "error":
-            self.status.setText(str(value))
-        elif kind == "prepared" and isinstance(value, PreparedTranscript):
-            self.show_preview(value)
-        elif kind == "accounts":
+        self.clear_device_prompt()
+        if message[0] == "error":
+            self.status.setText(message[1])
+        elif message[0] == "prepared":
+            self.show_preview(message[1])
+        elif message[0] == "accounts":
+            accounts = message[1]
             self.accounts.clear()
             self.accounts.addItem("Choose a work account", None)
-            for account in value:
+            for account in accounts:
                 self.accounts.addItem(account.label, account.id)
-            if len(value) == 1:
+            if len(accounts) == 1:
                 self.accounts.setCurrentIndex(1)
             self.status.setText(
                 "Choose an account, then find a meeting's transcripts."
-                if value
+                if accounts
                 else "Use Sign in to connect a work account."
             )
-        elif kind == "teams_sources":
-            self.meeting, sources = value
+        elif message[0] == "teams_sources":
+            self.meeting, sources = message[1]
             self.teams_sources.clear()
             for source in sources:
                 self.teams_sources.addItem(source.created_at or source.title, source)
@@ -716,17 +800,18 @@ class TranscriptImportDialog(QDialog):
                 if sources
                 else "No transcripts are available for this meeting and account."
             )
-        elif kind == "slack_sources":
+        elif message[0] == "slack_sources":
+            sources = message[1]
             self.slack_sources.clear()
-            for source in value:
+            for source in sources:
                 self.slack_sources.addItem(source.title, source)
             self.status.setText(
-                f"{len(value)} Huddle transcripts found."
-                if value
+                f"{len(sources)} Huddle transcripts found."
+                if sources
                 else "No accessible files advertised a Huddle transcript. Enter a known file ID or import an export."
             )
-        elif kind == "slack_connected":
-            identity, name, resolve, edit_id = value
+        elif message[0] == "slack_connected":
+            identity, name, resolve, edit_id = message[1]
             existing = next(
                 (
                     item
@@ -750,24 +835,26 @@ class TranscriptImportDialog(QDialog):
                 self.status.setText(f"Connected to {identity.workspace} as {identity.user}.")
             except Exception as error:
                 self.status.setText(str(error))
-        elif kind == "disconnected":
-            connections = [item for item in self.connections if item.id != value[1]]
+        elif message[0] == "disconnected":
+            connections = [item for item in self.connections if item.id != message[1]]
             save_connections(self.connections_path, connections)
             self.connections = connections
             self.refresh_connections()
             self.status.setText("Connection removed; imported history is unchanged.")
-        elif kind == "committed" and isinstance(value, CommittedTranscript):
-            self.imported.emit(value)
+        elif message[0] == "committed":
+            self.imported.emit(message[1])
             self.accept()
 
-    def closeEvent(self, event):
-        if self.busy and self.operation == "committed":
+    @override
+    def closeEvent(self, event: QCloseEvent) -> None:
+        if self.busy and self.committing:
             event.ignore()
             return
         super().closeEvent(event)
 
-    def reject(self):
-        if self.busy and self.operation == "committed":
+    @override
+    def reject(self) -> None:
+        if self.busy and self.committing:
             return
         self.cancel_event.set()
         self.generation += 1
